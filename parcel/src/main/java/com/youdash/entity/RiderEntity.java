@@ -1,0 +1,54 @@
+package com.youdash.entity;
+
+import java.time.LocalDateTime;
+
+import jakarta.persistence.*;
+import lombok.Data;
+
+@Entity
+@Table(name = "youdash_riders")
+@Data
+public class RiderEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "name")
+    private String name;
+
+    @Column(name = "phone")
+    private String phone;
+
+    @Column(name = "vehicle_type")
+    private String vehicleType;
+
+    @Column(name = "is_available")
+    private Boolean isAvailable;
+
+    @Column(name = "current_lat")
+    private Double currentLat;
+
+    @Column(name = "current_lng")
+    private Double currentLng;
+
+    @Column(name = "rating")
+    private Double rating;
+
+    @Column(name = "created_at", updatable = false)
+    private LocalDateTime createdAt;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
+    @PrePersist
+    protected void onCreate() {
+        this.createdAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        this.updatedAt = LocalDateTime.now();
+    }
+}
