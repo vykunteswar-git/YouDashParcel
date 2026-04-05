@@ -1,20 +1,9 @@
 target/
-!.mvn/wrapper/maven-wrapper.jar
-!target/*.jar
-mkdir -p target
-
-.git/
-.mvn/
-mvnw*
-.vscode/
-.github/
-logs/
+.git
+.gitignore
+node_modules
 *.log
-.DS_Store
-.idea/
+.vscode
+.github
+.idea
 *.iml
-.classpath
-.project
-.settings/
-HELP.md
-bin/
