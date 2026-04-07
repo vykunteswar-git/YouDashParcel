@@ -1,7 +1,6 @@
 package com.youdash.dto;
 
 import java.time.LocalDate;
-
 import lombok.Data;
 
 @Data
@@ -15,19 +14,19 @@ public class OrderRequestDTO {
     private String receiverName;
     private String receiverPhone;
 
-    private String category;
+    private Long packageCategoryId;
     private String description;
     private Double weight;
     private String imageUrl;
 
-    private String vehicleType;
+    private Long vehicleTypeId;
 
     private Double distanceKm;
-    private Double totalAmount;
 
     private String paymentType;
-    private String paymentStatus;
 
     private LocalDate scheduledDate;
     private String timeSlot;
+
+    private java.util.List<Long> packageItemIds;
 }

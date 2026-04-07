@@ -20,4 +20,6 @@ public interface OrderService {
 
     ApiResponse<OrderResponseDTO> cancelOrder(Long id);
 
+    ApiResponse<OrderResponseDTO> updateOrder(Long id, OrderRequestDTO dto);
+
 }
