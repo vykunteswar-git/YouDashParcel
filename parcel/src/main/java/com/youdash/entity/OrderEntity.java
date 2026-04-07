@@ -34,8 +34,8 @@ public class OrderEntity {
     @Column(name = "receiver_phone")
     private String receiverPhone;
 
-    @Column(name = "category")
-    private String category;
+    @Column(name = "package_category_id")
+    private Long packageCategoryId;
 
     @Column(name = "description")
     private String description;
@@ -46,8 +46,8 @@ public class OrderEntity {
     @Column(name = "image_url")
     private String imageUrl;
 
-    @Column(name = "vehicle_type")
-    private String vehicleType;
+    @Column(name = "vehicle_type_id")
+    private Long vehicleTypeId;
 
     @Column(name = "distance_km")
     private Double distanceKm;
@@ -72,6 +72,9 @@ public class OrderEntity {
 
     @Column(name = "rider_id")
     private Long riderId;
+
+    @Column(name = "package_items")
+    private String packageItems;
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

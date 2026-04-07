@@ -59,4 +59,11 @@ public class OrderController {
     public ApiResponse<OrderResponseDTO> cancelOrder(@PathVariable Long id) {
         return orderService.cancelOrder(id);
     }
+
+    @PutMapping("/{id}/update")
+    public ApiResponse<OrderResponseDTO> updateOrder(
+            @PathVariable Long id, 
+            @RequestBody OrderRequestDTO dto) {
+        return orderService.updateOrder(id, dto);
+    }
 }

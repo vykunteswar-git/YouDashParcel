@@ -35,6 +35,18 @@ public class RiderEntity {
     @Column(name = "rating")
     private Double rating;
 
+    @Column(name = "license_image_url")
+    private String licenseImageUrl;
+
+    @Column(name = "rc_image_url")
+    private String rcImageUrl;
+
+    @Column(name = "aadhaar_image_url")
+    private String aadhaarImageUrl;
+
+    @Column(name = "profile_image_url")
+    private String profileImageUrl;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
