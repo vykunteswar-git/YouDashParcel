@@ -21,7 +21,10 @@ public class PackageItemServiceImpl implements PackageItemService {
     public ApiResponse<List<PackageItemResponseDTO>> getItemsByCategoryId(Long categoryId) {
         ApiResponse<List<PackageItemResponseDTO>> response = new ApiResponse<>();
         try {
-            List<PackageItemEntity> items = packageItemRepository.findByPackageCategoryIdAndIsActiveTrue(categoryId);
+            if (categoryId == null) {
+                throw new RuntimeException("CategoryId is required");
+            }
+            List<PackageItemEntity> items = packageItemRepository.findByPackageCategoryIdAndIsActiveTrue(java.util.Objects.requireNonNull(categoryId));
             List<PackageItemResponseDTO> dtos = items.stream().map(item -> {
                 PackageItemResponseDTO dto = new PackageItemResponseDTO();
                 dto.setId(item.getId());

@@ -13,6 +13,7 @@ import com.youdash.entity.OrderEntity;
 import com.youdash.entity.PackageCategoryEntity;
 import com.youdash.entity.PackageItemEntity;
 import com.youdash.entity.VehicleEntity;
+import java.util.Objects;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.PackageCategoryRepository;
 import com.youdash.repository.PackageItemRepository;
@@ -42,8 +43,16 @@ public class OrderServiceImpl implements OrderService {
                 throw new RuntimeException("UserId is required");
             }
 
+            if (dto.getVehicleTypeId() == null) {
+                throw new RuntimeException("vehicleTypeId is required");
+            }
+
+            if (dto.getPackageCategoryId() == null) {
+                throw new RuntimeException("packageCategoryId is required");
+            }
+
             // 1. Validate Vehicle
-            VehicleEntity vehicle = vehicleRepository.findById(dto.getVehicleTypeId())
+            VehicleEntity vehicle = vehicleRepository.findById(Objects.requireNonNull(dto.getVehicleTypeId()))
                     .orElseThrow(() -> new RuntimeException("Invalid vehicleTypeId: " + dto.getVehicleTypeId()));
             
             if (!Boolean.TRUE.equals(vehicle.getIsActive())) {
@@ -56,7 +65,7 @@ public class OrderServiceImpl implements OrderService {
             }
 
             // 3. Validate Package Category
-            PackageCategoryEntity category = packageCategoryRepository.findById(dto.getPackageCategoryId())
+            PackageCategoryEntity category = packageCategoryRepository.findById(Objects.requireNonNull(dto.getPackageCategoryId()))
                     .orElseThrow(() -> new RuntimeException("Invalid packageCategoryId: " + dto.getPackageCategoryId()));
 
             if (!Boolean.TRUE.equals(category.getIsActive())) {
@@ -103,7 +112,7 @@ public class OrderServiceImpl implements OrderService {
             
             // 6. Handle Package Items
             if (dto.getPackageItemIds() != null && !dto.getPackageItemIds().isEmpty()) {
-                List<PackageItemEntity> selectedItems = packageItemRepository.findAllById(dto.getPackageItemIds());
+                List<PackageItemEntity> selectedItems = packageItemRepository.findAllById(Objects.requireNonNull(dto.getPackageItemIds()));
                 
                 // Validate all items exist
                 if (selectedItems.size() != dto.getPackageItemIds().size()) {
@@ -152,6 +161,9 @@ public class OrderServiceImpl implements OrderService {
     public ApiResponse<List<OrderResponseDTO>> getOrdersByUserId(Long userId) {
         ApiResponse<List<OrderResponseDTO>> response = new ApiResponse<>();
         try {
+            if (userId == null) {
+                throw new RuntimeException("UserId is required");
+            }
             List<OrderEntity> orders = orderRepository.findByUserId(userId);
             List<OrderResponseDTO> dtos = orders.stream()
                     .map(this::mapToResponseDTO)
@@ -177,7 +189,10 @@ public class OrderServiceImpl implements OrderService {
     public ApiResponse<OrderResponseDTO> getOrderById(Long id) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         try {
-            OrderEntity order = orderRepository.findById(id)
+            if (id == null) {
+                throw new RuntimeException("Order ID cannot be null");
+            }
+            OrderEntity order = orderRepository.findById(Objects.requireNonNull(id))
                     .orElseThrow(() -> new RuntimeException("Order not found with id: " + id));
 
             response.setData(mapToResponseDTO(order));
@@ -199,7 +214,10 @@ public class OrderServiceImpl implements OrderService {
     public ApiResponse<OrderResponseDTO> updateOrderStatus(Long id, String status) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         try {
-            OrderEntity order = orderRepository.findById(id)
+            if (id == null) {
+                throw new RuntimeException("Order ID cannot be null");
+            }
+            OrderEntity order = orderRepository.findById(Objects.requireNonNull(id))
                     .orElseThrow(() -> new RuntimeException("Order not found with id: " + id));
 
             // Status Validation
@@ -230,7 +248,10 @@ public class OrderServiceImpl implements OrderService {
     public ApiResponse<OrderResponseDTO> assignRider(Long id, Long riderId) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         try {
-            OrderEntity order = orderRepository.findById(id)
+            if (id == null) {
+                throw new RuntimeException("Order ID cannot be null");
+            }
+            OrderEntity order = orderRepository.findById(Objects.requireNonNull(id))
                     .orElseThrow(() -> new RuntimeException("Order not found with id: " + id));
 
             if (!"CREATED".equals(order.getStatus())) {
@@ -260,7 +281,10 @@ public class OrderServiceImpl implements OrderService {
     public ApiResponse<OrderResponseDTO> cancelOrder(Long id) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         try {
-            OrderEntity order = orderRepository.findById(id)
+            if (id == null) {
+                throw new RuntimeException("Order ID cannot be null");
+            }
+            OrderEntity order = orderRepository.findById(Objects.requireNonNull(id))
                     .orElseThrow(() -> new RuntimeException("Order not found with id: " + id));
 
             if ("DELIVERED".equals(order.getStatus()) || "IN_TRANSIT".equals(order.getStatus())) {
@@ -289,7 +313,10 @@ public class OrderServiceImpl implements OrderService {
     public ApiResponse<OrderResponseDTO> updateOrder(Long id, OrderRequestDTO dto) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         try {
-            OrderEntity order = orderRepository.findById(id)
+            if (id == null) {
+                throw new RuntimeException("Order ID cannot be null");
+            }
+            OrderEntity order = orderRepository.findById(Objects.requireNonNull(id))
                     .orElseThrow(() -> new RuntimeException("Order not found with id: " + id));
 
             if (!"CREATED".equals(order.getStatus())) {
@@ -303,7 +330,7 @@ public class OrderServiceImpl implements OrderService {
             
             // Weight re-validation if updated
             if (dto.getWeight() != null) {
-                VehicleEntity vehicle = vehicleRepository.findById(order.getVehicleTypeId())
+                VehicleEntity vehicle = vehicleRepository.findById(Objects.requireNonNull(order.getVehicleTypeId()))
                         .orElseThrow(() -> new RuntimeException("Vehicle not found"));
                 if (vehicle.getMaxWeight() != null && dto.getWeight() > vehicle.getMaxWeight()) {
                      throw new RuntimeException("Weight exceeds vehicle capacity");
@@ -340,9 +367,11 @@ public class OrderServiceImpl implements OrderService {
         
         dto.setPackageCategoryId(order.getPackageCategoryId());
         // Fetch Category Name
-        packageCategoryRepository.findById(order.getPackageCategoryId()).ifPresent(c -> {
-            dto.setPackageCategoryName(c.getName());
-        });
+        if (order.getPackageCategoryId() != null) {
+            packageCategoryRepository.findById(Objects.requireNonNull(order.getPackageCategoryId())).ifPresent(c -> {
+                dto.setPackageCategoryName(c.getName());
+            });
+        }
 
         dto.setDescription(order.getDescription());
         dto.setWeight(order.getWeight());
@@ -350,9 +379,11 @@ public class OrderServiceImpl implements OrderService {
         
         dto.setVehicleTypeId(order.getVehicleTypeId());
         // Fetch Vehicle Name
-        vehicleRepository.findById(order.getVehicleTypeId()).ifPresent(v -> {
-            dto.setVehicleName(v.getName());
-        });
+        if (order.getVehicleTypeId() != null) {
+            vehicleRepository.findById(Objects.requireNonNull(order.getVehicleTypeId())).ifPresent(v -> {
+                dto.setVehicleName(v.getName());
+            });
+        }
 
         dto.setDistanceKm(order.getDistanceKm());
         dto.setTotalAmount(order.getTotalAmount());
@@ -370,8 +401,8 @@ public class OrderServiceImpl implements OrderService {
                     .map(Long::valueOf)
                     .collect(Collectors.toList());
             dto.setPackageItemIds(itemIds);
-
-            List<PackageItemEntity> items = packageItemRepository.findAllById(itemIds);
+            
+            List<PackageItemEntity> items = packageItemRepository.findAllById(Objects.requireNonNull(itemIds));
             List<String> itemNames = items.stream()
                     .map(PackageItemEntity::getName)
                     .collect(Collectors.toList());
