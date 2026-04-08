@@ -1,6 +1,8 @@
 package com.youdash.controller;
 
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.AdminLoginDTO;
+import com.youdash.dto.AdminResponseDTO;
 import com.youdash.dto.PackageCategoryDTO;
 import com.youdash.dto.PackageItemDTO;
 import com.youdash.dto.VehicleDTO;
@@ -16,6 +18,11 @@ public class AdminController {
 
     @Autowired
     private AdminService adminService;
+
+    @PostMapping("/login")
+    public ApiResponse<AdminResponseDTO> login(@RequestBody AdminLoginDTO dto) {
+        return adminService.login(dto);
+    }
 
     // --- VEHICLE MANAGEMENT ---
 

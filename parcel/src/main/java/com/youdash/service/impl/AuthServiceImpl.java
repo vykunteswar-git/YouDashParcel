@@ -26,6 +26,9 @@ public class AuthServiceImpl implements AuthService {
   @Autowired
   private UserRepository userRepository;
 
+  @Autowired
+  private com.youdash.util.JwtUtil jwtUtil;
+
   // SEND OTP
   @Override
   public ApiResponse<OtpResponseDTO> sendOtp(OtpRequestDTO request) {
@@ -107,7 +110,11 @@ public class AuthServiceImpl implements AuthService {
             return userRepository.save(newUser);
           });
 
-      response.setData(mapToDTO(user));
+      String token = jwtUtil.generateToken(user.getId(), "USER");
+      UserResponseDTO userDTO = mapToDTO(user);
+      userDTO.setToken(token);
+
+      response.setData(userDTO);
       response.setMessage("Login successful");
       response.setSuccess(true);
       response.setStatus(200);
