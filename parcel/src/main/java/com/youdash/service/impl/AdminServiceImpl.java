@@ -1,18 +1,24 @@
 package com.youdash.service.impl;
 
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.AdminLoginDTO;
+import com.youdash.dto.AdminResponseDTO;
 import com.youdash.dto.PackageCategoryDTO;
 import com.youdash.dto.PackageItemDTO;
 import com.youdash.dto.VehicleDTO;
+import com.youdash.entity.AdminEntity;
 import com.youdash.entity.PackageCategoryEntity;
 import com.youdash.entity.PackageItemEntity;
 import com.youdash.entity.VehicleEntity;
+import com.youdash.repository.AdminRepository;
 import com.youdash.repository.PackageCategoryRepository;
 import com.youdash.repository.PackageItemRepository;
 import com.youdash.repository.VehicleRepository;
 import com.youdash.service.AdminService;
+import com.youdash.util.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -23,6 +29,9 @@ import java.util.stream.Collectors;
 public class AdminServiceImpl implements AdminService {
 
     @Autowired
+    private AdminRepository adminRepository;
+
+    @Autowired
     private VehicleRepository vehicleRepository;
 
     @Autowired
@@ -30,6 +39,47 @@ public class AdminServiceImpl implements AdminService {
 
     @Autowired
     private PackageItemRepository packageItemRepository;
+
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    @Autowired
+    private BCryptPasswordEncoder passwordEncoder;
+
+    // --- ADMIN AUTHENTICATION ---
+
+    @Override
+    public ApiResponse<AdminResponseDTO> login(AdminLoginDTO dto) {
+        ApiResponse<AdminResponseDTO> response = new ApiResponse<>();
+        try {
+            AdminEntity admin = adminRepository.findByEmail(dto.getEmail())
+                    .orElseThrow(() -> new RuntimeException("Admin not found with email: " + dto.getEmail()));
+
+            if (!Boolean.TRUE.equals(admin.getIsActive())) {
+                throw new RuntimeException("Admin is inactive");
+            }
+
+            if (!passwordEncoder.matches(dto.getPassword(), admin.getPassword())) {
+                throw new RuntimeException("Invalid password");
+            }
+
+            String token = jwtUtil.generateToken(admin.getId(), "ADMIN");
+
+            AdminResponseDTO adminDTO = new AdminResponseDTO();
+            adminDTO.setId(admin.getId());
+            adminDTO.setEmail(admin.getEmail());
+            adminDTO.setToken(token);
+
+            response.setData(adminDTO);
+            response.setMessage("Login successful");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            setErrorResponse(response, e.getMessage());
+        }
+        return response;
+    }
 
     // --- VEHICLE MANAGEMENT ---
 
@@ -102,14 +152,16 @@ public class AdminServiceImpl implements AdminService {
             
             if (dto.getName() != null && !dto.getName().isEmpty()) entity.setName(dto.getName());
             if (dto.getPricePerKm() != null) {
-                if (dto.getPricePerKm() <= 0) throw new RuntimeException("Price per Km must be > 0");
+
                 entity.setPricePerKm(dto.getPricePerKm());
+                
             }
             if (dto.getMaxWeight() != null) entity.setMaxWeight(dto.getMaxWeight());
             if (dto.getImageUrl() != null && !dto.getImageUrl().isEmpty()) entity.setImageUrl(dto.getImageUrl());
 
             VehicleEntity updated = vehicleRepository.save(Objects.requireNonNull(entity));
             response.setData(mapToVehicleDTO(updated));
+                
             response.setMessage("Vehicle updated successfully");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
@@ -168,11 +220,15 @@ public class AdminServiceImpl implements AdminService {
     public ApiResponse<List<PackageCategoryDTO>> getAllCategories() {
         ApiResponse<List<PackageCategoryDTO>> response = new ApiResponse<>();
         try {
-            List<PackageCategoryEntity> categories = packageCategoryRepository.findAll(Sort.by(Sort.Direction.ASC, "id"));
-            List<PackageCategoryDTO> dtos = categories.stream().map(this::mapToCategoryDTO).collect(Collectors.toList());
+            List<PackageCategoryEntity> categories = packageCategoryRepository
+                    .findAll(Sort.by(Sort.Direction.ASC, "id"));
+            List<PackageCategoryDTO> dtos = categories.stream().map(this::mapToCategoryDTO)
+                    .collect(Collectors.toList());
             response.setData(dtos);
             response.setMessage("Categories fetched successfully");
+
             response.setMessageKey("SUCCESS");
+
             response.setSuccess(true);
             response.setStatus(200);
             response.setTotalCount(dtos.size());
@@ -187,10 +243,12 @@ public class AdminServiceImpl implements AdminService {
         ApiResponse<List<PackageCategoryDTO>> response = new ApiResponse<>();
         try {
             List<PackageCategoryEntity> categories = packageCategoryRepository.findByIsActiveTrue();
-            List<PackageCategoryDTO> dtos = categories.stream().map(this::mapToCategoryDTO).collect(Collectors.toList());
+            List<PackageCategoryDTO> dtos = categories.stream().map(this::mapToCategoryDTO)
+                    .collect(Collectors.toList());
             response.setData(dtos);
             response.setMessage("Active categories fetched successfully");
             response.setMessageKey("SUCCESS");
+
             response.setSuccess(true);
             response.setStatus(200);
             response.setTotalCount(dtos.size());
@@ -339,20 +397,30 @@ public class AdminServiceImpl implements AdminService {
     // --- HELPER METHODS (Manual Mapping & Validation) ---
 
     private void validateVehicle(VehicleDTO dto) {
-        if (dto.getName() == null || dto.getName().trim().isEmpty()) throw new RuntimeException("Name is required");
-        if (dto.getImageUrl() == null || dto.getImageUrl().trim().isEmpty()) throw new RuntimeException("Image URL is required");
-        if (dto.getPricePerKm() == null || dto.getPricePerKm() <= 0) throw new RuntimeException("Price per Km must be > 0");
+        if (dto.getName() == null || dto.getName().trim().isEmpty())
+            throw new RuntimeException("Name is required");
+        if (dto.getImageUrl() == null || dto.getImageUrl().trim().isEmpty())
+            throw new RuntimeException("Image URL is required");
+        if (dto.getPricePerKm() == null || dto.getPricePerKm() <= 0)
+            throw new RuntimeException("Price per Km must be > 0");
     }
 
     private void validateCategory(PackageCategoryDTO dto) {
-        if (dto.getName() == null || dto.getName().trim().isEmpty()) throw new RuntimeException("Name is required");
-        if (dto.getImageUrl() == null || dto.getImageUrl().trim().isEmpty()) throw new RuntimeException("Image URL is required");
+
+        if (dto.getName() == null || dto.getName().trim().isEmpty())
+            throw new RuntimeException("Name is required");
+        if (dto.getImageUrl() == null || dto.getImageUrl().trim().isEmpty())
+            throw new RuntimeException("Image URL is required");
     }
 
     private void validatePackageItem(PackageItemDTO dto) {
-        if (dto.getName() == null || dto.getName().trim().isEmpty()) throw new RuntimeException("Name is required");
-        if (dto.getImageUrl() == null || dto.getImageUrl().trim().isEmpty()) throw new RuntimeException("Image URL is required");
-        if (dto.getPackageCategoryId() == null) throw new RuntimeException("Package Category ID is required");
+
+        if (dto.getName() == null || dto.getName().trim().isEmpty())
+            throw new RuntimeException("Name is required");
+        if (dto.getImageUrl() == null || dto.getImageUrl().trim().isEmpty())
+            throw new RuntimeException("Image URL is required");
+        if (dto.getPackageCategoryId() == null)
+            throw new RuntimeException("Package Category ID is required");
     }
 
     private VehicleDTO mapToVehicleDTO(VehicleEntity entity) {

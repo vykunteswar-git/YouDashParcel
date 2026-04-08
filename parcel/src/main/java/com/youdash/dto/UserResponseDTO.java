@@ -16,4 +16,6 @@ public class UserResponseDTO {
 
     private Boolean active;
     private Boolean profileCompleted;
+
+    private String token;
 }
