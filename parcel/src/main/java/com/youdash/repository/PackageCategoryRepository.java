@@ -5,6 +5,9 @@ import org.springframework.stereotype.Repository;
 
 import com.youdash.entity.PackageCategoryEntity;
 
+import java.util.List;
+
 @Repository
 public interface PackageCategoryRepository extends JpaRepository<PackageCategoryEntity, Long> {
+    List<PackageCategoryEntity> findByIsActiveTrue();
 }
