@@ -8,6 +8,7 @@ public class ParcelApplication {
 
 	public static void main(String[] args) {
 		SpringApplication.run(ParcelApplication.class, args);
+
 	}
 
 }
