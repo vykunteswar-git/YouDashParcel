@@ -12,13 +12,19 @@ import com.youdash.dto.OrderResponseDTO;
 import com.youdash.entity.OrderEntity;
 import com.youdash.entity.PackageCategoryEntity;
 import com.youdash.entity.PackageItemEntity;
+import com.youdash.entity.RiderEntity;
+import com.youdash.entity.UserEntity;
 import com.youdash.entity.VehicleEntity;
 import java.util.Objects;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.PackageCategoryRepository;
 import com.youdash.repository.PackageItemRepository;
+import com.youdash.repository.RiderRepository;
+import com.youdash.repository.UserRepository;
 import com.youdash.repository.VehicleRepository;
+import com.youdash.service.NotificationService;
 import com.youdash.service.OrderService;
+import com.youdash.notification.NotificationType;
 
 @Service
 public class OrderServiceImpl implements OrderService {
@@ -34,6 +40,15 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private PackageItemRepository packageItemRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private RiderRepository riderRepository;
+
+    @Autowired
+    private NotificationService notificationService;
 
     @Override
     public ApiResponse<OrderResponseDTO> createOrder(OrderRequestDTO dto) {
@@ -148,6 +163,21 @@ public class OrderServiceImpl implements OrderService {
             response.setStatus(200);
             response.setSuccess(true);
 
+            try {
+                userRepository.findById(savedOrder.getUserId())
+                        .filter(u -> Boolean.TRUE.equals(u.getActive()))
+                        .map(UserEntity::getFcmToken)
+                        .ifPresent(token -> notificationService.sendNotification(
+                                token,
+                                "Order Created",
+                                "Your order has been created successfully.",
+                                savedOrder.getId(),
+                                NotificationType.ORDER_CREATED
+                        ));
+            } catch (Exception ignored) {
+                // Never fail API for notification issues
+            }
+
         } catch (Exception e) {
             response.setMessage(e.getMessage());
             response.setMessageKey("ERROR");
@@ -226,6 +256,7 @@ public class OrderServiceImpl implements OrderService {
                 throw new RuntimeException("Invalid status");
             }
 
+            String previousStatus = order.getStatus();
             order.setStatus(status);
             OrderEntity updatedOrder = orderRepository.save(order);
 
@@ -234,6 +265,23 @@ public class OrderServiceImpl implements OrderService {
             response.setMessageKey("SUCCESS");
             response.setStatus(200);
             response.setSuccess(true);
+
+            if ("DELIVERED".equals(status) && (previousStatus == null || !"DELIVERED".equals(previousStatus))) {
+                try {
+                    userRepository.findById(updatedOrder.getUserId())
+                            .filter(u -> Boolean.TRUE.equals(u.getActive()))
+                            .map(UserEntity::getFcmToken)
+                            .ifPresent(token -> notificationService.sendNotification(
+                                    token,
+                                    "Delivered",
+                                    "Your order has been delivered.",
+                                    updatedOrder.getId(),
+                                    NotificationType.DELIVERED
+                            ));
+                } catch (Exception ignored) {
+                    // Never fail API for notification issues
+                }
+            }
 
         } catch (Exception e) {
             response.setMessage(e.getMessage());
@@ -267,6 +315,35 @@ public class OrderServiceImpl implements OrderService {
             response.setMessageKey("SUCCESS");
             response.setStatus(200);
             response.setSuccess(true);
+
+            try {
+                userRepository.findById(updatedOrder.getUserId())
+                        .filter(u -> Boolean.TRUE.equals(u.getActive()))
+                        .map(UserEntity::getFcmToken)
+                        .ifPresent(token -> notificationService.sendNotification(
+                                token,
+                                "Rider Assigned",
+                                "A rider has been assigned to your order.",
+                                updatedOrder.getId(),
+                                NotificationType.RIDER_ASSIGNED
+                        ));
+            } catch (Exception ignored) {
+                // Never fail API for notification issues
+            }
+
+            try {
+                riderRepository.findById(Objects.requireNonNull(riderId))
+                        .map(RiderEntity::getFcmToken)
+                        .ifPresent(token -> notificationService.sendNotification(
+                                token,
+                                "New Delivery",
+                                "You have been assigned a new delivery.",
+                                updatedOrder.getId(),
+                                NotificationType.RIDER_ASSIGNED
+                        ));
+            } catch (Exception ignored) {
+                // Never fail API for notification issues
+            }
 
         } catch (Exception e) {
             response.setMessage(e.getMessage());
