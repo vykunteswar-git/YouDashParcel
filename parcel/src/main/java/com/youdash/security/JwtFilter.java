@@ -38,7 +38,10 @@ public class JwtFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
 
         // 1. Skip validation for public endpoints
-        if (path.startsWith("/auth/") || path.equals("/admin/login")) {
+        if (path.startsWith("/auth/") || 
+            path.equals("/admin/login") || 
+            path.startsWith("/swagger-ui") || 
+            path.startsWith("/v3/api-docs")) {
             filterChain.doFilter(request, response);
             return;
         }
