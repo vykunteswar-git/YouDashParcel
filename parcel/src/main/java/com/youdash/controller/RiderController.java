@@ -7,9 +7,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.FcmTokenRequestDTO;
 import com.youdash.dto.RiderRequestDTO;
 import com.youdash.dto.RiderResponseDTO;
+import com.youdash.entity.RiderEntity;
+import com.youdash.repository.RiderRepository;
 import com.youdash.service.RiderService;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/riders")
@@ -17,6 +22,43 @@ public class RiderController {
 
     @Autowired
     private RiderService riderService;
+
+    @Autowired
+    private RiderRepository riderRepository;
+
+    @PostMapping("/fcm-token")
+    public ApiResponse<String> saveFcmToken(@RequestBody FcmTokenRequestDTO dto, HttpServletRequest request) {
+        ApiResponse<String> response = new ApiResponse<>();
+        try {
+            Object idAttr = request.getAttribute("userId");
+            if (idAttr == null) {
+                throw new RuntimeException("Unauthorized");
+            }
+
+            Long riderId = Long.valueOf(idAttr.toString());
+            if (dto == null || dto.getToken() == null || dto.getToken().trim().isEmpty()) {
+                throw new RuntimeException("FCM token is required");
+            }
+
+            RiderEntity rider = riderRepository.findById(riderId)
+                    .orElseThrow(() -> new RuntimeException("Rider not found"));
+
+            rider.setFcmToken(dto.getToken().trim());
+            riderRepository.save(rider);
+
+            response.setData("Token saved");
+            response.setMessage("FCM token saved successfully");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setSuccess(true);
+        } catch (Exception e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(400);
+            response.setSuccess(false);
+        }
+        return response;
+    }
 
     @PostMapping
     public ApiResponse<RiderResponseDTO> createRider(@RequestBody RiderRequestDTO dto) {

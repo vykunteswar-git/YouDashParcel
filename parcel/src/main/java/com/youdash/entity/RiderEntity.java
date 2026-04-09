@@ -53,6 +53,9 @@ public class RiderEntity {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Column(name = "fcm_token")
+    private String fcmToken;
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();

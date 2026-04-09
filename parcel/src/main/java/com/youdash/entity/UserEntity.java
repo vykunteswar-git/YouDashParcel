@@ -28,6 +28,9 @@ public class UserEntity {
 
   private LocalDateTime createdAt;
 
+  @Column(name = "fcm_token")
+  private String fcmToken;
+
   @PrePersist
   protected void onCreate() {
     createdAt = LocalDateTime.now();
