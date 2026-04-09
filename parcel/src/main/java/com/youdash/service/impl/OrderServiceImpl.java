@@ -174,13 +174,20 @@ public class OrderServiceImpl implements OrderService {
             if (deliveryType == null || deliveryType.trim().isEmpty()) {
                 deliveryType = "STANDARD";
             }
-            final String deliveryTypeNormalized = deliveryType.trim().toUpperCase();
-            DeliveryTypeEntity deliveryTypeEntity = deliveryTypeRepository.findByNameIgnoreCaseAndActiveTrue(deliveryTypeNormalized)
+            final String deliveryTypeNormalized = deliveryType.trim();
+            DeliveryTypeEntity deliveryTypeEntity = deliveryTypeRepository
+                    .findByNameIgnoreCaseAndActiveTrue(deliveryTypeNormalized)
                     .orElseThrow(() -> new RuntimeException("Invalid deliveryType: " + deliveryTypeNormalized));
 
             DeliveryScope scope = scopeResolverService.resolveScope(resolvedDistanceKm);
-            DeliveryTypeRateEntity rate = deliveryTypeRateRepository.findByDeliveryTypeAndScopeAndActiveTrue(deliveryTypeEntity, scope)
-                    .orElseThrow(() -> new RuntimeException("Delivery type rate not configured for " + deliveryTypeNormalized + " / " + scope.name()));
+            DeliveryTypeRateEntity rate = deliveryTypeRateRepository
+                    .findByDeliveryTypeAndScopeAndActiveTrue(deliveryTypeEntity, scope)
+                    .orElseThrow(() -> new RuntimeException(
+                            "Delivery type rate not configured for "
+                                    + deliveryTypeEntity.getName()
+                                    + " / "
+                                    + scope.name()
+                    ));
 
             // 7. Fetch pricing configs (DB driven)
             GstConfigEntity gstCfg = gstConfigRepository.findFirstByActiveTrueOrderByIdDesc()

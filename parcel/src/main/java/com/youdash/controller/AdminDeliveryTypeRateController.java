@@ -40,7 +40,7 @@ public class AdminDeliveryTypeRateController {
             DeliveryTypeEntity type = deliveryTypeRepository.findByNameIgnoreCaseAndActiveTrue(typeName)
                     .orElseThrow(() -> new RuntimeException("Invalid delivery type: " + typeName));
 
-            DeliveryScope scope = DeliveryScope.valueOf(dto.getScope().trim().toUpperCase());
+            DeliveryScope scope = parseScope(dto.getScope());
 
             DeliveryTypeRateEntity rate = deliveryTypeRateRepository.findByDeliveryTypeAndScopeAndActiveTrue(type, scope)
                     .orElseGet(DeliveryTypeRateEntity::new);
@@ -64,6 +64,26 @@ public class AdminDeliveryTypeRateController {
             response.setSuccess(false);
         }
         return response;
+    }
+
+    private DeliveryScope parseScope(String rawScope) {
+        if (rawScope == null) {
+            throw new RuntimeException("scope is required");
+        }
+        String normalized = rawScope.trim().toUpperCase();
+        if (normalized.isEmpty()) {
+            throw new RuntimeException("scope is required");
+        }
+
+        // Accept common API-friendly aliases
+        // LOCAL      -> IN_CITY
+        // OUTSTATION -> OUT_CITY
+        if ("LOCAL".equals(normalized)) return DeliveryScope.IN_CITY;
+        if ("OUTSTATION".equals(normalized)) return DeliveryScope.OUT_CITY;
+
+        // Accept variants like "in city", "in-city", "in_city"
+        normalized = normalized.replace(' ', '_').replace('-', '_');
+        return DeliveryScope.valueOf(normalized);
     }
 
     private DeliveryTypeRateDTO map(DeliveryTypeRateEntity e) {
