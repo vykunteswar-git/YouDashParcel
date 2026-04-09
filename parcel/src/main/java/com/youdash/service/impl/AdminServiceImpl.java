@@ -91,6 +91,8 @@ public class AdminServiceImpl implements AdminService {
             VehicleEntity entity = new VehicleEntity();
             entity.setName(dto.getName());
             entity.setPricePerKm(dto.getPricePerKm());
+            entity.setBaseFare(dto.getBaseFare());
+            entity.setMinimumKm(dto.getMinimumKm());
             entity.setMaxWeight(dto.getMaxWeight());
             entity.setImageUrl(dto.getImageUrl());
             entity.setIsActive(true); // Default
@@ -156,6 +158,8 @@ public class AdminServiceImpl implements AdminService {
                 entity.setPricePerKm(dto.getPricePerKm());
                 
             }
+            if (dto.getBaseFare() != null) entity.setBaseFare(dto.getBaseFare());
+            if (dto.getMinimumKm() != null) entity.setMinimumKm(dto.getMinimumKm());
             if (dto.getMaxWeight() != null) entity.setMaxWeight(dto.getMaxWeight());
             if (dto.getImageUrl() != null && !dto.getImageUrl().isEmpty()) entity.setImageUrl(dto.getImageUrl());
 
@@ -422,6 +426,10 @@ public class AdminServiceImpl implements AdminService {
             throw new RuntimeException("Image URL is required");
         if (dto.getPricePerKm() == null || dto.getPricePerKm() <= 0)
             throw new RuntimeException("Price per Km must be > 0");
+        if (dto.getBaseFare() == null || dto.getBaseFare() < 0)
+            throw new RuntimeException("Base fare must be >= 0");
+        if (dto.getMinimumKm() == null || dto.getMinimumKm() < 0)
+            throw new RuntimeException("Minimum Km must be >= 0");
     }
 
     private void validateCategory(PackageCategoryDTO dto) {
@@ -447,6 +455,8 @@ public class AdminServiceImpl implements AdminService {
         dto.setId(entity.getId());
         dto.setName(entity.getName());
         dto.setPricePerKm(entity.getPricePerKm());
+        dto.setBaseFare(entity.getBaseFare());
+        dto.setMinimumKm(entity.getMinimumKm());
         dto.setMaxWeight(entity.getMaxWeight());
         dto.setImageUrl(entity.getImageUrl());
         dto.setIsActive(entity.getIsActive());

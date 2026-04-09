@@ -18,6 +18,12 @@ public class VehicleEntity {
     @Column(name = "price_per_km")
     private Double pricePerKm;
 
+    @Column(name = "base_fare")
+    private Double baseFare;
+
+    @Column(name = "minimum_km")
+    private Double minimumKm;
+
     @Column(name = "max_weight")
     private Double maxWeight;
 
