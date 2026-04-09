@@ -6,7 +6,7 @@ import org.springframework.web.bind.annotation.*;
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.OtpRequestDTO;
 import com.youdash.dto.OtpResponseDTO;
-import com.youdash.dto.OtpVerifyDTO;
+import com.youdash.dto.VerifyOtpRequestDTO;
 import com.youdash.dto.UserResponseDTO;
 import com.youdash.service.AuthService;
 
@@ -23,7 +23,7 @@ public class AuthController {
     }
 
     @PostMapping("/verify-otp")
-    public ApiResponse<UserResponseDTO> verifyOtp(@RequestBody OtpVerifyDTO request) {
+    public ApiResponse<UserResponseDTO> verifyOtp(@RequestBody VerifyOtpRequestDTO request) {
         return authService.verifyOtp(request);
     }
 }

@@ -15,6 +15,19 @@ public class OrderResponseDTO {
     private String pickupAddress;
     private String deliveryAddress;
 
+    private Double pickupLat;
+    private Double pickupLng;
+
+    private Double deliveryLat;
+    private Double deliveryLng;
+
+    private String senderName;
+    private String senderPhone;
+
+    private String deliveryTypeUsed;
+    private String deliveryTypeScopeUsed;
+    private String deliveryTypeDescriptionUsed;
+
     private String receiverName;
     private String receiverPhone;
 
@@ -30,6 +43,15 @@ public class OrderResponseDTO {
 
     private Double distanceKm;
     private Double totalAmount;
+
+    private Double baseAmount;
+    private Double platformFee;
+    private Double cgstAmount;
+    private Double sgstAmount;
+
+    private Double pricePerKmUsed;
+    private Double cgstPercentUsed;
+    private Double sgstPercentUsed;
 
     private String paymentType;
     private String paymentStatus;

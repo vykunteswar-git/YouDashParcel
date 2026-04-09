@@ -11,6 +11,17 @@ public class OrderRequestDTO {
     private String pickupAddress;
     private String deliveryAddress;
 
+    private Double pickupLat;
+    private Double pickupLng;
+
+    private Double deliveryLat;
+    private Double deliveryLng;
+
+    private String senderName;
+    private String senderPhone;
+
+    private String deliveryType;
+
     private String receiverName;
     private String receiverPhone;
 

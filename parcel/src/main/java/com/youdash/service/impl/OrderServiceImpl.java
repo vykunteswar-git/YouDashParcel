@@ -15,6 +15,10 @@ import com.youdash.entity.PackageItemEntity;
 import com.youdash.entity.RiderEntity;
 import com.youdash.entity.UserEntity;
 import com.youdash.entity.VehicleEntity;
+import com.youdash.entity.DeliveryTypeEntity;
+import com.youdash.entity.GstConfigEntity;
+import com.youdash.entity.PlatformFeeEntity;
+import com.youdash.entity.DeliveryTypeRateEntity;
 import java.util.Objects;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.PackageCategoryRepository;
@@ -22,9 +26,18 @@ import com.youdash.repository.PackageItemRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.repository.UserRepository;
 import com.youdash.repository.VehicleRepository;
+import com.youdash.repository.DeliveryTypeRepository;
+import com.youdash.repository.DeliveryTypeRateRepository;
+import com.youdash.repository.GstConfigRepository;
+import com.youdash.repository.PlatformFeeRepository;
 import com.youdash.service.NotificationService;
 import com.youdash.service.OrderService;
 import com.youdash.notification.NotificationType;
+import com.youdash.pricing.PricingBreakdown;
+import com.youdash.service.DistanceService;
+import com.youdash.service.PricingService;
+import com.youdash.service.ScopeResolverService;
+import com.youdash.pricing.DeliveryScope;
 
 @Service
 public class OrderServiceImpl implements OrderService {
@@ -50,6 +63,27 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     private NotificationService notificationService;
 
+    @Autowired
+    private DistanceService distanceService;
+
+    @Autowired
+    private PricingService pricingService;
+
+    @Autowired
+    private GstConfigRepository gstConfigRepository;
+
+    @Autowired
+    private PlatformFeeRepository platformFeeRepository;
+
+    @Autowired
+    private DeliveryTypeRepository deliveryTypeRepository;
+
+    @Autowired
+    private DeliveryTypeRateRepository deliveryTypeRateRepository;
+
+    @Autowired
+    private ScopeResolverService scopeResolverService;
+
     @Override
     public ApiResponse<OrderResponseDTO> createOrder(OrderRequestDTO dto) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
@@ -66,6 +100,17 @@ public class OrderServiceImpl implements OrderService {
                 throw new RuntimeException("packageCategoryId is required");
             }
 
+            // Geo validation (optional for backward compatibility)
+            boolean anyGeoProvided = dto.getPickupLat() != null || dto.getPickupLng() != null
+                    || dto.getDeliveryLat() != null || dto.getDeliveryLng() != null;
+            if (anyGeoProvided) {
+                if (dto.getPickupLat() == null || dto.getPickupLng() == null || dto.getDeliveryLat() == null || dto.getDeliveryLng() == null) {
+                    throw new RuntimeException("pickupLat, pickupLng, deliveryLat, deliveryLng are required when using geo coordinates");
+                }
+                validateLatLng(dto.getPickupLat(), dto.getPickupLng(), "pickup");
+                validateLatLng(dto.getDeliveryLat(), dto.getDeliveryLng(), "delivery");
+            }
+
             // 1. Validate Vehicle
             VehicleEntity vehicle = vehicleRepository.findById(Objects.requireNonNull(dto.getVehicleTypeId()))
                     .orElseThrow(() -> new RuntimeException("Invalid vehicleTypeId: " + dto.getVehicleTypeId()));
@@ -79,6 +124,11 @@ public class OrderServiceImpl implements OrderService {
                 throw new RuntimeException("Vehicle price not configured");
             }
 
+            // Fetch user (for sender defaults)
+            UserEntity user = userRepository.findById(dto.getUserId())
+                    .filter(u -> Boolean.TRUE.equals(u.getActive()))
+                    .orElseThrow(() -> new RuntimeException("Invalid userId: " + dto.getUserId()));
+
             // 3. Validate Package Category
             PackageCategoryEntity category = packageCategoryRepository.findById(Objects.requireNonNull(dto.getPackageCategoryId()))
                     .orElseThrow(() -> new RuntimeException("Invalid packageCategoryId: " + dto.getPackageCategoryId()));
@@ -87,17 +137,68 @@ public class OrderServiceImpl implements OrderService {
                 throw new RuntimeException("Selected package category is not active");
             }
 
-            // 4. Distance and Weight Validation
-            if (dto.getDistanceKm() == null || dto.getDistanceKm() <= 0) {
-                throw new RuntimeException("Distance must be greater than 0");
+            // 4. Determine distance (do not trust client when geo present)
+            Double resolvedDistanceKm;
+            if (anyGeoProvided) {
+                resolvedDistanceKm = distanceService.calculateDistanceKm(
+                        dto.getPickupLat(), dto.getPickupLng(), dto.getDeliveryLat(), dto.getDeliveryLng()
+                );
+            } else {
+                if (dto.getDistanceKm() == null || dto.getDistanceKm() <= 0) {
+                    throw new RuntimeException("Distance must be greater than 0");
+                }
+                resolvedDistanceKm = dto.getDistanceKm();
+            }
+            if (resolvedDistanceKm == null || resolvedDistanceKm <= 0) {
+                throw new RuntimeException("Resolved distance must be greater than 0");
             }
 
             if (dto.getWeight() != null && vehicle.getMaxWeight() != null && dto.getWeight() > vehicle.getMaxWeight()) {
                 throw new RuntimeException("Weight exceeds the selected vehicle's maximum capacity (" + vehicle.getMaxWeight() + "kg)");
             }
 
-            // 5. Calculate total amount
-            Double totalAmount = vehicle.getPricePerKm() * dto.getDistanceKm();
+            // 5. Resolve sender details (phone defaults to user's phone)
+            String senderPhone = dto.getSenderPhone();
+            if (senderPhone == null || senderPhone.trim().isEmpty()) {
+                senderPhone = user.getPhoneNumber();
+            } else {
+                senderPhone = senderPhone.trim();
+            }
+            String senderName = dto.getSenderName();
+            if (senderName != null) {
+                senderName = senderName.trim();
+            }
+
+            // 6. Validate delivery type (default STANDARD for backward compatibility)
+            String deliveryType = dto.getDeliveryType();
+            if (deliveryType == null || deliveryType.trim().isEmpty()) {
+                deliveryType = "STANDARD";
+            }
+            final String deliveryTypeNormalized = deliveryType.trim().toUpperCase();
+            DeliveryTypeEntity deliveryTypeEntity = deliveryTypeRepository.findByNameIgnoreCaseAndActiveTrue(deliveryTypeNormalized)
+                    .orElseThrow(() -> new RuntimeException("Invalid deliveryType: " + deliveryTypeNormalized));
+
+            DeliveryScope scope = scopeResolverService.resolveScope(resolvedDistanceKm);
+            DeliveryTypeRateEntity rate = deliveryTypeRateRepository.findByDeliveryTypeAndScopeAndActiveTrue(deliveryTypeEntity, scope)
+                    .orElseThrow(() -> new RuntimeException("Delivery type rate not configured for " + deliveryTypeNormalized + " / " + scope.name()));
+
+            // 7. Fetch pricing configs (DB driven)
+            GstConfigEntity gstCfg = gstConfigRepository.findFirstByActiveTrueOrderByIdDesc()
+                    .orElseThrow(() -> new RuntimeException("GST config not found"));
+            PlatformFeeEntity platformCfg = platformFeeRepository.findFirstByActiveTrueOrderByIdDesc()
+                    .orElseThrow(() -> new RuntimeException("Platform fee config not found"));
+
+            java.math.BigDecimal distanceBd = java.math.BigDecimal.valueOf(resolvedDistanceKm);
+            java.math.BigDecimal pricePerKmBd = java.math.BigDecimal.valueOf(vehicle.getPricePerKm());
+
+            PricingBreakdown pricing = pricingService.calculate(
+                    distanceBd,
+                    pricePerKmBd,
+                    rate.getFee(),
+                    platformCfg.getFee(),
+                    gstCfg.getCgstPercent(),
+                    gstCfg.getSgstPercent()
+            );
 
             OrderEntity order = new OrderEntity();
             
@@ -105,6 +206,14 @@ public class OrderServiceImpl implements OrderService {
             order.setUserId(dto.getUserId());
             order.setPickupAddress(dto.getPickupAddress());
             order.setDeliveryAddress(dto.getDeliveryAddress());
+            order.setPickupLat(dto.getPickupLat());
+            order.setPickupLng(dto.getPickupLng());
+            order.setDeliveryLat(dto.getDeliveryLat());
+            order.setDeliveryLng(dto.getDeliveryLng());
+
+            order.setSenderName(senderName);
+            order.setSenderPhone(senderPhone);
+
             order.setReceiverName(dto.getReceiverName());
             order.setReceiverPhone(dto.getReceiverPhone());
             order.setPackageCategoryId(dto.getPackageCategoryId());
@@ -119,8 +228,23 @@ public class OrderServiceImpl implements OrderService {
             order.setWeight(dto.getWeight());
             order.setImageUrl(dto.getImageUrl());
             order.setVehicleTypeId(dto.getVehicleTypeId());
-            order.setDistanceKm(dto.getDistanceKm());
-            order.setTotalAmount(totalAmount);
+            order.setDistanceKm(resolvedDistanceKm);
+
+            // Pricing breakdown + snapshots
+            order.setBaseAmount(pricing.getBase());
+            order.setPlatformFee(pricing.getPlatformFee());
+            order.setCgstAmount(pricing.getCgst());
+            order.setSgstAmount(pricing.getSgst());
+            order.setTotalAmount(pricing.getTotal().doubleValue()); // keep legacy field populated
+
+            order.setDeliveryTypeUsed(deliveryTypeEntity.getName());
+            order.setDeliveryTypeScopeUsed(scope.name());
+            order.setDeliveryTypeDescriptionUsed(rate.getDescription());
+            order.setDeliveryTypeFeeUsed(rate.getFee());
+            order.setPricePerKmUsed(pricePerKmBd.setScale(2, java.math.RoundingMode.HALF_UP));
+            order.setCgstPercentUsed(gstCfg.getCgstPercent());
+            order.setSgstPercentUsed(gstCfg.getSgstPercent());
+
             order.setPaymentType(dto.getPaymentType());
             order.setScheduledDate(dto.getScheduledDate());
             order.setTimeSlot(dto.getTimeSlot());
@@ -439,6 +563,15 @@ public class OrderServiceImpl implements OrderService {
         dto.setUserId(order.getUserId());
         dto.setPickupAddress(order.getPickupAddress());
         dto.setDeliveryAddress(order.getDeliveryAddress());
+        dto.setPickupLat(order.getPickupLat());
+        dto.setPickupLng(order.getPickupLng());
+        dto.setDeliveryLat(order.getDeliveryLat());
+        dto.setDeliveryLng(order.getDeliveryLng());
+        dto.setSenderName(order.getSenderName());
+        dto.setSenderPhone(order.getSenderPhone());
+        dto.setDeliveryTypeUsed(order.getDeliveryTypeUsed());
+        dto.setDeliveryTypeScopeUsed(order.getDeliveryTypeScopeUsed());
+        dto.setDeliveryTypeDescriptionUsed(order.getDeliveryTypeDescriptionUsed());
         dto.setReceiverName(order.getReceiverName());
         dto.setReceiverPhone(order.getReceiverPhone());
         
@@ -464,6 +597,13 @@ public class OrderServiceImpl implements OrderService {
 
         dto.setDistanceKm(order.getDistanceKm());
         dto.setTotalAmount(order.getTotalAmount());
+        dto.setBaseAmount(order.getBaseAmount() == null ? null : order.getBaseAmount().doubleValue());
+        dto.setPlatformFee(order.getPlatformFee() == null ? null : order.getPlatformFee().doubleValue());
+        dto.setCgstAmount(order.getCgstAmount() == null ? null : order.getCgstAmount().doubleValue());
+        dto.setSgstAmount(order.getSgstAmount() == null ? null : order.getSgstAmount().doubleValue());
+        dto.setPricePerKmUsed(order.getPricePerKmUsed() == null ? null : order.getPricePerKmUsed().doubleValue());
+        dto.setCgstPercentUsed(order.getCgstPercentUsed() == null ? null : order.getCgstPercentUsed().doubleValue());
+        dto.setSgstPercentUsed(order.getSgstPercentUsed() == null ? null : order.getSgstPercentUsed().doubleValue());
         dto.setPaymentType(order.getPaymentType());
         dto.setPaymentStatus(order.getPaymentStatus());
         dto.setStatus(order.getStatus());
@@ -487,5 +627,17 @@ public class OrderServiceImpl implements OrderService {
         }
 
         return dto;
+    }
+
+    private void validateLatLng(Double lat, Double lng, String label) {
+        if (lat == null || lng == null) {
+            throw new RuntimeException(label + " coordinates cannot be null");
+        }
+        if (lat < -90 || lat > 90) {
+            throw new RuntimeException(label + "Lat must be between -90 and 90");
+        }
+        if (lng < -180 || lng > 180) {
+            throw new RuntimeException(label + "Lng must be between -180 and 180");
+        }
     }
 }
