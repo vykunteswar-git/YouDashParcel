@@ -4,6 +4,10 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.FareCalculateRequestDTO;
 import com.youdash.dto.FareCalculateResponseDTO;
 import com.youdash.entity.VehicleEntity;
+import com.youdash.entity.GstConfigEntity;
+import com.youdash.entity.PlatformFeeEntity;
+import com.youdash.repository.GstConfigRepository;
+import com.youdash.repository.PlatformFeeRepository;
 import com.youdash.repository.VehicleRepository;
 import com.youdash.service.FareService;
 import com.youdash.util.GeoDistanceUtil;
@@ -21,14 +25,14 @@ public class FareServiceImpl implements FareService {
     @Autowired
     private VehicleRepository vehicleRepository;
 
+    @Autowired
+    private GstConfigRepository gstConfigRepository;
+
+    @Autowired
+    private PlatformFeeRepository platformFeeRepository;
+
     @Value("${youdash.outstation.pricePerKm:0}")
     private double outstationPricePerKm;
-
-    @Value("${youdash.fare.platformFee:0}")
-    private double platformFee;
-
-    @Value("${youdash.fare.gstPercent:0}")
-    private double gstPercent;
 
     @Override
     public ApiResponse<FareCalculateResponseDTO> calculateFare(FareCalculateRequestDTO dto) {
@@ -88,17 +92,21 @@ public class FareServiceImpl implements FareService {
                 subTotal = distanceKm.multiply(pricePerKm).setScale(2, RoundingMode.HALF_UP);
             }
 
-            BigDecimal platformFeeAmount = BigDecimal.valueOf(platformFee).setScale(2, RoundingMode.HALF_UP);
-            if (platformFeeAmount.signum() < 0) platformFeeAmount = BigDecimal.ZERO;
+            GstConfigEntity gstCfg = gstConfigRepository.findFirstByActiveTrueOrderByIdDesc()
+                    .orElseThrow(() -> new RuntimeException("GST config not found"));
+            PlatformFeeEntity platformCfg = platformFeeRepository.findFirstByActiveTrueOrderByIdDesc()
+                    .orElseThrow(() -> new RuntimeException("Platform fee config not found"));
 
-            BigDecimal gstPercentBd = BigDecimal.valueOf(gstPercent);
-            if (gstPercentBd.signum() < 0) gstPercentBd = BigDecimal.ZERO;
+            BigDecimal platformFeeAmount = nz(platformCfg.getFee()).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal cgstPercent = nz(gstCfg.getCgstPercent());
+            BigDecimal sgstPercent = nz(gstCfg.getSgstPercent());
 
-            BigDecimal gstAmount = subTotal
-                    .multiply(gstPercentBd)
-                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            BigDecimal gstBase = subTotal.add(platformFeeAmount).setScale(2, RoundingMode.HALF_UP);
 
-            BigDecimal total = subTotal.add(platformFeeAmount).add(gstAmount).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal cgstAmount = gstBase.multiply(cgstPercent).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            BigDecimal sgstAmount = gstBase.multiply(sgstPercent).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+
+            BigDecimal total = gstBase.add(cgstAmount).add(sgstAmount).setScale(2, RoundingMode.HALF_UP);
 
             FareCalculateResponseDTO out = new FareCalculateResponseDTO();
             out.setServiceType(serviceType);
@@ -107,8 +115,11 @@ public class FareServiceImpl implements FareService {
             out.setPricePerKm(pricePerKm.doubleValue());
             out.setSubTotal(subTotal.doubleValue());
             out.setPlatformFee(platformFeeAmount.doubleValue());
-            out.setGstPercent(gstPercentBd.doubleValue());
-            out.setGstAmount(gstAmount.doubleValue());
+            out.setGstBase(gstBase.doubleValue());
+            out.setCgstPercent(cgstPercent.doubleValue());
+            out.setSgstPercent(sgstPercent.doubleValue());
+            out.setCgstAmount(cgstAmount.doubleValue());
+            out.setSgstAmount(sgstAmount.doubleValue());
             out.setTotalAmount(total.doubleValue());
 
             response.setData(out);
@@ -148,6 +159,10 @@ public class FareServiceImpl implements FareService {
     private void validateLatLng(Double lat, Double lng, String prefix) {
         if (lat < -90 || lat > 90) throw new RuntimeException(prefix + "Lat must be between -90 and 90");
         if (lng < -180 || lng > 180) throw new RuntimeException(prefix + "Lng must be between -180 and 180");
+    }
+
+    private static BigDecimal nz(BigDecimal v) {
+        return v == null ? BigDecimal.ZERO : v;
     }
 }
 

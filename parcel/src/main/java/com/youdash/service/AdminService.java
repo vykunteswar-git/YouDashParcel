@@ -31,6 +31,7 @@ public interface AdminService {
     // Package Item Management
     ApiResponse<PackageItemDTO> createPackageItem(PackageItemDTO dto);
     ApiResponse<List<PackageItemDTO>> getAllPackageItems();
+    ApiResponse<List<PackageItemDTO>> getItemsByCategory(Long categoryId);
     ApiResponse<PackageItemDTO> updatePackageItem(Long id, PackageItemDTO dto);
     ApiResponse<PackageItemDTO> togglePackageItem(Long id);
 }
