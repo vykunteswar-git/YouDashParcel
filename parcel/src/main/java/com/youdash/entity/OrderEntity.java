@@ -2,6 +2,7 @@ package com.youdash.entity;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
 import jakarta.persistence.*;
 
@@ -27,6 +28,24 @@ public class OrderEntity {
 
     @Column(name = "delivery_address")
     private String deliveryAddress;
+
+    @Column(name = "pickup_lat")
+    private Double pickupLat;
+
+    @Column(name = "pickup_lng")
+    private Double pickupLng;
+
+    @Column(name = "delivery_lat")
+    private Double deliveryLat;
+
+    @Column(name = "delivery_lng")
+    private Double deliveryLng;
+
+    @Column(name = "sender_name")
+    private String senderName;
+
+    @Column(name = "sender_phone")
+    private String senderPhone;
 
     @Column(name = "receiver_name")
     private String receiverName;
@@ -54,6 +73,39 @@ public class OrderEntity {
 
     @Column(name = "total_amount")
     private Double totalAmount;
+
+    @Column(name = "base_amount", precision = 12, scale = 2)
+    private BigDecimal baseAmount;
+
+    @Column(name = "platform_fee", precision = 12, scale = 2)
+    private BigDecimal platformFee;
+
+    @Column(name = "cgst_amount", precision = 12, scale = 2)
+    private BigDecimal cgstAmount;
+
+    @Column(name = "sgst_amount", precision = 12, scale = 2)
+    private BigDecimal sgstAmount;
+
+    @Column(name = "delivery_type_used")
+    private String deliveryTypeUsed;
+
+    @Column(name = "delivery_type_scope_used")
+    private String deliveryTypeScopeUsed;
+
+    @Column(name = "delivery_type_description_used", length = 500)
+    private String deliveryTypeDescriptionUsed;
+
+    @Column(name = "delivery_type_fee_used", precision = 12, scale = 2)
+    private BigDecimal deliveryTypeFeeUsed;
+
+    @Column(name = "price_per_km_used", precision = 12, scale = 2)
+    private BigDecimal pricePerKmUsed;
+
+    @Column(name = "cgst_percent_used", precision = 6, scale = 2)
+    private BigDecimal cgstPercentUsed;
+
+    @Column(name = "sgst_percent_used", precision = 6, scale = 2)
+    private BigDecimal sgstPercentUsed;
 
     @Column(name = "payment_type")
     private String paymentType;

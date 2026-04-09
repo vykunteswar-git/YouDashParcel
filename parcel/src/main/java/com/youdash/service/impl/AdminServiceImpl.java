@@ -348,25 +348,6 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
-    public ApiResponse<List<PackageItemDTO>> getItemsByCategory(Long categoryId) {
-        ApiResponse<List<PackageItemDTO>> response = new ApiResponse<>();
-        try {
-            List<PackageItemEntity> items = packageItemRepository.findByPackageCategoryIdAndIsActiveTrue(Objects.requireNonNull(categoryId));
-            List<PackageItemDTO> dtos = items.stream().map(this::mapToItemDTO).collect(Collectors.toList());
-
-            response.setData(dtos);
-            response.setMessage("Package items fetched successfully");
-            response.setMessageKey("SUCCESS");
-            response.setSuccess(true);
-            response.setStatus(200);
-            response.setTotalCount(dtos.size());
-        } catch (Exception e) {
-            setErrorResponse(response, e.getMessage());
-        }
-        return response;
-    }
-
-    @Override
     public ApiResponse<PackageItemDTO> updatePackageItem(Long id, PackageItemDTO dto) {
         ApiResponse<PackageItemDTO> response = new ApiResponse<>();
         try {

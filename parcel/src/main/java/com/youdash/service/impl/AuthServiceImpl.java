@@ -9,11 +9,12 @@ import org.springframework.stereotype.Service;
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.OtpRequestDTO;
 import com.youdash.dto.OtpResponseDTO;
-import com.youdash.dto.OtpVerifyDTO;
+import com.youdash.dto.VerifyOtpRequestDTO;
 import com.youdash.dto.UserResponseDTO;
 import com.youdash.entity.OtpEntity;
 import com.youdash.entity.UserEntity;
 import com.youdash.repository.OtpRepository;
+import com.youdash.repository.RiderRepository;
 import com.youdash.repository.UserRepository;
 import com.youdash.service.AuthService;
 
@@ -25,6 +26,9 @@ public class AuthServiceImpl implements AuthService {
 
   @Autowired
   private UserRepository userRepository;
+
+  @Autowired
+  private RiderRepository riderRepository;
 
   @Autowired
   private com.youdash.util.JwtUtil jwtUtil;
@@ -71,7 +75,7 @@ public class AuthServiceImpl implements AuthService {
 
   // VERIFY OTP
   @Override
-  public ApiResponse<UserResponseDTO> verifyOtp(OtpVerifyDTO request) {
+  public ApiResponse<UserResponseDTO> verifyOtp(VerifyOtpRequestDTO request) {
 
     ApiResponse<UserResponseDTO> response = new ApiResponse<>();
 
@@ -109,6 +113,17 @@ public class AuthServiceImpl implements AuthService {
             newUser.setProfileCompleted(false);
             return userRepository.save(newUser);
           });
+
+      String fcm = request.getFcmToken();
+      if (fcm != null && !fcm.trim().isEmpty()) {
+        String trimmed = fcm.trim();
+        user.setFcmToken(trimmed);
+        user = userRepository.save(user);
+        riderRepository.findByPhone(request.getPhoneNumber()).ifPresent(rider -> {
+          rider.setFcmToken(trimmed);
+          riderRepository.save(rider);
+        });
+      }
 
       String token = jwtUtil.generateToken(user.getId(), "USER");
       UserResponseDTO userDTO = mapToDTO(user);

@@ -2,12 +2,10 @@ package com.youdash.controller;
 
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.PackageCategoryDTO;
-import com.youdash.dto.PackageItemDTO;
 import com.youdash.dto.VehicleDTO;
 import com.youdash.service.AdminService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -28,10 +26,5 @@ public class PublicController {
     @GetMapping("/categories")
     public ApiResponse<List<PackageCategoryDTO>> getActiveCategories() {
         return adminService.getActiveCategories();
-    }
-
-    @GetMapping("/package-items/{categoryId}")
-    public ApiResponse<List<PackageItemDTO>> getItemsByCategory(@PathVariable Long categoryId) {
-        return adminService.getItemsByCategory(categoryId);
     }
 }
