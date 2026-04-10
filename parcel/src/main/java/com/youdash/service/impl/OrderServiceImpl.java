@@ -197,14 +197,17 @@ public class OrderServiceImpl implements OrderService {
 
             java.math.BigDecimal distanceBd = java.math.BigDecimal.valueOf(resolvedDistanceKm);
             java.math.BigDecimal pricePerKmBd = java.math.BigDecimal.valueOf(vehicle.getPricePerKm());
+            java.math.BigDecimal gstPercent = gstCfg.getGstPercent();
+            if (gstPercent == null) {
+                gstPercent = nz(gstCfg.getCgstPercent()).add(nz(gstCfg.getSgstPercent()));
+            }
 
             PricingBreakdown pricing = pricingService.calculate(
                     distanceBd,
                     pricePerKmBd,
                     rate.getFee(),
                     platformCfg.getFee(),
-                    gstCfg.getCgstPercent(),
-                    gstCfg.getSgstPercent()
+                    gstPercent
             );
 
             OrderEntity order = new OrderEntity();
@@ -240,8 +243,10 @@ public class OrderServiceImpl implements OrderService {
             // Pricing breakdown + snapshots
             order.setBaseAmount(pricing.getBase());
             order.setPlatformFee(pricing.getPlatformFee());
-            order.setCgstAmount(pricing.getCgst());
-            order.setSgstAmount(pricing.getSgst());
+            // Legacy split fields kept populated for compatibility.
+            java.math.BigDecimal halfGstAmount = nz(pricing.getGst()).divide(java.math.BigDecimal.valueOf(2), 2, java.math.RoundingMode.HALF_UP);
+            order.setCgstAmount(halfGstAmount);
+            order.setSgstAmount(halfGstAmount);
             order.setTotalAmount(pricing.getTotal().doubleValue()); // keep legacy field populated
 
             order.setDeliveryTypeUsed(deliveryTypeEntity.getName());
@@ -249,8 +254,9 @@ public class OrderServiceImpl implements OrderService {
             order.setDeliveryTypeDescriptionUsed(rate.getDescription());
             order.setDeliveryTypeFeeUsed(rate.getFee());
             order.setPricePerKmUsed(pricePerKmBd.setScale(2, java.math.RoundingMode.HALF_UP));
-            order.setCgstPercentUsed(gstCfg.getCgstPercent());
-            order.setSgstPercentUsed(gstCfg.getSgstPercent());
+            java.math.BigDecimal halfGstPercent = nz(gstPercent).divide(java.math.BigDecimal.valueOf(2), 2, java.math.RoundingMode.HALF_UP);
+            order.setCgstPercentUsed(halfGstPercent);
+            order.setSgstPercentUsed(halfGstPercent);
 
             order.setPaymentType(dto.getPaymentType());
             order.setScheduledDate(dto.getScheduledDate());
@@ -646,5 +652,9 @@ public class OrderServiceImpl implements OrderService {
         if (lng < -180 || lng > 180) {
             throw new RuntimeException(label + "Lng must be between -180 and 180");
         }
+    }
+
+    private static java.math.BigDecimal nz(java.math.BigDecimal v) {
+        return v == null ? java.math.BigDecimal.ZERO : v;
     }
 }

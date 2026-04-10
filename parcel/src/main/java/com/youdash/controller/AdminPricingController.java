@@ -1,14 +1,17 @@
 package com.youdash.controller;
 
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.AdminPricingConfigDTO;
 import com.youdash.dto.DeliveryTypeDTO;
 import com.youdash.dto.GstConfigDTO;
 import com.youdash.dto.PlatformFeeDTO;
 import com.youdash.entity.DeliveryTypeEntity;
 import com.youdash.entity.GstConfigEntity;
+import com.youdash.entity.InCityRadiusConfigEntity;
 import com.youdash.entity.PlatformFeeEntity;
 import com.youdash.repository.DeliveryTypeRepository;
 import com.youdash.repository.GstConfigRepository;
+import com.youdash.repository.InCityRadiusConfigRepository;
 import com.youdash.repository.PlatformFeeRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -30,14 +33,22 @@ public class AdminPricingController {
     @Autowired
     private DeliveryTypeRepository deliveryTypeRepository;
 
+    @Autowired
+    private InCityRadiusConfigRepository inCityRadiusConfigRepository;
+
     @PostMapping("/gst")
     public ApiResponse<String> upsertGst(@RequestBody GstConfigDTO dto) {
         ApiResponse<String> response = new ApiResponse<>();
         try {
-            if (dto == null || dto.getCgstPercent() == null || dto.getSgstPercent() == null) {
-                throw new RuntimeException("cgstPercent and sgstPercent are required");
+            if (dto == null) {
+                throw new RuntimeException("Request body is required");
             }
-            if (dto.getCgstPercent() < 0 || dto.getSgstPercent() < 0) {
+
+            BigDecimal gstPercent = resolveTotalGstPercent(dto);
+            if (gstPercent == null) {
+                throw new RuntimeException("gstPercent is required");
+            }
+            if (gstPercent.signum() < 0) {
                 throw new RuntimeException("GST percent cannot be negative");
             }
 
@@ -47,8 +58,11 @@ public class AdminPricingController {
             });
 
             GstConfigEntity cfg = new GstConfigEntity();
-            cfg.setCgstPercent(BigDecimal.valueOf(dto.getCgstPercent()));
-            cfg.setSgstPercent(BigDecimal.valueOf(dto.getSgstPercent()));
+            cfg.setGstPercent(gstPercent);
+            // Keep legacy columns populated for compatibility (split evenly).
+            BigDecimal half = gstPercent.divide(BigDecimal.valueOf(2), 2, java.math.RoundingMode.HALF_UP);
+            cfg.setCgstPercent(half);
+            cfg.setSgstPercent(half);
             cfg.setActive(true);
             gstConfigRepository.save(cfg);
 
@@ -99,6 +113,87 @@ public class AdminPricingController {
             response.setSuccess(false);
         }
         return response;
+    }
+
+    @GetMapping("/config")
+    public ApiResponse<AdminPricingConfigDTO> getPricingConfig() {
+        ApiResponse<AdminPricingConfigDTO> response = new ApiResponse<>();
+        try {
+            AdminPricingConfigDTO dto = new AdminPricingConfigDTO();
+
+            gstConfigRepository.findFirstByActiveTrueOrderByIdDesc().ifPresent(cfg -> {
+                BigDecimal gstPercent = cfg.getGstPercent();
+                if (gstPercent == null) {
+                    gstPercent = nz(cfg.getCgstPercent()).add(nz(cfg.getSgstPercent()));
+                }
+                dto.setGstPercent(gstPercent.doubleValue());
+            });
+
+            platformFeeRepository.findFirstByActiveTrueOrderByIdDesc().ifPresent(cfg ->
+                    dto.setPlatformFee(nz(cfg.getFee()).doubleValue())
+            );
+
+            inCityRadiusConfigRepository.findFirstByActiveTrueOrderByIdDesc().ifPresent(cfg ->
+                    dto.setInCityRadiusKm(cfg.getRadiusKm() == null ? null : cfg.getRadiusKm().doubleValue())
+            );
+
+            response.setData(dto);
+            response.setMessage("Pricing config fetched successfully");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setSuccess(true);
+        } catch (Exception e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(500);
+            response.setSuccess(false);
+        }
+        return response;
+    }
+
+    @PutMapping("/config")
+    public ApiResponse<AdminPricingConfigDTO> upsertPricingConfig(@RequestBody AdminPricingConfigDTO dto) {
+        ApiResponse<AdminPricingConfigDTO> response = new ApiResponse<>();
+        try {
+            if (dto == null) throw new RuntimeException("Request body is required");
+
+            if (dto.getGstPercent() != null) {
+                if (dto.getGstPercent() < 0) throw new RuntimeException("gstPercent cannot be negative");
+                GstConfigDTO gstDto = new GstConfigDTO();
+                gstDto.setGstPercent(dto.getGstPercent());
+                upsertGst(gstDto);
+            }
+
+            if (dto.getPlatformFee() != null) {
+                if (dto.getPlatformFee() < 0) throw new RuntimeException("platformFee cannot be negative");
+                PlatformFeeDTO pf = new PlatformFeeDTO();
+                pf.setFee(dto.getPlatformFee());
+                upsertPlatformFee(pf);
+            }
+
+            if (dto.getInCityRadiusKm() != null) {
+                if (dto.getInCityRadiusKm() <= 0) throw new RuntimeException("inCityRadiusKm must be > 0");
+
+                inCityRadiusConfigRepository.findFirstByActiveTrueOrderByIdDesc().ifPresent(cfg -> {
+                    cfg.setActive(false);
+                    inCityRadiusConfigRepository.save(cfg);
+                });
+
+                InCityRadiusConfigEntity entity = new InCityRadiusConfigEntity();
+                entity.setRadiusKm(BigDecimal.valueOf(dto.getInCityRadiusKm()));
+                entity.setActive(true);
+                inCityRadiusConfigRepository.save(entity);
+            }
+
+            // Return the latest snapshot after updates
+            return getPricingConfig();
+        } catch (Exception e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(400);
+            response.setSuccess(false);
+            return response;
+        }
     }
 
     @GetMapping("/delivery-types")
@@ -165,6 +260,19 @@ public class AdminPricingController {
         dto.setFee(entity.getFee() == null ? 0.0 : entity.getFee().doubleValue());
         dto.setActive(entity.getActive());
         return dto;
+    }
+
+    private static BigDecimal resolveTotalGstPercent(GstConfigDTO dto) {
+        if (dto == null) return null;
+        if (dto.getGstPercent() != null) return BigDecimal.valueOf(dto.getGstPercent());
+        if (dto.getCgstPercent() != null && dto.getSgstPercent() != null) {
+            return BigDecimal.valueOf(dto.getCgstPercent()).add(BigDecimal.valueOf(dto.getSgstPercent()));
+        }
+        return null;
+    }
+
+    private static BigDecimal nz(BigDecimal v) {
+        return v == null ? BigDecimal.ZERO : v;
     }
 }
 

@@ -9,7 +9,6 @@ public interface PricingService {
                                BigDecimal pricePerKm,
                                BigDecimal deliveryTypeFee,
                                BigDecimal platformFee,
-                               BigDecimal cgstPercent,
-                               BigDecimal sgstPercent);
+                               BigDecimal gstPercent);
 }
 

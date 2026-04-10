@@ -10,10 +10,8 @@ public class FareCalculateResponseDTO {
     private Double subTotal;
     private Double platformFee;
     private Double gstBase;
-    private Double cgstPercent;
-    private Double sgstPercent;
-    private Double cgstAmount;
-    private Double sgstAmount;
+    private Double gstPercent;
+    private Double gstAmount;
     private Double totalAmount;
     private Long vehicleId;
 }

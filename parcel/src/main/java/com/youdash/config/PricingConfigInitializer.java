@@ -35,10 +35,11 @@ public class PricingConfigInitializer {
     public void init() {
         gstConfigRepository.findFirstByActiveTrueOrderByIdDesc().orElseGet(() -> {
             GstConfigEntity cfg = new GstConfigEntity();
+            cfg.setGstPercent(BigDecimal.ZERO);
             cfg.setCgstPercent(BigDecimal.ZERO);
             cfg.setSgstPercent(BigDecimal.ZERO);
             cfg.setActive(true);
-            log.info("Creating default GST config (0%,0%)");
+            log.info("Creating default GST config (0%)");
             return gstConfigRepository.save(cfg);
         });
 

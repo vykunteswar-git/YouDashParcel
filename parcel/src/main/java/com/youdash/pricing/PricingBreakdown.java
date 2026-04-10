@@ -10,8 +10,7 @@ public class PricingBreakdown {
     private BigDecimal deliveryTypeFee;
     private BigDecimal platformFee;
     private BigDecimal gstBase;
-    private BigDecimal cgst;
-    private BigDecimal sgst;
+    private BigDecimal gst;
     private BigDecimal total;
 }
 

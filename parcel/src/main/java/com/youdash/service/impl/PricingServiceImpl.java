@@ -17,15 +17,13 @@ public class PricingServiceImpl implements PricingService {
                                       BigDecimal pricePerKm,
                                       BigDecimal deliveryTypeFee,
                                       BigDecimal platformFee,
-                                      BigDecimal cgstPercent,
-                                      BigDecimal sgstPercent) {
+                                      BigDecimal gstPercent) {
 
         BigDecimal safeDistance = nz(distanceKm);
         BigDecimal safePricePerKm = nz(pricePerKm);
         BigDecimal safeDeliveryFee = nz(deliveryTypeFee);
         BigDecimal safePlatformFee = nz(platformFee);
-        BigDecimal safeCgstPct = nz(cgstPercent);
-        BigDecimal safeSgstPct = nz(sgstPercent);
+        BigDecimal safeGstPct = nz(gstPercent);
 
         BigDecimal base = safeDistance.multiply(safePricePerKm);
         base = money(base);
@@ -33,10 +31,9 @@ public class PricingServiceImpl implements PricingService {
         BigDecimal gstBase = base.add(safeDeliveryFee).add(safePlatformFee);
         gstBase = money(gstBase);
 
-        BigDecimal cgst = gstBase.multiply(safeCgstPct).divide(BigDecimal.valueOf(100), MONEY_SCALE, RoundingMode.HALF_UP);
-        BigDecimal sgst = gstBase.multiply(safeSgstPct).divide(BigDecimal.valueOf(100), MONEY_SCALE, RoundingMode.HALF_UP);
+        BigDecimal gst = gstBase.multiply(safeGstPct).divide(BigDecimal.valueOf(100), MONEY_SCALE, RoundingMode.HALF_UP);
 
-        BigDecimal total = gstBase.add(cgst).add(sgst);
+        BigDecimal total = gstBase.add(gst);
         total = money(total);
 
         PricingBreakdown breakdown = new PricingBreakdown();
@@ -44,8 +41,7 @@ public class PricingServiceImpl implements PricingService {
         breakdown.setDeliveryTypeFee(money(safeDeliveryFee));
         breakdown.setPlatformFee(money(safePlatformFee));
         breakdown.setGstBase(gstBase);
-        breakdown.setCgst(cgst);
-        breakdown.setSgst(sgst);
+        breakdown.setGst(gst);
         breakdown.setTotal(total);
         return breakdown;
     }

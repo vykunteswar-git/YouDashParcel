@@ -98,15 +98,13 @@ public class FareServiceImpl implements FareService {
                     .orElseThrow(() -> new RuntimeException("Platform fee config not found"));
 
             BigDecimal platformFeeAmount = nz(platformCfg.getFee()).setScale(2, RoundingMode.HALF_UP);
-            BigDecimal cgstPercent = nz(gstCfg.getCgstPercent());
-            BigDecimal sgstPercent = nz(gstCfg.getSgstPercent());
+            BigDecimal gstPercent = resolveGstPercent(gstCfg);
 
             BigDecimal gstBase = subTotal.add(platformFeeAmount).setScale(2, RoundingMode.HALF_UP);
 
-            BigDecimal cgstAmount = gstBase.multiply(cgstPercent).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-            BigDecimal sgstAmount = gstBase.multiply(sgstPercent).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            BigDecimal gstAmount = gstBase.multiply(gstPercent).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
 
-            BigDecimal total = gstBase.add(cgstAmount).add(sgstAmount).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal total = gstBase.add(gstAmount).setScale(2, RoundingMode.HALF_UP);
 
             FareCalculateResponseDTO out = new FareCalculateResponseDTO();
             out.setServiceType(serviceType);
@@ -116,10 +114,8 @@ public class FareServiceImpl implements FareService {
             out.setSubTotal(subTotal.doubleValue());
             out.setPlatformFee(platformFeeAmount.doubleValue());
             out.setGstBase(gstBase.doubleValue());
-            out.setCgstPercent(cgstPercent.doubleValue());
-            out.setSgstPercent(sgstPercent.doubleValue());
-            out.setCgstAmount(cgstAmount.doubleValue());
-            out.setSgstAmount(sgstAmount.doubleValue());
+            out.setGstPercent(gstPercent.doubleValue());
+            out.setGstAmount(gstAmount.doubleValue());
             out.setTotalAmount(total.doubleValue());
 
             response.setData(out);
@@ -163,6 +159,14 @@ public class FareServiceImpl implements FareService {
 
     private static BigDecimal nz(BigDecimal v) {
         return v == null ? BigDecimal.ZERO : v;
+    }
+
+    private static BigDecimal resolveGstPercent(GstConfigEntity cfg) {
+        if (cfg == null) return BigDecimal.ZERO;
+        BigDecimal gst = cfg.getGstPercent();
+        if (gst != null) return nz(gst);
+        // Backward compatibility: derive total GST from legacy split columns.
+        return nz(cfg.getCgstPercent()).add(nz(cfg.getSgstPercent()));
     }
 }
 

@@ -15,6 +15,10 @@ public class GstConfigEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // New preferred single GST percent (total). Legacy cgst/sgst columns are kept for backward compatibility.
+    @Column(name = "gst_percent", precision = 6, scale = 2)
+    private BigDecimal gstPercent;
+
     @Column(name = "cgst_percent", precision = 6, scale = 2, nullable = false)
     private BigDecimal cgstPercent;
 
