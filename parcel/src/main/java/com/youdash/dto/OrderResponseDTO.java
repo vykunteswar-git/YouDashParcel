@@ -46,15 +46,19 @@ public class OrderResponseDTO {
 
     private Double baseAmount;
     private Double platformFee;
-    private Double cgstAmount;
-    private Double sgstAmount;
+    private Double deliveryFee;
+    private Double discountAmount;
+    private Double gstAmount;
 
     private Double pricePerKmUsed;
-    private Double cgstPercentUsed;
-    private Double sgstPercentUsed;
 
     private String paymentType;
     private String paymentStatus;
+    private String paymentMethod;
+    private LocalDateTime paymentCreatedAt;
+    private LocalDateTime paymentUpdatedAt;
+    private String razorpayOrderId;
+    private String razorpayPaymentId;
 
     private String status;
     private Long riderId;

@@ -36,6 +36,13 @@ public class OrderRequestDTO {
 
     private String paymentType;
 
+    // Pricing entered by client (no backend calculation)
+    private Double totalAmount;
+    private Double deliveryFee;
+    private Double discountAmount;
+    private Double gstAmount;
+    private Double platformFee;
+
     private LocalDate scheduledDate;
     private String timeSlot;
 

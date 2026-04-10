@@ -33,11 +33,8 @@ import com.youdash.repository.PlatformFeeRepository;
 import com.youdash.service.NotificationService;
 import com.youdash.service.OrderService;
 import com.youdash.notification.NotificationType;
-import com.youdash.pricing.PricingBreakdown;
 import com.youdash.service.DistanceService;
-import com.youdash.service.PricingService;
 import com.youdash.service.ScopeResolverService;
-import com.youdash.pricing.DeliveryScope;
 
 @Service
 public class OrderServiceImpl implements OrderService {
@@ -65,9 +62,6 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private DistanceService distanceService;
-
-    @Autowired
-    private PricingService pricingService;
 
     @Autowired
     private GstConfigRepository gstConfigRepository;
@@ -98,6 +92,26 @@ public class OrderServiceImpl implements OrderService {
 
             if (dto.getPackageCategoryId() == null) {
                 throw new RuntimeException("packageCategoryId is required");
+            }
+
+            // Pricing is provided by client (no backend calculation)
+            if (dto.getTotalAmount() == null) {
+                throw new RuntimeException("totalAmount is required");
+            }
+            if (dto.getDeliveryFee() == null) {
+                throw new RuntimeException("deliveryFee is required");
+            }
+            if (dto.getPlatformFee() == null) {
+                throw new RuntimeException("platformFee is required");
+            }
+            if (dto.getGstAmount() == null) {
+                throw new RuntimeException("gstAmount is required");
+            }
+            if (dto.getDiscountAmount() == null) {
+                throw new RuntimeException("discountAmount is required");
+            }
+            if (dto.getTotalAmount() < 0 || dto.getDeliveryFee() < 0 || dto.getPlatformFee() < 0 || dto.getGstAmount() < 0 || dto.getDiscountAmount() < 0) {
+                throw new RuntimeException("Pricing fields cannot be negative");
             }
 
             // Geo validation (optional for backward compatibility)
@@ -175,40 +189,6 @@ public class OrderServiceImpl implements OrderService {
                 deliveryType = "STANDARD";
             }
             final String deliveryTypeNormalized = deliveryType.trim();
-            DeliveryTypeEntity deliveryTypeEntity = deliveryTypeRepository
-                    .findByNameIgnoreCaseAndActiveTrue(deliveryTypeNormalized)
-                    .orElseThrow(() -> new RuntimeException("Invalid deliveryType: " + deliveryTypeNormalized));
-
-            DeliveryScope scope = scopeResolverService.resolveScope(resolvedDistanceKm);
-            DeliveryTypeRateEntity rate = deliveryTypeRateRepository
-                    .findByDeliveryTypeAndScopeAndActiveTrue(deliveryTypeEntity, scope)
-                    .orElseThrow(() -> new RuntimeException(
-                            "Delivery type rate not configured for "
-                                    + deliveryTypeEntity.getName()
-                                    + " / "
-                                    + scope.name()
-                    ));
-
-            // 7. Fetch pricing configs (DB driven)
-            GstConfigEntity gstCfg = gstConfigRepository.findFirstByActiveTrueOrderByIdDesc()
-                    .orElseThrow(() -> new RuntimeException("GST config not found"));
-            PlatformFeeEntity platformCfg = platformFeeRepository.findFirstByActiveTrueOrderByIdDesc()
-                    .orElseThrow(() -> new RuntimeException("Platform fee config not found"));
-
-            java.math.BigDecimal distanceBd = java.math.BigDecimal.valueOf(resolvedDistanceKm);
-            java.math.BigDecimal pricePerKmBd = java.math.BigDecimal.valueOf(vehicle.getPricePerKm());
-            java.math.BigDecimal gstPercent = gstCfg.getGstPercent();
-            if (gstPercent == null) {
-                gstPercent = nz(gstCfg.getCgstPercent()).add(nz(gstCfg.getSgstPercent()));
-            }
-
-            PricingBreakdown pricing = pricingService.calculate(
-                    distanceBd,
-                    pricePerKmBd,
-                    rate.getFee(),
-                    platformCfg.getFee(),
-                    gstPercent
-            );
 
             OrderEntity order = new OrderEntity();
             
@@ -240,23 +220,16 @@ public class OrderServiceImpl implements OrderService {
             order.setVehicleTypeId(dto.getVehicleTypeId());
             order.setDistanceKm(resolvedDistanceKm);
 
-            // Pricing breakdown + snapshots
-            order.setBaseAmount(pricing.getBase());
-            order.setPlatformFee(pricing.getPlatformFee());
-            // Legacy split fields kept populated for compatibility.
-            java.math.BigDecimal halfGstAmount = nz(pricing.getGst()).divide(java.math.BigDecimal.valueOf(2), 2, java.math.RoundingMode.HALF_UP);
-            order.setCgstAmount(halfGstAmount);
-            order.setSgstAmount(halfGstAmount);
-            order.setTotalAmount(pricing.getTotal().doubleValue()); // keep legacy field populated
+            // Pricing provided by client
+            order.setTotalAmount(dto.getTotalAmount());
+            order.setDeliveryFee(java.math.BigDecimal.valueOf(dto.getDeliveryFee()).setScale(2, java.math.RoundingMode.HALF_UP));
+            order.setPlatformFee(java.math.BigDecimal.valueOf(dto.getPlatformFee()).setScale(2, java.math.RoundingMode.HALF_UP));
+            order.setDiscountAmount(java.math.BigDecimal.valueOf(dto.getDiscountAmount()).setScale(2, java.math.RoundingMode.HALF_UP));
+            order.setGstAmount(java.math.BigDecimal.valueOf(dto.getGstAmount()).setScale(2, java.math.RoundingMode.HALF_UP));
 
-            order.setDeliveryTypeUsed(deliveryTypeEntity.getName());
-            order.setDeliveryTypeScopeUsed(scope.name());
-            order.setDeliveryTypeDescriptionUsed(rate.getDescription());
-            order.setDeliveryTypeFeeUsed(rate.getFee());
-            order.setPricePerKmUsed(pricePerKmBd.setScale(2, java.math.RoundingMode.HALF_UP));
-            java.math.BigDecimal halfGstPercent = nz(gstPercent).divide(java.math.BigDecimal.valueOf(2), 2, java.math.RoundingMode.HALF_UP);
-            order.setCgstPercentUsed(halfGstPercent);
-            order.setSgstPercentUsed(halfGstPercent);
+            // Delivery type snapshots (no DB lookup)
+            order.setDeliveryTypeUsed(deliveryTypeNormalized);
+            order.setDeliveryTypeFeeUsed(java.math.BigDecimal.valueOf(dto.getDeliveryFee()).setScale(2, java.math.RoundingMode.HALF_UP));
 
             order.setPaymentType(dto.getPaymentType());
             order.setScheduledDate(dto.getScheduledDate());
@@ -612,13 +585,17 @@ public class OrderServiceImpl implements OrderService {
         dto.setTotalAmount(order.getTotalAmount());
         dto.setBaseAmount(order.getBaseAmount() == null ? null : order.getBaseAmount().doubleValue());
         dto.setPlatformFee(order.getPlatformFee() == null ? null : order.getPlatformFee().doubleValue());
-        dto.setCgstAmount(order.getCgstAmount() == null ? null : order.getCgstAmount().doubleValue());
-        dto.setSgstAmount(order.getSgstAmount() == null ? null : order.getSgstAmount().doubleValue());
+        dto.setDeliveryFee(order.getDeliveryFee() == null ? null : order.getDeliveryFee().doubleValue());
+        dto.setDiscountAmount(order.getDiscountAmount() == null ? null : order.getDiscountAmount().doubleValue());
+        dto.setGstAmount(order.getGstAmount() == null ? null : order.getGstAmount().doubleValue());
         dto.setPricePerKmUsed(order.getPricePerKmUsed() == null ? null : order.getPricePerKmUsed().doubleValue());
-        dto.setCgstPercentUsed(order.getCgstPercentUsed() == null ? null : order.getCgstPercentUsed().doubleValue());
-        dto.setSgstPercentUsed(order.getSgstPercentUsed() == null ? null : order.getSgstPercentUsed().doubleValue());
         dto.setPaymentType(order.getPaymentType());
         dto.setPaymentStatus(order.getPaymentStatus());
+        dto.setPaymentMethod(order.getPaymentMethod());
+        dto.setPaymentCreatedAt(order.getPaymentCreatedAt());
+        dto.setPaymentUpdatedAt(order.getPaymentUpdatedAt());
+        dto.setRazorpayOrderId(order.getRazorpayOrderId());
+        dto.setRazorpayPaymentId(order.getRazorpayPaymentId());
         dto.setStatus(order.getStatus());
         dto.setRiderId(order.getRiderId());
         dto.setScheduledDate(order.getScheduledDate());

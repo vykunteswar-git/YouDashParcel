@@ -80,11 +80,14 @@ public class OrderEntity {
     @Column(name = "platform_fee", precision = 12, scale = 2)
     private BigDecimal platformFee;
 
-    @Column(name = "cgst_amount", precision = 12, scale = 2)
-    private BigDecimal cgstAmount;
+    @Column(name = "delivery_fee", precision = 12, scale = 2)
+    private BigDecimal deliveryFee;
 
-    @Column(name = "sgst_amount", precision = 12, scale = 2)
-    private BigDecimal sgstAmount;
+    @Column(name = "discount_amount", precision = 12, scale = 2)
+    private BigDecimal discountAmount;
+
+    @Column(name = "gst_amount", precision = 12, scale = 2)
+    private BigDecimal gstAmount;
 
     @Column(name = "delivery_type_used")
     private String deliveryTypeUsed;
@@ -101,17 +104,26 @@ public class OrderEntity {
     @Column(name = "price_per_km_used", precision = 12, scale = 2)
     private BigDecimal pricePerKmUsed;
 
-    @Column(name = "cgst_percent_used", precision = 6, scale = 2)
-    private BigDecimal cgstPercentUsed;
-
-    @Column(name = "sgst_percent_used", precision = 6, scale = 2)
-    private BigDecimal sgstPercentUsed;
-
     @Column(name = "payment_type")
     private String paymentType;
 
     @Column(name = "payment_status")
     private String paymentStatus;
+
+    @Column(name = "razorpay_order_id")
+    private String razorpayOrderId;
+
+    @Column(name = "razorpay_payment_id")
+    private String razorpayPaymentId;
+
+    @Column(name = "payment_method")
+    private String paymentMethod;
+
+    @Column(name = "payment_created_at")
+    private LocalDateTime paymentCreatedAt;
+
+    @Column(name = "payment_updated_at")
+    private LocalDateTime paymentUpdatedAt;
 
     @Column(name = "scheduled_date")
     private LocalDate scheduledDate;
