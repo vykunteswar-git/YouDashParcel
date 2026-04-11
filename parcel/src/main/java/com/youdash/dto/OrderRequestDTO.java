@@ -32,7 +32,7 @@ public class OrderRequestDTO {
     private Long vehicleTypeId;
 
     /**
-     * Outstation only: {@code DOOR_TO_DOOR}, {@code HUB_TO_HUB}, {@code DOOR_TO_HUB}, or {@code HUB_TO_DOOR}.
+     * Outstation only: {@code DOOR_TO_DOOR}, {@code DOOR_TO_HUB}, or {@code HUB_TO_DOOR}.
      * Defaults to {@code HUB_TO_DOOR} when omitted.
      */
     private String deliveryOption;

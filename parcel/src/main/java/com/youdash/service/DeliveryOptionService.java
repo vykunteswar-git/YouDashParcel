@@ -16,5 +16,5 @@ public interface DeliveryOptionService {
 
     DeliveryOptionAdminResponseDTO update(Long id, DeliveryOptionRequestDTO dto);
 
-    void softDelete(Long id);
+    void delete(Long id);
 }

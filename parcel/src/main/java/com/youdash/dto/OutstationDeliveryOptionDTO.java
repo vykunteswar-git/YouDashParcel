@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
 @Schema(description = "Outstation fulfillment choice for display and order submission")
 public class OutstationDeliveryOptionDTO {
 
-    @Schema(description = "DOOR_TO_DOOR | HUB_TO_HUB | DOOR_TO_HUB | HUB_TO_DOOR")
+    @Schema(description = "DOOR_TO_DOOR | DOOR_TO_HUB | HUB_TO_DOOR")
     private String type;
 
     private String title;

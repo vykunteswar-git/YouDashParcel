@@ -59,7 +59,7 @@ public class OrderResponseDTO {
     private String status;
     private Long riderId;
     private Long deliveryRiderId;
-    /** INCITY | DOOR_TO_DOOR | HUB_TO_HUB | DOOR_TO_HUB | HUB_TO_DOOR */
+    /** INCITY | DOOR_TO_DOOR | DOOR_TO_HUB | HUB_TO_DOOR (legacy rows may show HUB_TO_HUB) */
     private String fulfillmentType;
 
     private LocalDate scheduledDate;

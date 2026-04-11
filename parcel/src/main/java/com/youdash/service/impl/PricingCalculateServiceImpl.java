@@ -14,6 +14,7 @@ import com.youdash.repository.HubRepository;
 import com.youdash.repository.HubRouteRepository;
 import com.youdash.repository.VehicleRepository;
 import com.youdash.repository.WeightPricingConfigRepository;
+import com.youdash.service.DistanceService;
 import com.youdash.service.PricingCalculateService;
 import com.youdash.service.ZoneGeoService;
 import com.youdash.util.GeoDistanceUtil;
@@ -29,6 +30,9 @@ public class PricingCalculateServiceImpl implements PricingCalculateService {
 
     @Autowired
     private ZoneGeoService zoneGeoService;
+
+    @Autowired
+    private DistanceService distanceService;
 
     @Autowired
     private VehicleRepository vehicleRepository;
@@ -111,7 +115,7 @@ public class PricingCalculateServiceImpl implements PricingCalculateService {
             GlobalDeliveryConfigEntity global,
             BigDecimal weightCharge,
             double weightKg) {
-        double distKm = GeoDistanceUtil.haversineKm(
+        double distKm = distanceService.calculateDistanceKm(
                 dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng());
 
         VehicleEntity vehicle = vehicleRepository.findById(dto.getVehicleId())
@@ -135,7 +139,7 @@ public class PricingCalculateServiceImpl implements PricingCalculateService {
 
         PricingCalculateResponseDTO out = new PricingCalculateResponseDTO();
         out.setStraightLineDistanceKm(round2(distKm));
-        out.getBreakdownLines().add("Straight-line distance (km): " + round2(distKm));
+        out.getBreakdownLines().add("Pickup–drop route distance (km): " + round2(distKm));
         out.setServiceMode("INCITY");
         out.setDeliveryOption(null);
         out.setFirstMileCost(null);
@@ -152,7 +156,7 @@ public class PricingCalculateServiceImpl implements PricingCalculateService {
         out.setHubTransportCost(null);
         out.setHubPathIds(new ArrayList<>());
         out.setRoute(new ArrayList<>());
-        out.getBreakdownLines().add("Incity: vehicle base + chargeableKm × vehicle.pricePerKm (no zone-pricing distance)");
+        out.getBreakdownLines().add("Incity: vehicle base + chargeableKm × vehicle.pricePerKm (distance = route km)");
         out.getBreakdownLines().add("Weight: weightKg × global weight rate");
 
         BigDecimal zonePart = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
@@ -193,11 +197,11 @@ public class PricingCalculateServiceImpl implements PricingCalculateService {
         }
 
         double dFirst = hasPickup
-                ? GeoDistanceUtil.haversineKm(
+                ? distanceService.calculateDistanceKm(
                         dto.getPickupLat(), dto.getPickupLng(), startHub.getLat(), startHub.getLng())
                 : 0.0;
         double dLast = hasDrop
-                ? GeoDistanceUtil.haversineKm(
+                ? distanceService.calculateDistanceKm(
                         endHub.getLat(), endHub.getLng(), dto.getDropLat(), dto.getDropLng())
                 : 0.0;
 
@@ -216,16 +220,12 @@ public class PricingCalculateServiceImpl implements PricingCalculateService {
         BigDecimal vehiclePart = BigDecimal.ZERO;
         BigDecimal zonePart = BigDecimal.ZERO;
 
-        double refKm = resolveStraightLineReferenceKm(dto, deliveryOpt, startHub, endHub, hasPickup, hasDrop);
+        double refKm = resolveReferenceDistanceKm(dto, deliveryOpt, startHub, endHub, hasPickup, hasDrop);
         PricingCalculateResponseDTO out = new PricingCalculateResponseDTO();
         out.setStraightLineDistanceKm(refKm);
-        out.getBreakdownLines().add("Reference distance (km): " + round2(refKm));
+        out.getBreakdownLines().add("Reference route distance (km): " + round2(refKm));
 
         switch (deliveryOpt) {
-            case FulfillmentType.HUB_TO_HUB -> {
-                firstMile = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-                lastMile = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-            }
             case FulfillmentType.DOOR_TO_HUB -> {
                 lastMile = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
             }
@@ -274,7 +274,7 @@ public class PricingCalculateServiceImpl implements PricingCalculateService {
         return out;
     }
 
-    private static double resolveStraightLineReferenceKm(
+    private double resolveReferenceDistanceKm(
             PricingCalculateRequestDTO dto,
             String deliveryOpt,
             HubEntity startHub,
@@ -282,24 +282,22 @@ public class PricingCalculateServiceImpl implements PricingCalculateService {
             boolean hasPickup,
             boolean hasDrop) {
         return switch (deliveryOpt) {
-            case FulfillmentType.DOOR_TO_DOOR -> GeoDistanceUtil.haversineKm(
+            case FulfillmentType.DOOR_TO_DOOR -> distanceService.calculateDistanceKm(
                     dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng());
-            case FulfillmentType.HUB_TO_HUB -> GeoDistanceUtil.haversineKm(
-                    startHub.getLat(), startHub.getLng(), endHub.getLat(), endHub.getLng());
             case FulfillmentType.DOOR_TO_HUB -> {
                 if (hasDrop) {
-                    yield GeoDistanceUtil.haversineKm(
+                    yield distanceService.calculateDistanceKm(
                             dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng());
                 }
-                yield GeoDistanceUtil.haversineKm(
+                yield distanceService.calculateDistanceKm(
                         dto.getPickupLat(), dto.getPickupLng(), endHub.getLat(), endHub.getLng());
             }
             case FulfillmentType.HUB_TO_DOOR -> {
                 if (hasPickup) {
-                    yield GeoDistanceUtil.haversineKm(
+                    yield distanceService.calculateDistanceKm(
                             dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng());
                 }
-                yield GeoDistanceUtil.haversineKm(
+                yield distanceService.calculateDistanceKm(
                         startHub.getLat(), startHub.getLng(), dto.getDropLat(), dto.getDropLng());
             }
             default -> 0.0;
@@ -333,7 +331,7 @@ public class PricingCalculateServiceImpl implements PricingCalculateService {
                         "Pickup → origin hub: %.2f km × ₹%.2f/km = ₹%.2f",
                         dFirst, firstRate, firstMile.doubleValue()));
             }
-            case FulfillmentType.HUB_TO_HUB, FulfillmentType.HUB_TO_DOOR -> {
+            case FulfillmentType.HUB_TO_DOOR -> {
                 out.getBreakdownLines().add("Pickup → origin hub: not charged for this option (₹0.00)");
             }
             default -> {
@@ -350,7 +348,7 @@ public class PricingCalculateServiceImpl implements PricingCalculateService {
                         "Destination hub → drop: %.2f km × ₹%.2f/km = ₹%.2f",
                         dLast, lastRate, lastMile.doubleValue()));
             }
-            case FulfillmentType.HUB_TO_HUB, FulfillmentType.DOOR_TO_HUB -> {
+            case FulfillmentType.DOOR_TO_HUB -> {
                 out.getBreakdownLines().add("Destination hub → drop: not charged for this option (₹0.00)");
             }
             default -> {
@@ -434,11 +432,6 @@ public class PricingCalculateServiceImpl implements PricingCalculateService {
                     throw new RuntimeException("pickup and drop coordinates are required for DOOR_TO_DOOR");
                 }
             }
-            case FulfillmentType.HUB_TO_HUB -> {
-                if (dto.getSourceHubId() == null || dto.getDestinationHubId() == null) {
-                    throw new RuntimeException("sourceHubId and destinationHubId are required for HUB_TO_HUB");
-                }
-            }
             case FulfillmentType.DOOR_TO_HUB -> {
                 if (!hasPickup) {
                     throw new RuntimeException("pickupLat and pickupLng are required for DOOR_TO_HUB");
@@ -464,9 +457,6 @@ public class PricingCalculateServiceImpl implements PricingCalculateService {
             List<HubEntity> hubs,
             String deliveryOpt,
             boolean hasPickup) {
-        if (FulfillmentType.HUB_TO_HUB.equals(deliveryOpt)) {
-            return requireActiveHub(dto.getSourceHubId(), "sourceHubId");
-        }
         if (FulfillmentType.HUB_TO_DOOR.equals(deliveryOpt)) {
             if (dto.getSourceHubId() != null) {
                 return requireActiveHub(dto.getSourceHubId(), "sourceHubId");
@@ -490,9 +480,6 @@ public class PricingCalculateServiceImpl implements PricingCalculateService {
             List<HubEntity> hubs,
             String deliveryOpt,
             boolean hasDrop) {
-        if (FulfillmentType.HUB_TO_HUB.equals(deliveryOpt)) {
-            return requireActiveHub(dto.getDestinationHubId(), "destinationHubId");
-        }
         if (FulfillmentType.DOOR_TO_HUB.equals(deliveryOpt)) {
             if (dto.getDestinationHubId() != null) {
                 return requireActiveHub(dto.getDestinationHubId(), "destinationHubId");
@@ -525,13 +512,15 @@ public class PricingCalculateServiceImpl implements PricingCalculateService {
             return null;
         }
         String u = raw.trim().toUpperCase(Locale.ROOT);
+        if (FulfillmentType.HUB_TO_HUB.equals(u)) {
+            throw new RuntimeException("HUB_TO_HUB is no longer supported; use DOOR_TO_DOOR, DOOR_TO_HUB, or HUB_TO_DOOR");
+        }
         if (FulfillmentType.DOOR_TO_DOOR.equals(u)
-                || FulfillmentType.HUB_TO_HUB.equals(u)
                 || FulfillmentType.DOOR_TO_HUB.equals(u)
                 || FulfillmentType.HUB_TO_DOOR.equals(u)) {
             return u;
         }
-        throw new RuntimeException("deliveryOption must be DOOR_TO_DOOR, HUB_TO_HUB, DOOR_TO_HUB, or HUB_TO_DOOR");
+        throw new RuntimeException("deliveryOption must be DOOR_TO_DOOR, DOOR_TO_HUB, or HUB_TO_DOOR");
     }
 
     private static double resolveMileRatePerKm(Double dedicated, Double legacyFallback) {

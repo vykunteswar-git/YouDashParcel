@@ -1,9 +1,8 @@
 package com.youdash.service.impl;
 
 import com.youdash.service.DistanceService;
-import org.springframework.stereotype.Service;
 
-@Service
+/** Great-circle distance; used when {@code youdash.maps.distance.api-key} is unset. */
 public class HaversineDistanceService implements DistanceService {
 
     private static final double EARTH_RADIUS_KM = 6371.0;

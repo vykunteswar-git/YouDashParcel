@@ -12,6 +12,7 @@ import com.youdash.entity.VehicleEntity;
 import com.youdash.entity.ZoneEntity;
 import com.youdash.repository.HubRepository;
 import com.youdash.repository.VehicleRepository;
+import com.youdash.service.DistanceService;
 import com.youdash.service.ServiceAvailabilityService;
 import com.youdash.service.ZoneGeoService;
 import com.youdash.util.GeoDistanceUtil;
@@ -36,6 +37,9 @@ public class ServiceAvailabilityServiceImpl implements ServiceAvailabilityServic
     @Autowired
     private HubRepository hubRepository;
 
+    @Autowired
+    private DistanceService distanceService;
+
     @Override
     public ApiResponse<ServiceAvailabilityResponseDTO> check(ServiceAvailabilityRequestDTO dto) {
         ApiResponse<ServiceAvailabilityResponseDTO> response = new ApiResponse<>();
@@ -47,7 +51,7 @@ public class ServiceAvailabilityServiceImpl implements ServiceAvailabilityServic
             validateLatLng(dto.getDropLat(), dto.getDropLng(), "drop");
             validateWeightKg(dto.getWeightKg());
 
-            double distanceKm = GeoDistanceUtil.haversineKm(
+            double distanceKm = distanceService.calculateDistanceKm(
                     dto.getPickupLat(), dto.getPickupLng(),
                     dto.getDropLat(), dto.getDropLng());
 
@@ -113,10 +117,6 @@ public class ServiceAvailabilityServiceImpl implements ServiceAvailabilityServic
                         "DOOR_TO_DOOR",
                         "Door to door",
                         "Pickup at sender address and delivery to receiver address."),
-                new OutstationDeliveryOptionDTO(
-                        "HUB_TO_HUB",
-                        "Hub to hub",
-                        "Drop at origin hub; receiver collects at destination hub."),
                 new OutstationDeliveryOptionDTO(
                         "DOOR_TO_HUB",
                         "Door to hub",

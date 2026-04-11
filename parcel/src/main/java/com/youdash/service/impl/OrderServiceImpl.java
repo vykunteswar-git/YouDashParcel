@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import com.youdash.bean.ApiResponse;
@@ -213,11 +214,10 @@ public class OrderServiceImpl implements OrderService {
                     String u = opt.trim().toUpperCase();
                     fulfillmentType = switch (u) {
                         case "DOOR_TO_DOOR" -> FulfillmentType.DOOR_TO_DOOR;
-                        case "HUB_TO_HUB" -> FulfillmentType.HUB_TO_HUB;
                         case "DOOR_TO_HUB" -> FulfillmentType.DOOR_TO_HUB;
                         case "HUB_TO_DOOR" -> FulfillmentType.HUB_TO_DOOR;
                         default -> throw new RuntimeException(
-                                "deliveryOption must be DOOR_TO_DOOR, HUB_TO_HUB, DOOR_TO_HUB, or HUB_TO_DOOR");
+                                "deliveryOption must be DOOR_TO_DOOR, DOOR_TO_HUB, or HUB_TO_DOOR");
                     };
                 }
             }
@@ -440,8 +440,8 @@ public class OrderServiceImpl implements OrderService {
             OrderEntity order = orderRepository.findById(Objects.requireNonNull(id))
                     .orElseThrow(() -> new RuntimeException("Order not found with id: " + id));
 
-            if (!OrderStatus.READY_FOR_ASSIGNMENT.equals(order.getStatus())) {
-                throw new RuntimeException("Rider can only be assigned when order is READY_FOR_ASSIGNMENT");
+            if (!Set.of(OrderStatus.CREATED, OrderStatus.READY_FOR_ASSIGNMENT).contains(order.getStatus())) {
+                throw new RuntimeException("Rider can only be assigned when order is CREATED or READY_FOR_ASSIGNMENT");
             }
             if (!isAssignmentPaymentOk(order)) {
                 throw new RuntimeException("Order payment must be PAID (or COD) before assigning a rider");
@@ -638,7 +638,11 @@ public class OrderServiceImpl implements OrderService {
     public ApiResponse<List<OrderResponseDTO>> listUnassignedOrders() {
         ApiResponse<List<OrderResponseDTO>> response = new ApiResponse<>();
         try {
-            List<OrderEntity> list = orderRepository.findByStatusOrderByCreatedAtDesc(OrderStatus.READY_FOR_ASSIGNMENT).stream()
+            List<OrderEntity> list = orderRepository
+                    .findByStatusInAndRiderIdIsNull(
+                            List.of(OrderStatus.CREATED, OrderStatus.READY_FOR_ASSIGNMENT),
+                            Sort.by(Sort.Direction.DESC, "createdAt"))
+                    .stream()
                     .filter(this::isAssignmentPaymentOk)
                     .collect(Collectors.toList());
             response.setData(list.stream().map(this::mapToResponseDTO).collect(Collectors.toList()));
@@ -713,7 +717,7 @@ public class OrderServiceImpl implements OrderService {
                     .orElseThrow(() -> new RuntimeException("Order not found with id: " + orderId));
             if (!receiverCollectsAtDestinationHub(order)) {
                 throw new RuntimeException(
-                        "complete-hub-delivery applies only when the receiver collects at the destination hub (HUB_TO_HUB or DOOR_TO_HUB)");
+                        "complete-hub-delivery applies only when the receiver collects at the destination hub (DOOR_TO_HUB)");
             }
             if (!OrderStatus.AT_DESTINATION_HUB.equals(order.getStatus())) {
                 throw new RuntimeException("Order must be AT_DESTINATION_HUB");
@@ -1029,7 +1033,7 @@ public class OrderServiceImpl implements OrderService {
         if (ft == null) {
             return false;
         }
-        return FulfillmentType.HUB_TO_HUB.equals(ft) || FulfillmentType.DOOR_TO_HUB.equals(ft);
+        return FulfillmentType.DOOR_TO_HUB.equals(ft) || FulfillmentType.HUB_TO_HUB.equals(ft);
     }
 
     /** Parcel is delivered to the receiver's door (last-mile from destination hub). */

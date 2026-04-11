@@ -1,5 +1,8 @@
 HELP.md
 target/
+
+# Local-only secrets (API keys); copy from application-local.properties.example
+src/main/resources/application-local.properties
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/

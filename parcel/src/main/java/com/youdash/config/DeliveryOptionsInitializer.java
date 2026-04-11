@@ -25,9 +25,8 @@ public class DeliveryOptionsInitializer {
         seed(DeliveryOptionCategory.INCITY, "EXPRESS", 1);
         seed(DeliveryOptionCategory.INCITY, "SAFE", 2);
         seed(DeliveryOptionCategory.OUTSTATION, "DOOR_TO_DOOR", 0);
-        seed(DeliveryOptionCategory.OUTSTATION, "HUB_TO_HUB", 1);
-        seed(DeliveryOptionCategory.OUTSTATION, "DOOR_TO_HUB", 2);
-        seed(DeliveryOptionCategory.OUTSTATION, "HUB_TO_DOOR", 3);
+        seed(DeliveryOptionCategory.OUTSTATION, "DOOR_TO_HUB", 1);
+        seed(DeliveryOptionCategory.OUTSTATION, "HUB_TO_DOOR", 2);
     }
 
     private void seed(DeliveryOptionCategory category, String code, int sort) {

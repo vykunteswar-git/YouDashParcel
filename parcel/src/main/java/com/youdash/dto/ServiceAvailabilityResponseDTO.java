@@ -34,7 +34,7 @@ public class ServiceAvailabilityResponseDTO {
 
     /**
      * OUTSTATION only: labeled options; {@link OutstationDeliveryOptionDTO#getType} matches order / pricing
-     * ({@code DOOR_TO_DOOR}, {@code HUB_TO_HUB}, {@code DOOR_TO_HUB}, {@code HUB_TO_DOOR}).
+     * ({@code DOOR_TO_DOOR}, {@code DOOR_TO_HUB}, {@code HUB_TO_DOOR}).
      */
     private List<OutstationDeliveryOptionDTO> deliveryOptions = new ArrayList<>();
 }

@@ -4,6 +4,7 @@ import com.youdash.dto.DeliveryOptionAdminResponseDTO;
 import com.youdash.dto.DeliveryOptionRequestDTO;
 import com.youdash.dto.DeliveryOptionsResponseDTO;
 import com.youdash.entity.DeliveryOptionEntity;
+import com.youdash.exception.ResourceNotFoundException;
 import com.youdash.model.DeliveryOptionCategory;
 import com.youdash.repository.DeliveryOptionRepository;
 import com.youdash.service.DeliveryOptionService;
@@ -78,11 +79,10 @@ public class DeliveryOptionServiceImpl implements DeliveryOptionService {
 
     @Override
     @Transactional
-    public void softDelete(Long id) {
+    public void delete(Long id) {
         DeliveryOptionEntity e = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Delivery option not found: " + id));
-        e.setIsActive(false);
-        repository.save(e);
+                .orElseThrow(() -> new ResourceNotFoundException("Delivery option not found: " + id));
+        repository.delete(e);
     }
 
     private static String normalizeCode(String code) {

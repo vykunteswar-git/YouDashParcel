@@ -130,7 +130,7 @@ public class OrderEntity {
     @Column(name = "delivery_rider_id")
     private Long deliveryRiderId;
 
-    /** INCITY | DOOR_TO_DOOR | HUB_TO_HUB | DOOR_TO_HUB | HUB_TO_DOOR */
+    /** INCITY | DOOR_TO_DOOR | DOOR_TO_HUB | HUB_TO_DOOR (legacy: HUB_TO_HUB) */
     @Column(name = "fulfillment_type", length = 32)
     private String fulfillmentType;
 

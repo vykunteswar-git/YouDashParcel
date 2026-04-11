@@ -4,6 +4,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Sort;
+
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -21,6 +23,11 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     Optional<OrderEntity> findByOrderId(String orderId);
 
     List<OrderEntity> findByStatusOrderByCreatedAtDesc(String status);
+
+    /**
+     * Pickup-rider queue: created (awaiting payment or legacy rows) or ready, with no pickup rider yet.
+     */
+    List<OrderEntity> findByStatusInAndRiderIdIsNull(Collection<String> statuses, Sort sort);
 
     List<OrderEntity> findByRiderIdOrderByUpdatedAtDesc(Long riderId);
 

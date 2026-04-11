@@ -51,11 +51,11 @@ public class AdminDeliveryOptionController {
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Deactivate delivery option (soft delete)")
+    @Operation(summary = "Delete delivery option (removes row from database)")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
-        deliveryOptionService.softDelete(id);
+        deliveryOptionService.delete(id);
         ApiResponse<Void> r = new ApiResponse<>();
-        r.setMessage("Delivery option deactivated successfully");
+        r.setMessage("Delivery option deleted successfully");
         r.setMessageKey("SUCCESS");
         r.setSuccess(true);
         r.setStatus(HttpStatus.OK.value());

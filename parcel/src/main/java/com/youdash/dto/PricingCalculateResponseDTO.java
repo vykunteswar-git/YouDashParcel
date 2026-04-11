@@ -15,6 +15,10 @@ public class PricingCalculateResponseDTO {
 
     /** INCITY | OUTSTATION */
     private String serviceMode;
+    /**
+     * Primary pickup↔drop distance used in the quote (driving route km when Google Maps API key is configured;
+     * otherwise great-circle / haversine km).
+     */
     private Double straightLineDistanceKm;
 
     /** OUTSTATION: request delivery option; null for INCITY */
@@ -29,9 +33,9 @@ public class PricingCalculateResponseDTO {
     /** OUTSTATION: resolved hubs used for pickup-side and drop-side legs */
     private Long originHubId;
     private Long destinationHubId;
-    /** Haversine km: pickup → origin hub (0 if no pickup leg) */
+    /** Route km: pickup → origin hub (0 if no pickup leg); driving when Maps key is set, else haversine */
     private Double firstMileDistanceKm;
-    /** Haversine km: destination hub → drop (0 if no drop leg) */
+    /** Route km: destination hub → drop (0 if no drop leg); driving when Maps key is set, else haversine */
     private Double lastMileDistanceKm;
     /** Rates from global config used for first / last mile (₹/km) */
     private Double firstMileRatePerKm;
