@@ -36,19 +36,9 @@ public class AdminController {
         return adminService.getAllVehicles();
     }
 
-    @GetMapping("/vehicles/active")
-    public ApiResponse<List<VehicleDTO>> getActiveVehicles() {
-        return adminService.getActiveVehicles();
-    }
-
     @PutMapping("/vehicles/{id}")
     public ApiResponse<VehicleDTO> updateVehicle(@PathVariable Long id, @RequestBody VehicleDTO dto) {
         return adminService.updateVehicle(id, dto);
-    }
-
-    @PutMapping("/vehicles/{id}/toggle")
-    public ApiResponse<VehicleDTO> toggleVehicle(@PathVariable Long id) {
-        return adminService.toggleVehicle(id);
     }
 
     // --- CATEGORY MANAGEMENT ---

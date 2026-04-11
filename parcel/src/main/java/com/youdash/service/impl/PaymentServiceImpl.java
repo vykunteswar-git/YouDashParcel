@@ -18,7 +18,9 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.OrderResponseDTO;
 import com.youdash.dto.RazorpayOrderCreatedDTO;
 import com.youdash.entity.OrderEntity;
+import com.youdash.model.OrderStatus;
 import com.youdash.repository.OrderRepository;
+import com.youdash.service.OrderNotificationService;
 import com.youdash.service.OrderService;
 import com.youdash.service.PaymentService;
 
@@ -39,6 +41,9 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Autowired
     private OrderService orderService;
+
+    @Autowired
+    private OrderNotificationService orderNotificationService;
 
     @Override
     public ApiResponse<RazorpayOrderCreatedDTO> createRazorpayOrder(String orderIdOrReference) {
@@ -165,7 +170,14 @@ public class PaymentServiceImpl implements PaymentService {
                 order.setPaymentCreatedAt(LocalDateTime.now());
             }
             order.setPaymentUpdatedAt(LocalDateTime.now());
+            if (OrderStatus.CREATED.equals(order.getStatus())) {
+                order.setStatus(OrderStatus.READY_FOR_ASSIGNMENT);
+            }
             orderRepository.save(order);
+            try {
+                orderNotificationService.onPaymentSuccessFirstTime(order);
+            } catch (Exception ignored) {
+            }
 
             response.setMessage("Payment verified successfully");
             response.setMessageKey("SUCCESS");
@@ -237,7 +249,14 @@ public class PaymentServiceImpl implements PaymentService {
                         order.setPaymentCreatedAt(LocalDateTime.now());
                     }
                     order.setPaymentUpdatedAt(LocalDateTime.now());
+                    if (OrderStatus.CREATED.equals(order.getStatus())) {
+                        order.setStatus(OrderStatus.READY_FOR_ASSIGNMENT);
+                    }
                     orderRepository.save(order);
+                    try {
+                        orderNotificationService.onPaymentSuccessFirstTime(order);
+                    } catch (Exception ignored) {
+                    }
                 }
             } else if ("payment.failed".equalsIgnoreCase(event)) {
                 if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())) {
@@ -248,6 +267,10 @@ public class PaymentServiceImpl implements PaymentService {
                     }
                     order.setPaymentUpdatedAt(LocalDateTime.now());
                     orderRepository.save(order);
+                    try {
+                        orderNotificationService.onPaymentFailed(order);
+                    } catch (Exception ignored) {
+                    }
                 }
             }
 

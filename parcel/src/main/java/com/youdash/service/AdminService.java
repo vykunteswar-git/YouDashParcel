@@ -19,7 +19,6 @@ public interface AdminService {
     ApiResponse<List<VehicleDTO>> getAllVehicles();
     ApiResponse<List<VehicleDTO>> getActiveVehicles();
     ApiResponse<VehicleDTO> updateVehicle(Long id, VehicleDTO dto);
-    ApiResponse<VehicleDTO> toggleVehicle(Long id);
 
     // Category Management
     ApiResponse<PackageCategoryDTO> createCategory(PackageCategoryDTO dto);

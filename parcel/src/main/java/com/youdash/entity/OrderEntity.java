@@ -89,18 +89,6 @@ public class OrderEntity {
     @Column(name = "gst_amount", precision = 12, scale = 2)
     private BigDecimal gstAmount;
 
-    @Column(name = "delivery_type_used")
-    private String deliveryTypeUsed;
-
-    @Column(name = "delivery_type_scope_used")
-    private String deliveryTypeScopeUsed;
-
-    @Column(name = "delivery_type_description_used", length = 500)
-    private String deliveryTypeDescriptionUsed;
-
-    @Column(name = "delivery_type_fee_used", precision = 12, scale = 2)
-    private BigDecimal deliveryTypeFeeUsed;
-
     @Column(name = "price_per_km_used", precision = 12, scale = 2)
     private BigDecimal pricePerKmUsed;
 
@@ -134,8 +122,17 @@ public class OrderEntity {
     @Column(name = "status")
     private String status;
 
+    /** Pickup / first-mile rider */
     @Column(name = "rider_id")
     private Long riderId;
+
+    /** Last-mile rider (outstation hub-to-door) */
+    @Column(name = "delivery_rider_id")
+    private Long deliveryRiderId;
+
+    /** INCITY | DOOR_TO_DOOR | HUB_TO_HUB | DOOR_TO_HUB | HUB_TO_DOOR */
+    @Column(name = "fulfillment_type", length = 32)
+    private String fulfillmentType;
 
     @Column(name = "package_items")
     private String packageItems;

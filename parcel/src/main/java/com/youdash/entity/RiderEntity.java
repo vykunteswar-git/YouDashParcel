@@ -5,6 +5,8 @@ import java.time.LocalDateTime;
 import jakarta.persistence.*;
 import lombok.Data;
 
+import com.youdash.model.RiderApprovalStatus;
+
 @Entity
 @Table(name = "youdash_riders")
 @Data
@@ -56,10 +58,16 @@ public class RiderEntity {
     @Column(name = "fcm_token")
     private String fcmToken;
 
+    @Column(name = "approval_status", length = 24)
+    private String approvalStatus;
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
+        if (this.approvalStatus == null) {
+            this.approvalStatus = RiderApprovalStatus.PENDING;
+        }
     }
 
     @PreUpdate

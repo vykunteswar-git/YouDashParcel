@@ -12,6 +12,8 @@ import com.youdash.entity.RiderEntity;
 public interface RiderRepository extends JpaRepository<RiderEntity, Long> {
     List<RiderEntity> findByIsAvailableTrue();
 
+    List<RiderEntity> findByApprovalStatusOrderByCreatedAtDesc(String approvalStatus);
+
     Optional<RiderEntity> findByPhone(String phone);
 
     Optional<RiderEntity> findByFcmToken(String fcmToken);

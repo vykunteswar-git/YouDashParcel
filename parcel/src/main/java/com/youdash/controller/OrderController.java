@@ -1,7 +1,6 @@
 package com.youdash.controller;
 
 import java.util.List;
-import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -9,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.OrderRequestDTO;
 import com.youdash.dto.OrderResponseDTO;
+import com.youdash.dto.OrderTrackingDTO;
 import com.youdash.service.OrderService;
 
 @RestController
@@ -33,37 +33,13 @@ public class OrderController {
         return orderService.getOrderById(id);
     }
 
-    @PutMapping("/{id}/status")
-    public ApiResponse<OrderResponseDTO> updateOrderStatus(
-            @PathVariable Long id, 
-            @RequestBody Map<String, String> statusMap) {
-        String status = statusMap.get("status");
-        return orderService.updateOrderStatus(id, status);
-    }
-
-    @PostMapping("/{id}/assign-rider")
-    public ApiResponse<OrderResponseDTO> assignRider(
-            @PathVariable Long id, 
-            @RequestBody Map<String, Object> riderMap) {
-        
-        Object riderIdObj = riderMap.get("riderId");
-        if (riderIdObj == null) {
-            throw new RuntimeException("riderId is required");
-        }
-        
-        Long riderId = Long.valueOf(riderIdObj.toString());
-        return orderService.assignRider(id, riderId);
+    @GetMapping("/{id}/tracking")
+    public ApiResponse<OrderTrackingDTO> getOrderTracking(@PathVariable Long id) {
+        return orderService.getOrderTracking(id);
     }
 
     @PutMapping("/{id}/cancel")
     public ApiResponse<OrderResponseDTO> cancelOrder(@PathVariable Long id) {
         return orderService.cancelOrder(id);
-    }
-
-    @PutMapping("/{id}/update")
-    public ApiResponse<OrderResponseDTO> updateOrder(
-            @PathVariable Long id, 
-            @RequestBody OrderRequestDTO dto) {
-        return orderService.updateOrder(id, dto);
     }
 }

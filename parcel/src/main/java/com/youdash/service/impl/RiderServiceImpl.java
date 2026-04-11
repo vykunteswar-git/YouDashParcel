@@ -10,6 +10,9 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.RiderRequestDTO;
 import com.youdash.dto.RiderResponseDTO;
 import com.youdash.entity.RiderEntity;
+import com.youdash.model.OrderStatus;
+import com.youdash.model.RiderApprovalStatus;
+import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.service.RiderService;
 
@@ -18,6 +21,9 @@ public class RiderServiceImpl implements RiderService {
 
     @Autowired
     private RiderRepository riderRepository;
+
+    @Autowired
+    private OrderRepository orderRepository;
 
     @Override
     public ApiResponse<RiderResponseDTO> createRider(RiderRequestDTO dto) {
@@ -88,27 +94,7 @@ public class RiderServiceImpl implements RiderService {
 
     @Override
     public ApiResponse<List<RiderResponseDTO>> getAvailableRiders() {
-        ApiResponse<List<RiderResponseDTO>> response = new ApiResponse<>();
-        try {
-            List<RiderEntity> riders = riderRepository.findByIsAvailableTrue();
-            List<RiderResponseDTO> dtos = riders.stream()
-                    .map(this::mapToResponseDTO)
-                    .collect(Collectors.toList());
-
-            response.setData(dtos);
-            response.setMessage("Available riders fetched successfully");
-            response.setMessageKey("SUCCESS");
-            response.setStatus(200);
-            response.setTotalCount(dtos.size());
-            response.setSuccess(true);
-
-        } catch (Exception e) {
-            response.setMessage("Failed to fetch available riders: " + e.getMessage());
-            response.setMessageKey("ERROR");
-            response.setStatus(500);
-            response.setSuccess(false);
-        }
-        return response;
+        return listRidersEligibleForAssignment();
     }
 
     @Override
@@ -174,6 +160,107 @@ public class RiderServiceImpl implements RiderService {
         return response;
     }
 
+    @Override
+    public ApiResponse<List<RiderResponseDTO>> listPendingRiders() {
+        ApiResponse<List<RiderResponseDTO>> response = new ApiResponse<>();
+        try {
+            List<RiderResponseDTO> dtos = riderRepository.findByApprovalStatusOrderByCreatedAtDesc(RiderApprovalStatus.PENDING).stream()
+                    .map(this::mapToResponseDTO)
+                    .collect(Collectors.toList());
+            response.setData(dtos);
+            response.setMessage("Pending riders fetched successfully");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setTotalCount(dtos.size());
+            response.setSuccess(true);
+        } catch (Exception e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(500);
+            response.setSuccess(false);
+        }
+        return response;
+    }
+
+    @Override
+    public ApiResponse<RiderResponseDTO> approveRider(Long id) {
+        ApiResponse<RiderResponseDTO> response = new ApiResponse<>();
+        try {
+            RiderEntity rider = riderRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Rider not found with id: " + id));
+            rider.setApprovalStatus(RiderApprovalStatus.APPROVED);
+            riderRepository.save(rider);
+            response.setData(mapToResponseDTO(rider));
+            response.setMessage("Rider approved");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setSuccess(true);
+        } catch (Exception e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(500);
+            response.setSuccess(false);
+        }
+        return response;
+    }
+
+    @Override
+    public ApiResponse<RiderResponseDTO> rejectRider(Long id) {
+        ApiResponse<RiderResponseDTO> response = new ApiResponse<>();
+        try {
+            RiderEntity rider = riderRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Rider not found with id: " + id));
+            rider.setApprovalStatus(RiderApprovalStatus.REJECTED);
+            riderRepository.save(rider);
+            response.setData(mapToResponseDTO(rider));
+            response.setMessage("Rider rejected");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setSuccess(true);
+        } catch (Exception e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(500);
+            response.setSuccess(false);
+        }
+        return response;
+    }
+
+    @Override
+    public ApiResponse<List<RiderResponseDTO>> listRidersEligibleForAssignment() {
+        ApiResponse<List<RiderResponseDTO>> response = new ApiResponse<>();
+        try {
+            List<String> pickupBusy = List.of(OrderStatus.ASSIGNED, OrderStatus.ACCEPTED, OrderStatus.PICKED_UP, OrderStatus.IN_TRANSIT);
+            List<String> deliveryBusy = List.of(OrderStatus.ASSIGNED_TO_DELIVERY_RIDER, OrderStatus.OUT_FOR_DELIVERY);
+            List<RiderResponseDTO> dtos = riderRepository.findByIsAvailableTrue().stream()
+                    .filter(this::isApprovedOrLegacy)
+                    .filter(r -> !orderRepository.existsByRiderIdAndStatusIn(r.getId(), pickupBusy))
+                    .filter(r -> !orderRepository.existsByDeliveryRiderIdAndStatusIn(r.getId(), deliveryBusy))
+                    .map(this::mapToResponseDTO)
+                    .collect(Collectors.toList());
+            response.setData(dtos);
+            response.setMessage("Eligible riders fetched successfully");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setTotalCount(dtos.size());
+            response.setSuccess(true);
+        } catch (Exception e) {
+            response.setMessage("Failed to fetch eligible riders: " + e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(500);
+            response.setSuccess(false);
+        }
+        return response;
+    }
+
+    private boolean isApprovedOrLegacy(RiderEntity rider) {
+        String ap = rider.getApprovalStatus();
+        if (ap == null || ap.isBlank()) {
+            return true;
+        }
+        return RiderApprovalStatus.APPROVED.equalsIgnoreCase(ap);
+    }
+
     private RiderResponseDTO mapToResponseDTO(RiderEntity rider) {
         RiderResponseDTO dto = new RiderResponseDTO();
         dto.setId(rider.getId());
@@ -182,6 +269,7 @@ public class RiderServiceImpl implements RiderService {
         dto.setVehicleType(rider.getVehicleType());
         dto.setIsAvailable(rider.getIsAvailable());
         dto.setRating(rider.getRating());
+        dto.setApprovalStatus(rider.getApprovalStatus());
         return dto;
     }
 }

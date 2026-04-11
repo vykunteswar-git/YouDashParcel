@@ -18,4 +18,12 @@ public interface RiderService {
 
     ApiResponse<RiderResponseDTO> updateLocation(Long riderId, Double lat, Double lng);
 
+    ApiResponse<List<RiderResponseDTO>> listPendingRiders();
+
+    ApiResponse<RiderResponseDTO> approveRider(Long id);
+
+    ApiResponse<RiderResponseDTO> rejectRider(Long id);
+
+    ApiResponse<List<RiderResponseDTO>> listRidersEligibleForAssignment();
+
 }

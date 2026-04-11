@@ -20,8 +20,6 @@ public class OrderRequestDTO {
     private String senderName;
     private String senderPhone;
 
-    private String deliveryType;
-
     private String receiverName;
     private String receiverPhone;
 
@@ -30,18 +28,18 @@ public class OrderRequestDTO {
     private Double weight;
     private String imageUrl;
 
+    /** Required for INCITY orders; omitted for OUTSTATION */
     private Long vehicleTypeId;
+
+    /**
+     * Outstation only: {@code DOOR_TO_DOOR}, {@code HUB_TO_HUB}, {@code DOOR_TO_HUB}, or {@code HUB_TO_DOOR}.
+     * Defaults to {@code HUB_TO_DOOR} when omitted.
+     */
+    private String deliveryOption;
 
     private Double distanceKm;
 
     private String paymentType;
-
-    // Pricing entered by client (no backend calculation)
-    private Double totalAmount;
-    private Double deliveryFee;
-    private Double discountAmount;
-    private Double gstAmount;
-    private Double platformFee;
 
     private LocalDate scheduledDate;
     private String timeSlot;

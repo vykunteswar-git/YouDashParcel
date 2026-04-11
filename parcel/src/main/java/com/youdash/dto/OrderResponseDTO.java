@@ -24,10 +24,6 @@ public class OrderResponseDTO {
     private String senderName;
     private String senderPhone;
 
-    private String deliveryTypeUsed;
-    private String deliveryTypeScopeUsed;
-    private String deliveryTypeDescriptionUsed;
-
     private String receiverName;
     private String receiverPhone;
 
@@ -62,6 +58,9 @@ public class OrderResponseDTO {
 
     private String status;
     private Long riderId;
+    private Long deliveryRiderId;
+    /** INCITY | DOOR_TO_DOOR | HUB_TO_HUB | DOOR_TO_HUB | HUB_TO_DOOR */
+    private String fulfillmentType;
 
     private LocalDate scheduledDate;
     private String timeSlot;

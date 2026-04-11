@@ -8,10 +8,14 @@ import org.springframework.web.bind.annotation.*;
 
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.FcmTokenRequestDTO;
+import com.youdash.dto.OrderResponseDTO;
+import com.youdash.dto.RiderOrderStatusRequestDTO;
 import com.youdash.dto.RiderRequestDTO;
 import com.youdash.dto.RiderResponseDTO;
 import com.youdash.entity.RiderEntity;
 import com.youdash.repository.RiderRepository;
+import com.youdash.security.RiderAccessVerifier;
+import com.youdash.service.OrderService;
 import com.youdash.service.RiderService;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -26,16 +30,41 @@ public class RiderController {
     @Autowired
     private RiderRepository riderRepository;
 
+    @Autowired
+    private OrderService orderService;
+
+    @Autowired
+    private RiderAccessVerifier riderAccessVerifier;
+
+    @PostMapping("/orders/{orderId}/accept")
+    public ApiResponse<OrderResponseDTO> acceptOrder(@PathVariable Long orderId, HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return orderService.riderAcceptOrder(riderId, orderId);
+    }
+
+    @PostMapping("/orders/{orderId}/reject")
+    public ApiResponse<OrderResponseDTO> rejectOrder(@PathVariable Long orderId, HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return orderService.riderRejectOrder(riderId, orderId);
+    }
+
+    @PutMapping("/orders/{orderId}/status")
+    public ApiResponse<OrderResponseDTO> updateOrderStatus(
+            @PathVariable Long orderId,
+            @RequestBody RiderOrderStatusRequestDTO body,
+            HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        if (body == null || body.getStatus() == null) {
+            throw new RuntimeException("status is required");
+        }
+        return orderService.riderUpdateOrderStatus(riderId, orderId, body.getStatus());
+    }
+
     @PostMapping("/fcm-token")
     public ApiResponse<String> saveFcmToken(@RequestBody FcmTokenRequestDTO dto, HttpServletRequest request) {
         ApiResponse<String> response = new ApiResponse<>();
         try {
-            Object idAttr = request.getAttribute("userId");
-            if (idAttr == null) {
-                throw new RuntimeException("Unauthorized");
-            }
-
-            Long riderId = Long.valueOf(idAttr.toString());
+            Long riderId = riderAccessVerifier.resolveActingRiderId(request);
             if (dto == null || dto.getToken() == null || dto.getToken().trim().isEmpty()) {
                 throw new RuntimeException("FCM token is required");
             }
@@ -75,10 +104,22 @@ public class RiderController {
         return riderService.getAvailableRiders();
     }
 
+    @GetMapping("/{id}/orders")
+    public ApiResponse<List<OrderResponseDTO>> listRiderOrders(@PathVariable Long id, HttpServletRequest request) {
+        if (!riderAccessVerifier.canAccessRider(request, id)) {
+            throw new RuntimeException("Access denied");
+        }
+        return orderService.listOrdersForRider(id);
+    }
+
     @PutMapping("/{id}/availability")
     public ApiResponse<RiderResponseDTO> updateAvailability(
-            @PathVariable Long id, 
-            @RequestBody Map<String, Boolean> statusMap) {
+            @PathVariable Long id,
+            @RequestBody Map<String, Boolean> statusMap,
+            HttpServletRequest request) {
+        if (!riderAccessVerifier.canAccessRider(request, id)) {
+            throw new RuntimeException("Access denied");
+        }
         Boolean isAvailable = statusMap.get("isAvailable");
         if (isAvailable == null) {
             throw new RuntimeException("isAvailable is required");
@@ -88,8 +129,12 @@ public class RiderController {
 
     @PutMapping("/{id}/location")
     public ApiResponse<RiderResponseDTO> updateLocation(
-            @PathVariable Long id, 
-            @RequestBody Map<String, Double> locationMap) {
+            @PathVariable Long id,
+            @RequestBody Map<String, Double> locationMap,
+            HttpServletRequest request) {
+        if (!riderAccessVerifier.canAccessRider(request, id)) {
+            throw new RuntimeException("Access denied");
+        }
         Double lat = locationMap.get("lat");
         Double lng = locationMap.get("lng");
         if (lat == null || lng == null) {

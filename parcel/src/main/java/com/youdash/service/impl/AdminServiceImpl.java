@@ -89,12 +89,14 @@ public class AdminServiceImpl implements AdminService {
         try {
             validateVehicle(dto);
             VehicleEntity entity = new VehicleEntity();
-            entity.setName(dto.getName());
+            entity.setName(dto.getName().trim());
             entity.setPricePerKm(dto.getPricePerKm());
             entity.setBaseFare(dto.getBaseFare());
-            entity.setMinimumKm(dto.getMinimumKm());
+            entity.setMinimumKm(dto.getMinimumKm() != null ? dto.getMinimumKm() : 0.0);
             entity.setMaxWeight(dto.getMaxWeight());
-            entity.setImageUrl(dto.getImageUrl());
+            if (dto.getImageUrl() != null && !dto.getImageUrl().isBlank()) {
+                entity.setImageUrl(dto.getImageUrl().trim());
+            }
             entity.setIsActive(true); // Default
 
             VehicleEntity saved = vehicleRepository.save(entity);
@@ -162,30 +164,12 @@ public class AdminServiceImpl implements AdminService {
             if (dto.getMinimumKm() != null) entity.setMinimumKm(dto.getMinimumKm());
             if (dto.getMaxWeight() != null) entity.setMaxWeight(dto.getMaxWeight());
             if (dto.getImageUrl() != null && !dto.getImageUrl().isEmpty()) entity.setImageUrl(dto.getImageUrl());
+            if (dto.getIsActive() != null) entity.setIsActive(dto.getIsActive());
 
             VehicleEntity updated = vehicleRepository.save(Objects.requireNonNull(entity));
             response.setData(mapToVehicleDTO(updated));
                 
             response.setMessage("Vehicle updated successfully");
-            response.setMessageKey("SUCCESS");
-            response.setSuccess(true);
-            response.setStatus(200);
-        } catch (Exception e) {
-            setErrorResponse(response, e.getMessage());
-        }
-        return response;
-    }
-
-    @Override
-    public ApiResponse<VehicleDTO> toggleVehicle(Long id) {
-        ApiResponse<VehicleDTO> response = new ApiResponse<>();
-        try {
-            VehicleEntity entity = vehicleRepository.findById(Objects.requireNonNull(id))
-                    .orElseThrow(() -> new RuntimeException("Vehicle not found with id: " + id));
-            entity.setIsActive(!Boolean.TRUE.equals(entity.getIsActive()));
-            VehicleEntity updated = vehicleRepository.save(Objects.requireNonNull(entity));
-            response.setData(mapToVehicleDTO(updated));
-            response.setMessage("Vehicle status toggled successfully");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
             response.setStatus(200);
@@ -422,14 +406,14 @@ public class AdminServiceImpl implements AdminService {
     private void validateVehicle(VehicleDTO dto) {
         if (dto.getName() == null || dto.getName().trim().isEmpty())
             throw new RuntimeException("Name is required");
-        if (dto.getImageUrl() == null || dto.getImageUrl().trim().isEmpty())
-            throw new RuntimeException("Image URL is required");
         if (dto.getPricePerKm() == null || dto.getPricePerKm() <= 0)
             throw new RuntimeException("Price per Km must be > 0");
         if (dto.getBaseFare() == null || dto.getBaseFare() < 0)
             throw new RuntimeException("Base fare must be >= 0");
-        if (dto.getMinimumKm() == null || dto.getMinimumKm() < 0)
+        if (dto.getMinimumKm() != null && dto.getMinimumKm() < 0)
             throw new RuntimeException("Minimum Km must be >= 0");
+        if (dto.getMaxWeight() != null && dto.getMaxWeight() <= 0)
+            throw new RuntimeException("Max weight must be > 0 when provided");
     }
 
     private void validateCategory(PackageCategoryDTO dto) {

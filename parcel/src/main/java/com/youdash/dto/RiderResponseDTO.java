@@ -10,4 +10,5 @@ public class RiderResponseDTO {
     private String vehicleType;
     private Boolean isAvailable;
     private Double rating;
+    private String approvalStatus;
 }
