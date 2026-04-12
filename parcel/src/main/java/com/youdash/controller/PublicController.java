@@ -1,7 +1,6 @@
 package com.youdash.controller;
 
 import com.youdash.bean.ApiResponse;
-import com.youdash.dto.PackageCategoryDTO;
 import com.youdash.dto.VehicleDTO;
 import com.youdash.service.AdminService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,10 +20,5 @@ public class PublicController {
     @GetMapping("/vehicles")
     public ApiResponse<List<VehicleDTO>> getActiveVehicles() {
         return adminService.getActiveVehicles();
-    }
-
-    @GetMapping("/categories")
-    public ApiResponse<List<PackageCategoryDTO>> getActiveCategories() {
-        return adminService.getActiveCategories();
     }
 }

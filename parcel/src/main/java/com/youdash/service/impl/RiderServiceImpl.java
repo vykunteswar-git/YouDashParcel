@@ -10,9 +10,7 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.RiderRequestDTO;
 import com.youdash.dto.RiderResponseDTO;
 import com.youdash.entity.RiderEntity;
-import com.youdash.model.OrderStatus;
 import com.youdash.model.RiderApprovalStatus;
-import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.service.RiderService;
 
@@ -21,9 +19,6 @@ public class RiderServiceImpl implements RiderService {
 
     @Autowired
     private RiderRepository riderRepository;
-
-    @Autowired
-    private OrderRepository orderRepository;
 
     @Override
     public ApiResponse<RiderResponseDTO> createRider(RiderRequestDTO dto) {
@@ -230,12 +225,8 @@ public class RiderServiceImpl implements RiderService {
     public ApiResponse<List<RiderResponseDTO>> listRidersEligibleForAssignment() {
         ApiResponse<List<RiderResponseDTO>> response = new ApiResponse<>();
         try {
-            List<String> pickupBusy = List.of(OrderStatus.ASSIGNED, OrderStatus.ACCEPTED, OrderStatus.PICKED_UP, OrderStatus.IN_TRANSIT);
-            List<String> deliveryBusy = List.of(OrderStatus.ASSIGNED_TO_DELIVERY_RIDER, OrderStatus.OUT_FOR_DELIVERY);
             List<RiderResponseDTO> dtos = riderRepository.findByIsAvailableTrue().stream()
                     .filter(this::isApprovedOrLegacy)
-                    .filter(r -> !orderRepository.existsByRiderIdAndStatusIn(r.getId(), pickupBusy))
-                    .filter(r -> !orderRepository.existsByDeliveryRiderIdAndStatusIn(r.getId(), deliveryBusy))
                     .map(this::mapToResponseDTO)
                     .collect(Collectors.toList());
             response.setData(dtos);
