@@ -15,6 +15,7 @@ import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.Notification;
+import com.youdash.entity.RiderEntity;
 import com.youdash.entity.UserEntity;
 import com.youdash.notification.NotificationType;
 import com.youdash.repository.RiderRepository;
@@ -41,6 +42,19 @@ public class NotificationService {
     /**
      * Resolve user FCM token and send (async). {@code data} values must be non-null strings for FCM data map.
      */
+    /**
+     * Push to rider device when {@link RiderEntity#getFcmToken()} is set.
+     */
+    public void sendToRider(Long riderId, String title, String body, Map<String, String> data, NotificationType type) {
+        if (riderId == null) {
+            return;
+        }
+        riderRepository.findById(riderId)
+                .map(RiderEntity::getFcmToken)
+                .filter(StringUtils::hasText)
+                .ifPresent(token -> sendToToken(token, title, body, data, type));
+    }
+
     public void sendToUser(Long userId, String title, String body, Map<String, String> data, NotificationType type) {
         if (userId == null) {
             return;

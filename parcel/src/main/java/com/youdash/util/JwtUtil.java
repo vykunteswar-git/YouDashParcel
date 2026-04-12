@@ -25,10 +25,13 @@ public class JwtUtil {
         this.key = Keys.hmacShaKeyFor(secret.getBytes());
     }
 
+    /** Claim name for USER / ADMIN; avoid {@code "type"} — some JWT stacks serialize it as {@code typ}, breaking admin checks. */
+    public static final String CLAIM_ACCOUNT_TYPE = "tokenType";
+
     public String generateToken(Long id, String type) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("id", id);
-        claims.put("type", type);
+        claims.put(CLAIM_ACCOUNT_TYPE, type);
         return createToken(claims, String.valueOf(id));
     }
 
@@ -57,7 +60,14 @@ public class JwtUtil {
 
     public String extractType(String token) {
         final Claims claims = extractAllClaims(token);
-        return claims.get("type", String.class);
+        String t = claims.get(CLAIM_ACCOUNT_TYPE, String.class);
+        if (t == null) {
+            t = claims.get("type", String.class);
+        }
+        if (t == null) {
+            t = claims.get("typ", String.class);
+        }
+        return t;
     }
 
     public Date extractExpiration(String token) {

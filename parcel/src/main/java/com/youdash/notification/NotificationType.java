@@ -18,6 +18,10 @@ public enum NotificationType {
     DELIVERED_AT_HUB,
     /** Legacy / generic */
     ORDER_CREATED,
+    /** Outstation order waiting for admin to assign rider */
+    ADMIN_OUTSTATION_PENDING_ASSIGNMENT,
+    /** User notified when order status changes */
+    USER_ORDER_STATUS_UPDATE,
     ADMIN_COD_ORDER,
     ADMIN_PAYMENT_SUCCESS,
     ADMIN_PAYMENT_FAILED,
