@@ -10,7 +10,14 @@ public class CreateOrderRequestDTO {
     private Double dropLat;
     private Double dropLng;
 
+    /** Required; {@code deliveryType} on the order is taken from the category unless {@link #deliveryType} is sent as an override. */
+    private Long categoryId;
+
     private Long vehicleId;
+    /**
+     * Optional override when the category has no {@code defaultDeliveryType}, or for legacy clients.
+     * OUTSTATION: must resolve to a valid OutstationDeliveryType enum name (e.g. DOOR_TO_DOOR).
+     */
     private String deliveryType;
 
     private Long originHubId;
@@ -18,6 +25,16 @@ public class CreateOrderRequestDTO {
 
     private Double weight;
     private String paymentType;
+
+    private String senderName;
+    private String senderPhone;
+    private String receiverName;
+    private String receiverPhone;
+
+    /**
+     * Optional snapshot from quote {@code vehicleOptions[].perKm} for the chosen vehicle (incity).
+     */
+    private Double vehiclePricePerKm;
 
     /**
      * Optional pricing: send all four together, or omit all for server-side pricing.

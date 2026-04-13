@@ -31,7 +31,7 @@ public class DistanceServiceImpl implements DistanceService {
         }
         try {
             String url = UriComponentsBuilder
-                    .fromHttpUrl("https://maps.googleapis.com/maps/api/distancematrix/json")
+                    .fromUriString("https://maps.googleapis.com/maps/api/distancematrix/json")
                     .queryParam("origins", originLat + "," + originLng)
                     .queryParam("destinations", destLat + "," + destLng)
                     .queryParam("mode", "driving")

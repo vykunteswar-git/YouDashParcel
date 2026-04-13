@@ -24,4 +24,12 @@ public class PackageCategoryEntity {
 
     @Column(name = "is_active")
     private Boolean isActive;
+
+    /**
+     * Default delivery label stored on the order and returned in order APIs.
+     * INCITY: e.g. {@code STANDARD}. OUTSTATION: e.g. {@code DOOR_TO_DOOR}.
+     * When null, create-order may still send {@code deliveryType} as an override.
+     */
+    @Column(name = "default_delivery_type", length = 64)
+    private String defaultDeliveryType;
 }

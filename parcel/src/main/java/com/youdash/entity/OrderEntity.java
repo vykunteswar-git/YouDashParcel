@@ -20,6 +20,21 @@ public class OrderEntity {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
+    @Column(name = "package_category_id")
+    private Long packageCategoryId;
+
+    @Column(name = "sender_name", length = 128)
+    private String senderName;
+
+    @Column(name = "sender_phone", length = 32)
+    private String senderPhone;
+
+    @Column(name = "receiver_name", length = 128)
+    private String receiverName;
+
+    @Column(name = "receiver_phone", length = 32)
+    private String receiverPhone;
+
     @Column(name = "pickup_lat", nullable = false)
     private Double pickupLat;
 
@@ -86,6 +101,10 @@ public class OrderEntity {
 
     @Column(name = "coupon_amount")
     private Double couponAmount;
+
+    /** Snapshot of vehicle {@code pricePerKm} from quote (incity), when applicable. */
+    @Column(name = "vehicle_price_per_km")
+    private Double vehiclePricePerKm;
 
     @Column(name = "created_at")
     private Instant createdAt;

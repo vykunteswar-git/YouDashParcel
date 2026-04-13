@@ -12,6 +12,11 @@ public class OrderResponseDTO {
 
     private Long id;
     private Long userId;
+    private Long categoryId;
+    private String senderName;
+    private String senderPhone;
+    private String receiverName;
+    private String receiverPhone;
     private Double pickupLat;
     private Double pickupLng;
     private Double dropLat;
@@ -31,5 +36,6 @@ public class OrderResponseDTO {
     /** Payable amount after coupon (pre-coupon total minus couponAmount). */
     private Double totalAmount;
     private Double couponAmount;
+    private Double vehiclePricePerKm;
     private String createdAt;
 }

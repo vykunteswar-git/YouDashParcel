@@ -150,6 +150,10 @@ public class PackageCategoryServiceImpl implements PackageCategoryService {
         if (dto.getIsActive() != null) {
             e.setIsActive(dto.getIsActive());
         }
+        if (dto.getDefaultDeliveryType() != null) {
+            String dt = dto.getDefaultDeliveryType().trim();
+            e.setDefaultDeliveryType(dt.isEmpty() ? null : dt);
+        }
     }
 
     private PackageCategoryDTO toDto(PackageCategoryEntity e) {
@@ -159,6 +163,7 @@ public class PackageCategoryServiceImpl implements PackageCategoryService {
                 .emoji(e.getEmoji())
                 .sortOrder(e.getSortOrder())
                 .isActive(e.getIsActive())
+                .defaultDeliveryType(e.getDefaultDeliveryType())
                 .build();
     }
 

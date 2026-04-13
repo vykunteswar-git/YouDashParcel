@@ -50,6 +50,9 @@ public class OrderServiceImpl implements OrderService {
     private OrderRepository orderRepository;
 
     @Autowired
+    private PackageCategoryRepository packageCategoryRepository;
+
+    @Autowired
     private ManualOrderRequestRepository manualOrderRequestRepository;
 
     @Autowired
@@ -116,6 +119,14 @@ public class OrderServiceImpl implements OrderService {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         try {
             validateCoordsWeight(dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng(), dto.getWeight());
+            validateContactFields(dto);
+            if (dto.getCategoryId() == null) {
+                throw new RuntimeException("categoryId is required");
+            }
+            PackageCategoryEntity category = packageCategoryRepository.findById(dto.getCategoryId())
+                    .filter(c -> Boolean.TRUE.equals(c.getIsActive()))
+                    .orElseThrow(() -> new RuntimeException("Package category not found or inactive"));
+            String resolvedDeliveryType = resolveDeliveryTypeForOrder(category, dto);
             if (dto.getPaymentType() == null || dto.getPaymentType().isBlank()) {
                 throw new RuntimeException("paymentType is required (COD or ONLINE)");
             }
@@ -128,13 +139,21 @@ public class OrderServiceImpl implements OrderService {
 
             OrderEntity order = new OrderEntity();
             order.setUserId(userId);
+            order.setPackageCategoryId(category.getId());
+            order.setSenderName(trimToNull(dto.getSenderName()));
+            order.setSenderPhone(trimToNull(dto.getSenderPhone()));
+            order.setReceiverName(trimToNull(dto.getReceiverName()));
+            order.setReceiverPhone(trimToNull(dto.getReceiverPhone()));
             order.setPickupLat(dto.getPickupLat());
             order.setPickupLng(dto.getPickupLng());
             order.setDropLat(dto.getDropLat());
             order.setDropLng(dto.getDropLng());
             order.setWeight(dto.getWeight());
             order.setPaymentType(paymentType);
-            order.setDeliveryType(dto.getDeliveryType());
+            order.setDeliveryType(resolvedDeliveryType);
+            if (dto.getVehiclePricePerKm() != null) {
+                order.setVehiclePricePerKm(round4(dto.getVehiclePricePerKm()));
+            }
 
             assertPricingAllOrNothing(dto);
             boolean clientPricing = hasFullClientPricing(dto);
@@ -159,6 +178,9 @@ public class OrderServiceImpl implements OrderService {
                 order.setPickupDistanceKm(round4(dist));
                 order.setHubDistanceKm(null);
                 order.setDropDistanceKm(null);
+                if (order.getVehiclePricePerKm() == null && vehicle.getPricePerKm() != null) {
+                    order.setVehiclePricePerKm(round4(vehicle.getPricePerKm()));
+                }
 
                 if (clientPricing) {
                     applyClientPricing(order, dto);
@@ -187,7 +209,7 @@ public class OrderServiceImpl implements OrderService {
                 if (dto.getOriginHubId() == null || dto.getDestinationHubId() == null) {
                     throw new RuntimeException("OUTSTATION order requires originHubId and destinationHubId");
                 }
-                OutstationDeliveryType dtype = parseOutstationDelivery(dto.getDeliveryType());
+                OutstationDeliveryType dtype = parseOutstationDelivery(resolvedDeliveryType);
                 HubEntity origin = hubRepository.findById(dto.getOriginHubId())
                         .filter(h -> Boolean.TRUE.equals(h.getIsActive()))
                         .orElseThrow(() -> new RuntimeException("Origin hub not found or inactive"));
@@ -455,10 +477,54 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    private static void validateContactFields(CreateOrderRequestDTO dto) {
+        if (isBlank(dto.getSenderName()) || isBlank(dto.getSenderPhone())
+                || isBlank(dto.getReceiverName()) || isBlank(dto.getReceiverPhone())) {
+            throw new RuntimeException("senderName, senderPhone, receiverName, and receiverPhone are required");
+        }
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
+    private static String trimToNull(String s) {
+        if (s == null) {
+            return null;
+        }
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
+    }
+
+    /**
+     * Prefer category default; otherwise use explicit request {@code deliveryType}.
+     */
+    private static String resolveDeliveryTypeForOrder(PackageCategoryEntity category, CreateOrderRequestDTO dto) {
+        String fromCat = category.getDefaultDeliveryType();
+        if (fromCat != null) {
+            String t = fromCat.trim();
+            if (!t.isEmpty()) {
+                return t;
+            }
+        }
+        if (dto.getDeliveryType() != null) {
+            String t = dto.getDeliveryType().trim();
+            if (!t.isEmpty()) {
+                return t;
+            }
+        }
+        return null;
+    }
+
     private OrderResponseDTO toOrderDto(OrderEntity o) {
         return OrderResponseDTO.builder()
                 .id(o.getId())
                 .userId(o.getUserId())
+                .categoryId(o.getPackageCategoryId())
+                .senderName(o.getSenderName())
+                .senderPhone(o.getSenderPhone())
+                .receiverName(o.getReceiverName())
+                .receiverPhone(o.getReceiverPhone())
                 .pickupLat(o.getPickupLat())
                 .pickupLng(o.getPickupLng())
                 .dropLat(o.getDropLat())
@@ -477,6 +543,7 @@ public class OrderServiceImpl implements OrderService {
                 .platformFee(o.getPlatformFee())
                 .totalAmount(o.getTotalAmount())
                 .couponAmount(o.getCouponAmount())
+                .vehiclePricePerKm(o.getVehiclePricePerKm())
                 .createdAt(o.getCreatedAt() != null ? o.getCreatedAt().toString() : null)
                 .build();
     }

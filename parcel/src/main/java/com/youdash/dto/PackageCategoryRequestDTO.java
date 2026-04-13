@@ -16,4 +16,7 @@ public class PackageCategoryRequestDTO {
 
     /** Optional; default true on create. */
     private Boolean isActive;
+
+    /** Optional; INCITY e.g. STANDARD, OUTSTATION e.g. DOOR_TO_DOOR. */
+    private String defaultDeliveryType;
 }
