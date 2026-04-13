@@ -37,5 +37,9 @@ public class OrderResponseDTO {
     private Double totalAmount;
     private Double couponAmount;
     private Double vehiclePricePerKm;
+    /** Public reference for payments (e.g. YP-…). */
+    private String displayOrderId;
+    private String paymentStatus;
+    private String razorpayOrderId;
     private String createdAt;
 }

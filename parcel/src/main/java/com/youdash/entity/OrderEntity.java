@@ -106,6 +106,29 @@ public class OrderEntity {
     @Column(name = "vehicle_price_per_km")
     private Double vehiclePricePerKm;
 
+    /** Customer-facing reference, e.g. {@code YP-1231735123456789}. */
+    @Column(name = "display_order_id", unique = true, length = 64)
+    private String displayOrderId;
+
+    /** UNPAID | PAID | FAILED (Razorpay / online). */
+    @Column(name = "payment_status", length = 32)
+    private String paymentStatus;
+
+    @Column(name = "razorpay_order_id", length = 255)
+    private String razorpayOrderId;
+
+    @Column(name = "razorpay_payment_id", length = 255)
+    private String razorpayPaymentId;
+
+    @Column(name = "payment_method", length = 32)
+    private String paymentMethod;
+
+    @Column(name = "payment_created_at")
+    private Instant paymentCreatedAt;
+
+    @Column(name = "payment_updated_at")
+    private Instant paymentUpdatedAt;
+
     @Column(name = "created_at")
     private Instant createdAt;
 

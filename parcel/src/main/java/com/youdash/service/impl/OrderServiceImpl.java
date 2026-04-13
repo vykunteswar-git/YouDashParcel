@@ -251,6 +251,11 @@ public class OrderServiceImpl implements OrderService {
             }
 
             OrderEntity saved = orderRepository.save(order);
+            saved.setDisplayOrderId("YP-" + saved.getId() + System.currentTimeMillis());
+            if (saved.getPaymentType() == PaymentType.ONLINE) {
+                saved.setPaymentStatus("UNPAID");
+            }
+            saved = orderRepository.save(saved);
             notifyAfterOrderCreated(saved);
             response.setData(toOrderDto(saved));
             response.setMessage("Order created");
@@ -544,6 +549,9 @@ public class OrderServiceImpl implements OrderService {
                 .totalAmount(o.getTotalAmount())
                 .couponAmount(o.getCouponAmount())
                 .vehiclePricePerKm(o.getVehiclePricePerKm())
+                .displayOrderId(o.getDisplayOrderId())
+                .paymentStatus(o.getPaymentStatus())
+                .razorpayOrderId(o.getRazorpayOrderId())
                 .createdAt(o.getCreatedAt() != null ? o.getCreatedAt().toString() : null)
                 .build();
     }
