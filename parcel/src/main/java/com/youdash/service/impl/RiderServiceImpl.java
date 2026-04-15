@@ -33,13 +33,29 @@ public class RiderServiceImpl implements RiderService {
             if (dto.getPhone().length() < 10) {
                 throw new RuntimeException("Invalid phone number");
             }
+            if (dto.getEmergencyPhone() == null || dto.getEmergencyPhone().trim().isEmpty()) {
+                throw new RuntimeException("Emergency phone is required");
+            }
+            if (dto.getEmergencyPhone().trim().length() < 10) {
+                throw new RuntimeException("Invalid emergency phone number");
+            }
+            if (dto.getProfileImageUrl() == null || dto.getProfileImageUrl().trim().isEmpty()) {
+                throw new RuntimeException("Profile image is required");
+            }
 
             RiderEntity rider = new RiderEntity();
             rider.setName(dto.getName());
             rider.setPhone(dto.getPhone());
             rider.setVehicleType(dto.getVehicleType());
-            rider.setCurrentLat(dto.getCurrentLat() != null ? dto.getCurrentLat() : 0.0);
-            rider.setCurrentLng(dto.getCurrentLng() != null ? dto.getCurrentLng() : 0.0);
+            rider.setEmergencyPhone(dto.getEmergencyPhone().trim());
+
+            rider.setProfileImageUrl(dto.getProfileImageUrl().trim());
+            rider.setAadhaarImageUrl(nzTrimToNull(dto.getAadhaarImageUrl()));
+            rider.setLicenseImageUrl(nzTrimToNull(dto.getLicenseImageUrl()));
+
+            // Location is not required at registration time; it can be updated later.
+            rider.setCurrentLat(0.0);
+            rider.setCurrentLng(0.0);
             
             // Set defaults
             rider.setIsAvailable(true);
@@ -60,6 +76,14 @@ public class RiderServiceImpl implements RiderService {
             response.setSuccess(false);
         }
         return response;
+    }
+
+    private static String nzTrimToNull(String s) {
+        if (s == null) {
+            return null;
+        }
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
     }
 
     @Override

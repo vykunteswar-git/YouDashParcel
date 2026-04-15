@@ -7,6 +7,10 @@ public class RiderRequestDTO {
     private String name;
     private String phone;
     private String vehicleType;
-    private Double currentLat;
-    private Double currentLng;
+
+    private String emergencyPhone;
+
+    private String profileImageUrl;
+    private String aadhaarImageUrl;
+    private String licenseImageUrl;
 }
