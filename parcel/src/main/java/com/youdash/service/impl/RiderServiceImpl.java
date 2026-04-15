@@ -10,8 +10,10 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.RiderRequestDTO;
 import com.youdash.dto.RiderResponseDTO;
 import com.youdash.entity.RiderEntity;
+import com.youdash.entity.VehicleEntity;
 import com.youdash.model.RiderApprovalStatus;
 import com.youdash.repository.RiderRepository;
+import com.youdash.repository.VehicleRepository;
 import com.youdash.service.RiderService;
 
 @Service
@@ -19,6 +21,9 @@ public class RiderServiceImpl implements RiderService {
 
     @Autowired
     private RiderRepository riderRepository;
+
+    @Autowired
+    private VehicleRepository vehicleRepository;
 
     @Override
     public ApiResponse<RiderResponseDTO> createRider(RiderRequestDTO dto) {
@@ -42,11 +47,27 @@ public class RiderServiceImpl implements RiderService {
             if (dto.getProfileImageUrl() == null || dto.getProfileImageUrl().trim().isEmpty()) {
                 throw new RuntimeException("Profile image is required");
             }
+            if (dto.getVehicleId() == null && (dto.getVehicleType() == null || dto.getVehicleType().trim().isEmpty())) {
+                throw new RuntimeException("Vehicle is required");
+            }
 
             RiderEntity rider = new RiderEntity();
             rider.setName(dto.getName());
             rider.setPhone(dto.getPhone());
-            rider.setVehicleType(dto.getVehicleType());
+
+            // Prefer vehicleId (dropdown) -> resolve to vehicle name; fallback to legacy vehicleType string.
+            String resolvedVehicleType = null;
+            if (dto.getVehicleId() != null) {
+                VehicleEntity vehicle = vehicleRepository.findById(dto.getVehicleId())
+                        .orElseThrow(() -> new RuntimeException("Vehicle not found with id: " + dto.getVehicleId()));
+                if (Boolean.FALSE.equals(vehicle.getIsActive())) {
+                    throw new RuntimeException("Selected vehicle is not active");
+                }
+                resolvedVehicleType = vehicle.getName();
+            } else {
+                resolvedVehicleType = dto.getVehicleType().trim();
+            }
+            rider.setVehicleType(resolvedVehicleType);
             rider.setEmergencyPhone(dto.getEmergencyPhone().trim());
 
             rider.setProfileImageUrl(dto.getProfileImageUrl().trim());

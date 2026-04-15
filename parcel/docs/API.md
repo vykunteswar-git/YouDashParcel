@@ -109,6 +109,7 @@ Backend: Spring Boot (`parcel`). Default base URL: `http://<host>:8080` (no glob
 | POST | `/admin/vehicles` | Create vehicle |
 | GET | `/admin/vehicles` | List vehicles |
 | PUT | `/admin/vehicles/{id}` | Update vehicle |
+| POST | `/admin/notifications/test` | Send a test push to a device token |
 | POST | `/admin/categories` | Create category |
 | GET | `/admin/categories` | All categories |
 | GET | `/admin/categories/active` | Active categories |
@@ -245,7 +246,7 @@ Backend: Spring Boot (`parcel`). Default base URL: `http://<host>:8080` (no glob
 
 | DTO | Fields |
 |-----|--------|
-| `RiderRequestDTO` | `name`, `phone`, `vehicleType`, `currentLat`, `currentLng` |
+| `RiderRequestDTO` | `name`, `phone`, `vehicleId` (preferred), `vehicleType` (legacy fallback), `emergencyPhone`, `profileImageUrl`, `aadhaarImageUrl`, `licenseImageUrl` |
 | `RiderResponseDTO` | `id`, `name`, `phone`, `vehicleType`, `isAvailable`, `rating`, `approvalStatus` |
 | `RiderOrderStatusRequestDTO` | `status` |
 | `AssignRiderRequestDTO` | `riderId` |
