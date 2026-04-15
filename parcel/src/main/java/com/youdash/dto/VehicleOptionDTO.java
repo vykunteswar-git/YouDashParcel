@@ -10,6 +10,7 @@ public class VehicleOptionDTO {
 
     private Long vehicleId;
     private String name;
+    private String imageUrl;
 
     /** Vehicle fare before GST and platform fee (same as previous {@code estimatedTotal} semantics). */
     private Double subtotal;

@@ -17,6 +17,7 @@ public class OrderResponseDTO {
     private String senderPhone;
     private String receiverName;
     private String receiverPhone;
+    private String imageUrl;
     private Double pickupLat;
     private Double pickupLng;
     private Double dropLat;

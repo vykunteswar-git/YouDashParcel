@@ -109,6 +109,7 @@ public class QuoteServiceImpl implements QuoteService {
                     options.add(VehicleOptionDTO.builder()
                             .vehicleId(v.getId())
                             .name(v.getName())
+                            .imageUrl(v.getImageUrl())
                             .subtotal(round2(sub))
                             .estimatedTotal(round2(grand))
                             .maxWeight(v.getMaxWeight())

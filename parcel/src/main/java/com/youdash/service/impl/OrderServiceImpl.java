@@ -17,7 +17,9 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -144,6 +146,7 @@ public class OrderServiceImpl implements OrderService {
             order.setSenderPhone(trimToNull(dto.getSenderPhone()));
             order.setReceiverName(trimToNull(dto.getReceiverName()));
             order.setReceiverPhone(trimToNull(dto.getReceiverPhone()));
+            order.setImageUrl(trimToNull(dto.getImageUrl()));
             order.setPickupLat(dto.getPickupLat());
             order.setPickupLng(dto.getPickupLng());
             order.setDropLat(dto.getDropLat());
@@ -263,6 +266,7 @@ public class OrderServiceImpl implements OrderService {
             response.setSuccess(true);
             response.setStatus(200);
         } catch (Exception e) {
+            notifyOrderCreationFailed(userId, e.getMessage());
             setError(response, e.getMessage());
         }
         return response;
@@ -434,6 +438,23 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    private void notifyOrderCreationFailed(Long userId, String message) {
+        if (userId == null) {
+            return;
+        }
+        Map<String, String> data = new HashMap<>(
+                NotificationService.baseData(null, "FAILED", NotificationType.ORDER_CREATE_FAILED));
+        if (message != null && !message.isBlank()) {
+            data.put("reason", message);
+        }
+        notificationService.sendToUser(
+                userId,
+                "Order could not be placed",
+                message != null && !message.isBlank() ? message : "Please try again.",
+                data,
+                NotificationType.ORDER_CREATE_FAILED);
+    }
+
     /**
      * Nearest available approved rider by haversine distance to pickup (among {@code isAvailable} riders).
      */
@@ -530,6 +551,7 @@ public class OrderServiceImpl implements OrderService {
                 .senderPhone(o.getSenderPhone())
                 .receiverName(o.getReceiverName())
                 .receiverPhone(o.getReceiverPhone())
+                .imageUrl(o.getImageUrl())
                 .pickupLat(o.getPickupLat())
                 .pickupLng(o.getPickupLng())
                 .dropLat(o.getDropLat())

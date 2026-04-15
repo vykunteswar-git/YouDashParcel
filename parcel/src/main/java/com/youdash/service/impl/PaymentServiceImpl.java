@@ -8,7 +8,10 @@ import com.youdash.dto.RazorpayOrderCreatedDTO;
 import com.youdash.dto.RazorpayVerifyRequestDTO;
 import com.youdash.entity.OrderEntity;
 import com.youdash.model.PaymentType;
+import com.youdash.notification.NotificationType;
 import com.youdash.repository.OrderRepository;
+import com.youdash.service.NotificationDedupService;
+import com.youdash.service.NotificationService;
 import com.youdash.service.OrderService;
 import com.youdash.service.PaymentService;
 import org.json.JSONObject;
@@ -41,6 +44,12 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Autowired
     private OrderService orderService;
+
+    @Autowired
+    private NotificationService notificationService;
+
+    @Autowired
+    private NotificationDedupService notificationDedupService;
 
     @Override
     public ApiResponse<RazorpayOrderCreatedDTO> createRazorpayOrder(String orderIdOrReference, Long userId) {
@@ -177,6 +186,7 @@ public class PaymentServiceImpl implements PaymentService {
             }
             order.setPaymentUpdatedAt(now);
             orderRepository.save(order);
+            notifyPaymentSuccess(order);
 
             response.setMessage("Payment verified successfully");
             response.setMessageKey("SUCCESS");
@@ -248,6 +258,7 @@ public class PaymentServiceImpl implements PaymentService {
                     }
                     order.setPaymentUpdatedAt(now);
                     orderRepository.save(order);
+                    notifyPaymentSuccess(order);
                 }
             } else if ("payment.failed".equalsIgnoreCase(event)) {
                 if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())) {
@@ -258,6 +269,7 @@ public class PaymentServiceImpl implements PaymentService {
                     }
                     order.setPaymentUpdatedAt(now);
                     orderRepository.save(order);
+                    notifyPaymentFailed(order);
                 }
             }
 
@@ -286,6 +298,48 @@ public class PaymentServiceImpl implements PaymentService {
         if (Boolean.TRUE.equals(fetched.getSuccess()) && fetched.getData() != null) {
             response.setData(fetched.getData());
         }
+    }
+
+    private void notifyPaymentSuccess(OrderEntity order) {
+        if (order == null || order.getId() == null || order.getUserId() == null) {
+            return;
+        }
+        if (!notificationDedupService.tryAcquire("payment-success:" + order.getId())) {
+            return;
+        }
+        String ref = order.getDisplayOrderId() != null ? order.getDisplayOrderId() : "#" + order.getId();
+        notificationService.sendToUser(
+                order.getUserId(),
+                "Payment successful",
+                "Payment received for order " + ref + ".",
+                NotificationService.baseData(order.getId(), order.getPaymentStatus(), NotificationType.PAYMENT_SUCCESS),
+                NotificationType.PAYMENT_SUCCESS);
+        notificationService.sendToAdminDevices(
+                "Payment successful",
+                "Order " + ref + " was paid successfully.",
+                NotificationService.baseData(order.getId(), order.getPaymentStatus(), NotificationType.ADMIN_PAYMENT_SUCCESS),
+                NotificationType.ADMIN_PAYMENT_SUCCESS);
+    }
+
+    private void notifyPaymentFailed(OrderEntity order) {
+        if (order == null || order.getId() == null || order.getUserId() == null) {
+            return;
+        }
+        if (!notificationDedupService.tryAcquire("payment-failed:" + order.getId())) {
+            return;
+        }
+        String ref = order.getDisplayOrderId() != null ? order.getDisplayOrderId() : "#" + order.getId();
+        notificationService.sendToUser(
+                order.getUserId(),
+                "Payment failed",
+                "Payment failed for order " + ref + ". Please try again.",
+                NotificationService.baseData(order.getId(), order.getPaymentStatus(), NotificationType.PAYMENT_FAILED),
+                NotificationType.PAYMENT_FAILED);
+        notificationService.sendToAdminDevices(
+                "Payment failed",
+                "Order " + ref + " payment failed.",
+                NotificationService.baseData(order.getId(), order.getPaymentStatus(), NotificationType.ADMIN_PAYMENT_FAILED),
+                NotificationType.ADMIN_PAYMENT_FAILED);
     }
 
     private OrderEntity resolveOrderByIdOrReference(String raw) {

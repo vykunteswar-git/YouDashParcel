@@ -35,6 +35,9 @@ public class OrderEntity {
     @Column(name = "receiver_phone", length = 32)
     private String receiverPhone;
 
+    @Column(name = "image_url")
+    private String imageUrl;
+
     @Column(name = "pickup_lat", nullable = false)
     private Double pickupLat;
 

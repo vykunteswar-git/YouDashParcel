@@ -4,6 +4,7 @@ package com.youdash.notification;
  * Sent in FCM {@code data.type} for client routing (foreground local notification, deep links).
  */
 public enum NotificationType {
+    ORDER_CREATE_FAILED,
     ORDER_PLACED_COD,
     PAYMENT_SUCCESS,
     PAYMENT_FAILED,

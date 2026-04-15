@@ -30,6 +30,7 @@ public class CreateOrderRequestDTO {
     private String senderPhone;
     private String receiverName;
     private String receiverPhone;
+    private String imageUrl;
 
     /**
      * Optional snapshot from quote {@code vehicleOptions[].perKm} for the chosen vehicle (incity).
