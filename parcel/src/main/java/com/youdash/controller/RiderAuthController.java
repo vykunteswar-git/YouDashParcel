@@ -21,7 +21,7 @@ import com.youdash.repository.RiderRepository;
 import com.youdash.util.JwtUtil;
 
 @RestController
-@RequestMapping("/rider-auth")
+@RequestMapping({"/rider-auth", "/rider/auth"})
 public class RiderAuthController {
 
     @Autowired

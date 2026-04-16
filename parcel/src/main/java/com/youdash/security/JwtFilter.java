@@ -40,6 +40,7 @@ public class JwtFilter extends OncePerRequestFilter {
         // 1. Skip validation for public endpoints
         if (path.startsWith("/auth/") ||
             path.startsWith("/rider-auth/") ||
+            path.startsWith("/rider/auth/") ||
             path.equals("/admin/login") ||
             path.startsWith("/public/") ||
             path.equals("/payments/webhook") ||
