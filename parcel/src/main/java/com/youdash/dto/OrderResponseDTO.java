@@ -3,6 +3,8 @@ package com.youdash.dto;
 import com.youdash.model.OrderStatus;
 import com.youdash.model.PaymentType;
 import com.youdash.model.ServiceMode;
+import com.youdash.model.wallet.CodCollectionMode;
+import com.youdash.model.wallet.CodSettlementStatus;
 import lombok.Builder;
 import lombok.Data;
 
@@ -28,6 +30,7 @@ public class OrderResponseDTO {
     private Long originHubId;
     private Long destinationHubId;
     private Double weight;
+    private Double distanceKm;
     private PaymentType paymentType;
     private OrderStatus status;
     private Long riderId;
@@ -42,5 +45,8 @@ public class OrderResponseDTO {
     private String displayOrderId;
     private String paymentStatus;
     private String razorpayOrderId;
+    private Double codCollectedAmount;
+    private CodCollectionMode codCollectionMode;
+    private CodSettlementStatus codSettlementStatus;
     private String createdAt;
 }

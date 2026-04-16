@@ -10,6 +10,7 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.FcmTokenRequestDTO;
 import com.youdash.dto.RiderRequestDTO;
 import com.youdash.dto.RiderResponseDTO;
+import com.youdash.dto.RiderSelfUpdateDTO;
 import com.youdash.entity.RiderEntity;
 import com.youdash.repository.RiderRepository;
 import com.youdash.security.RiderAccessVerifier;
@@ -76,40 +77,17 @@ public class RiderController {
 
     @GetMapping("/me")
     public ApiResponse<RiderResponseDTO> myProfile(HttpServletRequest request) {
-        ApiResponse<RiderResponseDTO> response = new ApiResponse<>();
-        try {
-            Long riderId = riderAccessVerifier.resolveActingRiderId(request);
-            RiderEntity rider = riderRepository.findById(riderId)
-                    .orElseThrow(() -> new RuntimeException("Rider not found"));
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        RiderEntity rider = riderRepository.findById(riderId)
+                .orElseThrow(() -> new RuntimeException("Rider not found"));
+        return riderService.getRiderProfile(rider);
+    }
 
-            RiderResponseDTO dto = new RiderResponseDTO();
-            dto.setId(rider.getId());
-            dto.setPublicId(rider.getPublicId());
-            dto.setName(rider.getName());
-            dto.setPhone(rider.getPhone());
-            dto.setVehicleId(rider.getVehicleId());
-            dto.setVehicleType(rider.getVehicleType());
-            dto.setIsAvailable(rider.getIsAvailable());
-            dto.setIsBlocked(rider.getIsBlocked());
-            dto.setRating(rider.getRating());
-            dto.setApprovalStatus(rider.getApprovalStatus());
-            dto.setProfileImageUrl(rider.getProfileImageUrl());
-            dto.setAadhaarImageUrl(rider.getAadhaarImageUrl());
-            dto.setLicenseImageUrl(rider.getLicenseImageUrl());
-            dto.setRcImageUrl(rider.getRcImageUrl());
-
-            response.setData(dto);
-            response.setMessage("Rider profile fetched");
-            response.setMessageKey("SUCCESS");
-            response.setStatus(200);
-            response.setSuccess(true);
-        } catch (Exception e) {
-            response.setMessage(e.getMessage());
-            response.setMessageKey("ERROR");
-            response.setStatus(400);
-            response.setSuccess(false);
-        }
-        return response;
+    @PatchMapping("/me")
+    public ApiResponse<RiderResponseDTO> patchMyProfile(@RequestBody RiderSelfUpdateDTO dto,
+            HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return riderService.patchSelfProfile(riderId, dto);
     }
 
     @PutMapping("/me/availability")

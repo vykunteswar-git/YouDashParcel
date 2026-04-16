@@ -3,6 +3,7 @@ package com.youdash.service.impl;
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.*;
 import com.youdash.entity.*;
+import com.youdash.exception.BadRequestException;
 import com.youdash.model.*;
 import com.youdash.repository.*;
 import com.youdash.notification.NotificationType;
@@ -11,10 +12,17 @@ import com.youdash.service.NotificationService;
 import com.youdash.service.OrderService;
 import com.youdash.service.PricingService;
 import com.youdash.service.ZoneService;
+import com.youdash.service.wallet.RiderWalletService;
+import com.youdash.security.RiderAccessVerifier;
+import com.youdash.dto.wallet.OrderCompleteRequestDTO;
+import com.youdash.model.wallet.CodCollectionMode;
+import com.youdash.model.wallet.CodSettlementStatus;
 import com.youdash.util.GeoUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Comparator;
 import java.util.HashMap;
@@ -62,6 +70,12 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private NotificationService notificationService;
+
+    @Autowired
+    private RiderWalletService riderWalletService;
+
+    @Autowired
+    private RiderAccessVerifier riderAccessVerifier;
 
     @Override
     public ApiResponse<FinalPriceResponseDTO> calculateFinal(FinalPriceRequestDTO dto) {
@@ -181,6 +195,7 @@ public class OrderServiceImpl implements OrderService {
                 order.setPickupDistanceKm(round4(dist));
                 order.setHubDistanceKm(null);
                 order.setDropDistanceKm(null);
+                order.setDistanceKm(round4(dist));
                 if (order.getVehiclePricePerKm() == null && vehicle.getPricePerKm() != null) {
                     order.setVehiclePricePerKm(round4(vehicle.getPricePerKm()));
                 }
@@ -235,6 +250,7 @@ public class OrderServiceImpl implements OrderService {
                 order.setPickupDistanceKm(legs.pickupKm());
                 order.setHubDistanceKm(legs.hubKm());
                 order.setDropDistanceKm(legs.dropKm());
+                order.setDistanceKm(round4(nz(order.getPickupDistanceKm()) + nz(order.getHubDistanceKm()) + nz(order.getDropDistanceKm())));
 
                 if (clientPricing) {
                     applyClientPricing(order, dto);
@@ -273,19 +289,46 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public ApiResponse<OrderResponseDTO> getOrder(Long orderId, Long tokenUserId, boolean admin) {
+    public ApiResponse<OrderResponseDTO> getOrder(Long orderId, Long tokenUserId, String tokenType, boolean admin) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         try {
             OrderEntity o = orderRepository.findById(orderId)
                     .orElseThrow(() -> new RuntimeException("Order not found"));
-            if (!admin && !Objects.equals(o.getUserId(), tokenUserId)) {
-                throw new RuntimeException("Access denied");
+            if (!admin) {
+                if ("RIDER".equals(tokenType)) {
+                    if (o.getRiderId() == null || !Objects.equals(o.getRiderId(), tokenUserId)) {
+                        throw new RuntimeException("Access denied");
+                    }
+                } else if (!Objects.equals(o.getUserId(), tokenUserId)) {
+                    throw new RuntimeException("Access denied");
+                }
             }
             response.setData(toOrderDto(o));
             response.setMessage("OK");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
             response.setStatus(200);
+        } catch (Exception e) {
+            setError(response, e.getMessage());
+        }
+        return response;
+    }
+
+    @Override
+    public ApiResponse<List<OrderResponseDTO>> listRiderOrders(Long riderId) {
+        ApiResponse<List<OrderResponseDTO>> response = new ApiResponse<>();
+        try {
+            List<OrderResponseDTO> list = orderRepository
+                    .findByRiderIdOrderByCreatedAtDesc(riderId, PageRequest.of(0, 200))
+                    .stream()
+                    .map(this::toOrderDto)
+                    .collect(Collectors.toList());
+            response.setData(list);
+            response.setMessage("OK");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+            response.setTotalCount(list.size());
         } catch (Exception e) {
             setError(response, e.getMessage());
         }
@@ -394,28 +437,139 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public ApiResponse<OrderResponseDTO> adminUpdateStatus(Long orderId, OrderStatus status) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
-        try {
-            OrderEntity o = orderRepository.findById(orderId)
-                    .orElseThrow(() -> new RuntimeException("Order not found"));
-            o.setStatus(status);
-            OrderEntity saved = orderRepository.save(o);
-            notificationService.sendToUser(
-                    saved.getUserId(),
-                    "Order update",
-                    "Order #" + saved.getId() + " is now " + status.name().replace('_', ' '),
-                    NotificationService.baseData(saved.getId(), status.name(), NotificationType.USER_ORDER_STATUS_UPDATE),
-                    NotificationType.USER_ORDER_STATUS_UPDATE);
-            response.setData(toOrderDto(saved));
-            response.setMessage("Status updated");
+        OrderEntity o = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found"));
+        if (status == OrderStatus.DELIVERED && o.getPaymentType() == PaymentType.COD) {
+            if (o.getCodCollectionMode() == null || o.getCodCollectedAmount() == null) {
+                throw new RuntimeException("COD details missing. Use /order/complete");
+            }
+        }
+        o.setStatus(status);
+        OrderEntity saved = orderRepository.save(o);
+        if (status == OrderStatus.DELIVERED && saved.getRiderId() != null) {
+            riderWalletService.settleOrderDelivered(
+                    saved,
+                    saved.getPaymentType() == PaymentType.COD ? saved.getCodCollectionMode() : null,
+                    saved.getCodCollectedAmount(),
+                    null,
+                    "ADMIN");
+        }
+        notificationService.sendToUser(
+                saved.getUserId(),
+                "Order update",
+                "Order #" + saved.getId() + " is now " + status.name().replace('_', ' '),
+                NotificationService.baseData(saved.getId(), status.name(), NotificationType.USER_ORDER_STATUS_UPDATE),
+                NotificationType.USER_ORDER_STATUS_UPDATE);
+        response.setData(toOrderDto(saved));
+        response.setMessage("Status updated");
+        response.setMessageKey("SUCCESS");
+        response.setSuccess(true);
+        response.setStatus(200);
+        return response;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ApiResponse<OrderResponseDTO> completeOrderForRider(Long tokenUserId, String tokenType, OrderCompleteRequestDTO dto) {
+        ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
+        if (!"RIDER".equals(tokenType)) {
+            throw new BadRequestException("Rider token required");
+        }
+        if (dto == null || dto.getOrderId() == null || dto.getOrderId().isBlank()) {
+            throw new BadRequestException("orderId is required");
+        }
+        Long actingRiderId = riderAccessVerifier.resolveActingRiderIdFromToken(tokenUserId, tokenType);
+
+        OrderEntity o = resolveOrderByIdOrReference(dto.getOrderId().trim());
+        if (o.getRiderId() == null || !Objects.equals(o.getRiderId(), actingRiderId)) {
+            throw new BadRequestException("Access denied");
+        }
+
+        boolean financialExists = riderWalletService.hasOrderRiderFinancial(o.getId());
+        boolean alreadyDelivered = o.getStatus() == OrderStatus.DELIVERED;
+
+        if (alreadyDelivered && financialExists) {
+            OrderEntity refreshed = orderRepository.findById(o.getId()).orElse(o);
+            response.setData(toOrderDto(refreshed));
+            response.setMessage("Order completed");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
             response.setStatus(200);
-        } catch (Exception e) {
-            setError(response, e.getMessage());
+            return response;
         }
+
+        if (!alreadyDelivered) {
+            if (!(o.getStatus() == OrderStatus.ASSIGNED
+                    || o.getStatus() == OrderStatus.PICKED_UP
+                    || o.getStatus() == OrderStatus.IN_TRANSIT)) {
+                throw new BadRequestException("Order cannot be completed from status: " + o.getStatus());
+            }
+        }
+
+        if (o.getPaymentType() == PaymentType.COD) {
+            if (dto.getCodCollectionMode() == null || dto.getCodCollectionMode().isBlank()) {
+                throw new BadRequestException("codCollectionMode is required (CASH or QR)");
+            }
+            CodCollectionMode mode = CodCollectionMode.valueOf(dto.getCodCollectionMode().trim().toUpperCase());
+            double collected = dto.getCodCollectedAmount() == null ? nz(o.getTotalAmount()) : dto.getCodCollectedAmount();
+            if (collected <= 0) {
+                throw new BadRequestException("codCollectedAmount must be > 0");
+            }
+            double orderTotal = nz(o.getTotalAmount());
+            if (collected > orderTotal * 1.2 + 0.0001) {
+                throw new BadRequestException("Invalid COD amount: exceeds expected range");
+            }
+            o.setCodCollectionMode(mode);
+            o.setCodCollectedAmount(round2(collected));
+            o.setCodSettlementStatus(CodSettlementStatus.PENDING);
+        } else if (o.getPaymentType() == PaymentType.ONLINE) {
+            o.setCodCollectedAmount(null);
+            o.setCodCollectionMode(null);
+            o.setCodSettlementStatus(CodSettlementStatus.SETTLED);
+        } else {
+            throw new BadRequestException("Unsupported payment type: " + o.getPaymentType());
+        }
+
+        if (!alreadyDelivered) {
+            o.setStatus(OrderStatus.DELIVERED);
+        }
+        OrderEntity saved = orderRepository.save(o);
+
+        riderWalletService.settleOrderDelivered(
+                saved,
+                saved.getPaymentType() == PaymentType.COD ? saved.getCodCollectionMode() : null,
+                saved.getCodCollectedAmount(),
+                actingRiderId,
+                "RIDER");
+
+        OrderEntity refreshed = orderRepository.findById(saved.getId()).orElse(saved);
+        response.setData(toOrderDto(refreshed));
+        response.setMessage("Order completed");
+        response.setMessageKey("SUCCESS");
+        response.setSuccess(true);
+        response.setStatus(200);
         return response;
+    }
+
+    private OrderEntity resolveOrderByIdOrReference(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new RuntimeException("orderId is required");
+        }
+        String s = raw.trim();
+        if (s.regionMatches(true, 0, "YP-", 0, 3)) {
+            return orderRepository.findByDisplayOrderId(s)
+                    .orElseThrow(() -> new RuntimeException("Order not found with display id: " + s));
+        }
+        try {
+            long id = Long.parseLong(s);
+            return orderRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Order not found with id: " + id));
+        } catch (NumberFormatException e) {
+            throw new RuntimeException("Invalid orderId: " + s);
+        }
     }
 
     private void notifyAfterOrderCreated(OrderEntity saved) {
@@ -562,6 +716,7 @@ public class OrderServiceImpl implements OrderService {
                 .originHubId(o.getOriginHubId())
                 .destinationHubId(o.getDestinationHubId())
                 .weight(o.getWeight())
+                .distanceKm(o.getDistanceKm())
                 .paymentType(o.getPaymentType())
                 .status(o.getStatus())
                 .riderId(o.getRiderId())
@@ -574,6 +729,9 @@ public class OrderServiceImpl implements OrderService {
                 .displayOrderId(o.getDisplayOrderId())
                 .paymentStatus(o.getPaymentStatus())
                 .razorpayOrderId(o.getRazorpayOrderId())
+                .codCollectedAmount(o.getCodCollectedAmount())
+                .codCollectionMode(o.getCodCollectionMode())
+                .codSettlementStatus(o.getCodSettlementStatus())
                 .createdAt(o.getCreatedAt() != null ? o.getCreatedAt().toString() : null)
                 .build();
     }

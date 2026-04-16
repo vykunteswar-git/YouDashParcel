@@ -51,7 +51,7 @@ public class OrderController {
             @RequestAttribute("userId") Long tokenUserId,
             @RequestAttribute(value = "type", required = false) String type) {
         boolean admin = "ADMIN".equals(type);
-        return orderService.getOrder(id, tokenUserId, admin);
+        return orderService.getOrder(id, tokenUserId, type, admin);
     }
 
     @PostMapping("/manual-request")

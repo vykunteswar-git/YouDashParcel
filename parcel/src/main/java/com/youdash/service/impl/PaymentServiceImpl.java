@@ -294,7 +294,7 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     private void attachOrderDto(ApiResponse<OrderResponseDTO> response, OrderEntity order) {
-        ApiResponse<OrderResponseDTO> fetched = orderService.getOrder(order.getId(), order.getUserId(), true);
+        ApiResponse<OrderResponseDTO> fetched = orderService.getOrder(order.getId(), order.getUserId(), null, true);
         if (Boolean.TRUE.equals(fetched.getSuccess()) && fetched.getData() != null) {
             response.setData(fetched.getData());
         }

@@ -25,7 +25,7 @@ public class AdminOrderController {
 
     @GetMapping("/{id}")
     public ApiResponse<OrderResponseDTO> getOne(@PathVariable Long id) {
-        return orderService.getOrder(id, null, true);
+        return orderService.getOrder(id, null, null, true);
     }
 
     @PostMapping("/{id}/assign-rider")

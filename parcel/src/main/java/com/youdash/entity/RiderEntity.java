@@ -35,6 +35,9 @@ public class RiderEntity {
     @Column(name = "vehicle_type")
     private String vehicleType;
 
+    @Column(name = "vehicle_number", length = 32)
+    private String vehicleNumber;
+
     @Column(name = "emergency_phone")
     private String emergencyPhone;
 

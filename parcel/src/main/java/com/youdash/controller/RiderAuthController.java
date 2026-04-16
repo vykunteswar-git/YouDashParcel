@@ -18,6 +18,7 @@ import com.youdash.entity.OtpEntity;
 import com.youdash.entity.RiderEntity;
 import com.youdash.repository.OtpRepository;
 import com.youdash.repository.RiderRepository;
+import com.youdash.service.RiderService;
 import com.youdash.util.JwtUtil;
 
 @RestController
@@ -32,6 +33,9 @@ public class RiderAuthController {
 
     @Autowired
     private JwtUtil jwtUtil;
+
+    @Autowired
+    private RiderService riderService;
 
     @PostMapping("/send-otp")
     public ApiResponse<OtpResponseDTO> sendOtp(@RequestBody OtpRequestDTO request) {
@@ -105,25 +109,14 @@ public class RiderAuthController {
 
             String token = jwtUtil.generateToken(rider.getId(), "RIDER");
 
-            RiderResponseDTO riderDto = new RiderResponseDTO();
-            riderDto.setId(rider.getId());
-            riderDto.setPublicId(rider.getPublicId());
-            riderDto.setName(rider.getName());
-            riderDto.setPhone(rider.getPhone());
-            riderDto.setVehicleId(rider.getVehicleId());
-            riderDto.setVehicleType(rider.getVehicleType());
-            riderDto.setIsAvailable(rider.getIsAvailable());
-            riderDto.setIsBlocked(rider.getIsBlocked());
-            riderDto.setRating(rider.getRating());
-            riderDto.setApprovalStatus(rider.getApprovalStatus());
-            riderDto.setProfileImageUrl(rider.getProfileImageUrl());
-            riderDto.setAadhaarImageUrl(rider.getAadhaarImageUrl());
-            riderDto.setLicenseImageUrl(rider.getLicenseImageUrl());
-            riderDto.setRcImageUrl(rider.getRcImageUrl());
+            ApiResponse<RiderResponseDTO> profile = riderService.getRiderProfile(rider);
+            if (!Boolean.TRUE.equals(profile.getSuccess()) || profile.getData() == null) {
+                throw new RuntimeException(profile.getMessage() != null ? profile.getMessage() : "Failed to load rider profile");
+            }
 
             RiderAuthResponseDTO payload = new RiderAuthResponseDTO();
             payload.setToken(token);
-            payload.setRider(riderDto);
+            payload.setRider(profile.getData());
 
             response.setData(payload);
             response.setMessage("Rider login successful");

@@ -6,16 +6,30 @@ import java.security.SecureRandom;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.OrderResponseDTO;
 import com.youdash.dto.RiderRequestDTO;
 import com.youdash.dto.RiderResponseDTO;
+import com.youdash.dto.RiderSelfUpdateDTO;
+import com.youdash.dto.wallet.RiderWalletTransactionDTO;
+import com.youdash.dto.wallet.RiderWithdrawalDTO;
+import com.youdash.entity.OrderEntity;
 import com.youdash.entity.RiderEntity;
 import com.youdash.entity.VehicleEntity;
+import com.youdash.entity.wallet.RiderWalletEntity;
+import com.youdash.entity.wallet.RiderWalletTransactionEntity;
+import com.youdash.entity.wallet.RiderWithdrawalEntity;
+import com.youdash.model.OrderStatus;
 import com.youdash.model.RiderApprovalStatus;
+import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.repository.VehicleRepository;
+import com.youdash.repository.wallet.RiderWalletRepository;
+import com.youdash.repository.wallet.RiderWalletTransactionRepository;
+import com.youdash.repository.wallet.RiderWithdrawalRepository;
 import com.youdash.service.RiderService;
 
 @Service
@@ -28,6 +42,18 @@ public class RiderServiceImpl implements RiderService {
 
     @Autowired
     private VehicleRepository vehicleRepository;
+
+    @Autowired
+    private OrderRepository orderRepository;
+
+    @Autowired
+    private RiderWalletRepository riderWalletRepository;
+
+    @Autowired
+    private RiderWalletTransactionRepository riderWalletTransactionRepository;
+
+    @Autowired
+    private RiderWithdrawalRepository riderWithdrawalRepository;
 
     @Override
     public ApiResponse<RiderResponseDTO> createRider(RiderRequestDTO dto) {
@@ -58,6 +84,13 @@ public class RiderServiceImpl implements RiderService {
             if (dto.getVehicleId() == null && (dto.getVehicleType() == null || dto.getVehicleType().trim().isEmpty())) {
                 throw new RuntimeException("Vehicle is required");
             }
+            if (dto.getVehicleNumber() == null || dto.getVehicleNumber().trim().isEmpty()) {
+                throw new RuntimeException("Vehicle number is required");
+            }
+            String vehicleNumber = dto.getVehicleNumber().trim().toUpperCase(Locale.ROOT);
+            if (vehicleNumber.length() < 4) {
+                throw new RuntimeException("Invalid vehicle number");
+            }
 
             RiderEntity rider = new RiderEntity();
             rider.setName(dto.getName());
@@ -79,6 +112,7 @@ public class RiderServiceImpl implements RiderService {
                 resolvedVehicleType = dto.getVehicleType().trim();
             }
             rider.setVehicleType(resolvedVehicleType);
+            rider.setVehicleNumber(vehicleNumber);
             rider.setEmergencyPhone(dto.getEmergencyPhone().trim());
 
             rider.setProfileImageUrl(dto.getProfileImageUrl().trim());
@@ -106,6 +140,27 @@ public class RiderServiceImpl implements RiderService {
             response.setMessage(e.getMessage());
             response.setMessageKey("ERROR");
             response.setStatus(500);
+            response.setSuccess(false);
+        }
+        return response;
+    }
+
+    @Override
+    public ApiResponse<RiderResponseDTO> getRiderProfile(RiderEntity rider) {
+        ApiResponse<RiderResponseDTO> response = new ApiResponse<>();
+        try {
+            if (rider == null || rider.getId() == null) {
+                throw new RuntimeException("Rider not found");
+            }
+            response.setData(mapToResponseDTO(rider));
+            response.setMessage("Rider profile fetched");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setSuccess(true);
+        } catch (Exception e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(400);
             response.setSuccess(false);
         }
         return response;
@@ -203,6 +258,69 @@ public class RiderServiceImpl implements RiderService {
             response.setStatus(200);
             response.setSuccess(true);
 
+        } catch (Exception e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(500);
+            response.setSuccess(false);
+        }
+        return response;
+    }
+
+    @Override
+    public ApiResponse<RiderResponseDTO> patchSelfProfile(Long riderId, RiderSelfUpdateDTO dto) {
+        ApiResponse<RiderResponseDTO> response = new ApiResponse<>();
+        try {
+            if (riderId == null) {
+                throw new RuntimeException("Rider ID cannot be null");
+            }
+            if (dto == null) {
+                throw new RuntimeException("Request body is required");
+            }
+            RiderEntity rider = riderRepository.findById(riderId)
+                    .orElseThrow(() -> new RuntimeException("Rider not found with id: " + riderId));
+
+            boolean changed = false;
+            if (dto.getIsAvailable() != null) {
+                rider.setIsAvailable(dto.getIsAvailable());
+                changed = true;
+            }
+            if (dto.getCurrentLat() != null && dto.getCurrentLng() != null) {
+                rider.setCurrentLat(dto.getCurrentLat());
+                rider.setCurrentLng(dto.getCurrentLng());
+                changed = true;
+            } else if (dto.getCurrentLat() != null || dto.getCurrentLng() != null) {
+                throw new RuntimeException("currentLat and currentLng must be provided together");
+            }
+            if (dto.getEmergencyPhone() != null) {
+                String ep = dto.getEmergencyPhone().trim();
+                if (ep.isEmpty()) {
+                    throw new RuntimeException("Emergency phone cannot be empty");
+                }
+                if (ep.length() < 10) {
+                    throw new RuntimeException("Invalid emergency phone number");
+                }
+                rider.setEmergencyPhone(ep);
+                changed = true;
+            }
+            if (dto.getFcmToken() != null) {
+                String fcm = dto.getFcmToken().trim();
+                if (fcm.isEmpty()) {
+                    throw new RuntimeException("FCM token cannot be empty");
+                }
+                rider.setFcmToken(fcm);
+                changed = true;
+            }
+            if (!changed) {
+                throw new RuntimeException("No updatable fields provided");
+            }
+
+            RiderEntity updated = riderRepository.save(rider);
+            response.setData(mapToResponseDTO(updated));
+            response.setMessage("Profile updated successfully");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setSuccess(true);
         } catch (Exception e) {
             response.setMessage(e.getMessage());
             response.setMessageKey("ERROR");
@@ -344,15 +462,99 @@ public class RiderServiceImpl implements RiderService {
         dto.setPhone(rider.getPhone());
         dto.setVehicleId(rider.getVehicleId());
         dto.setVehicleType(rider.getVehicleType());
+        dto.setVehicleNumber(rider.getVehicleNumber());
         dto.setIsAvailable(rider.getIsAvailable());
         dto.setIsBlocked(rider.getIsBlocked());
         dto.setRating(rider.getRating());
         dto.setApprovalStatus(rider.getApprovalStatus());
+        dto.setEmergencyPhone(rider.getEmergencyPhone());
+        dto.setCurrentLat(rider.getCurrentLat());
+        dto.setCurrentLng(rider.getCurrentLng());
+        dto.setFcmToken(rider.getFcmToken());
         dto.setProfileImageUrl(rider.getProfileImageUrl());
         dto.setAadhaarImageUrl(rider.getAadhaarImageUrl());
         dto.setLicenseImageUrl(rider.getLicenseImageUrl());
-        dto.setRcImageUrl(rider.getRcImageUrl());
+        enrichWalletAndHistory(dto, rider.getId());
         return dto;
+    }
+
+    private void enrichWalletAndHistory(RiderResponseDTO dto, Long riderId) {
+        if (riderId == null) {
+            return;
+        }
+        dto.setTotalOrdersDelivered(orderRepository.countByRiderIdAndStatus(riderId, OrderStatus.DELIVERED));
+
+        RiderWalletEntity w = riderWalletRepository.findByRiderId(riderId).orElse(null);
+        if (w != null) {
+            dto.setWalletCurrentBalance(round2(w.getCurrentBalance()));
+            dto.setWalletTotalEarnings(round2(w.getTotalEarnings()));
+            dto.setWalletTotalWithdrawn(round2(w.getTotalWithdrawn()));
+            dto.setWalletCodPendingAmount(round2(w.getCodPendingAmount()));
+            dto.setWalletWithdrawalPendingAmount(round2(w.getWithdrawalPendingAmount()));
+            dto.setWalletNetAvailable(round2(w.getCurrentBalance() - w.getCodPendingAmount() - w.getWithdrawalPendingAmount()));
+        }
+
+        var page = PageRequest.of(0, 10);
+        dto.setRecentWalletTransactions(
+                riderWalletTransactionRepository.findByRiderIdOrderByCreatedAtDesc(riderId, page).stream()
+                        .map(this::toWalletTxnDto)
+                        .collect(Collectors.toList()));
+        dto.setRecentWithdrawals(
+                riderWithdrawalRepository.findByRiderIdOrderByCreatedAtDesc(riderId, page).stream()
+                        .map(this::toWithdrawalDto)
+                        .collect(Collectors.toList()));
+        dto.setRecentOrders(
+                orderRepository.findByRiderIdOrderByCreatedAtDesc(riderId, page).stream()
+                        .map(this::toRiderOrderPreview)
+                        .collect(Collectors.toList()));
+    }
+
+    private RiderWalletTransactionDTO toWalletTxnDto(RiderWalletTransactionEntity e) {
+        RiderWalletTransactionDTO d = new RiderWalletTransactionDTO();
+        d.setId(e.getId());
+        d.setType(e.getType() != null ? e.getType().name() : null);
+        d.setAmount(e.getAmount());
+        d.setReferenceType(e.getReferenceType() != null ? e.getReferenceType().name() : null);
+        d.setReferenceId(e.getReferenceId());
+        d.setStatus(e.getStatus() != null ? e.getStatus().name() : null);
+        d.setNote(e.getNote());
+        d.setMetadataJson(e.getMetadataJson());
+        d.setCreatedAt(e.getCreatedAt() != null ? e.getCreatedAt().toString() : null);
+        return d;
+    }
+
+    private RiderWithdrawalDTO toWithdrawalDto(RiderWithdrawalEntity e) {
+        RiderWithdrawalDTO d = new RiderWithdrawalDTO();
+        d.setId(e.getId());
+        d.setAmount(e.getAmount());
+        d.setStatus(e.getStatus() != null ? e.getStatus().name() : null);
+        d.setAccountHolderName(e.getBankAccountName());
+        d.setAccountNumber(e.getBankAccountNumber());
+        d.setIfsc(e.getBankIfsc());
+        d.setCreatedAt(e.getCreatedAt() != null ? e.getCreatedAt().toString() : null);
+        return d;
+    }
+
+    private OrderResponseDTO toRiderOrderPreview(OrderEntity o) {
+        return OrderResponseDTO.builder()
+                .id(o.getId())
+                .userId(o.getUserId())
+                .paymentType(o.getPaymentType())
+                .status(o.getStatus())
+                .riderId(o.getRiderId())
+                .totalAmount(o.getTotalAmount())
+                .displayOrderId(o.getDisplayOrderId())
+                .paymentStatus(o.getPaymentStatus())
+                .codCollectedAmount(o.getCodCollectedAmount())
+                .codCollectionMode(o.getCodCollectionMode())
+                .codSettlementStatus(o.getCodSettlementStatus())
+                .distanceKm(o.getDistanceKm())
+                .createdAt(o.getCreatedAt() != null ? o.getCreatedAt().toString() : null)
+                .build();
+    }
+
+    private static double round2(double v) {
+        return Math.round(v * 100.0) / 100.0;
     }
 
     private String generateUniquePublicId() {

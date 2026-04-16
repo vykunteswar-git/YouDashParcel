@@ -3,6 +3,8 @@ package com.youdash.entity;
 import com.youdash.model.OrderStatus;
 import com.youdash.model.PaymentType;
 import com.youdash.model.ServiceMode;
+import com.youdash.model.wallet.CodCollectionMode;
+import com.youdash.model.wallet.CodSettlementStatus;
 import jakarta.persistence.*;
 import lombok.Data;
 
@@ -90,6 +92,10 @@ public class OrderEntity {
     @Column(name = "drop_distance_km")
     private Double dropDistanceKm;
 
+    /** Total distance (km) used for rider earning; may mirror leg sums or route distance. */
+    @Column(name = "distance_km")
+    private Double distanceKm;
+
     @Column(name = "subtotal")
     private Double subtotal;
 
@@ -131,6 +137,17 @@ public class OrderEntity {
 
     @Column(name = "payment_updated_at")
     private Instant paymentUpdatedAt;
+
+    @Column(name = "cod_collected_amount")
+    private Double codCollectedAmount;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cod_collection_mode", length = 8)
+    private CodCollectionMode codCollectionMode;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cod_settlement_status", length = 16)
+    private CodSettlementStatus codSettlementStatus;
 
     @Column(name = "created_at")
     private Instant createdAt;

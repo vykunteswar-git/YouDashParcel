@@ -52,4 +52,19 @@ public class GlobalExceptionHandler {
     private String formatFieldError(FieldError fe) {
         return fe.getField() + ": " + (fe.getDefaultMessage() != null ? fe.getDefaultMessage() : "invalid");
     }
+
+    /**
+     * Fallback for uncaught runtime errors (e.g. wallet settlement).
+     * Response body: {@code { "message", "messageKey": "ERROR", "success": false, "status": 500 }} via {@link ApiResponse}.
+     * {@link BadRequestException} and other more-specific handlers take precedence (subclass match).
+     */
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<ApiResponse<Void>> handleRuntime(RuntimeException ex) {
+        ApiResponse<Void> r = new ApiResponse<>();
+        r.setMessage(ex.getMessage() != null ? ex.getMessage() : "Error");
+        r.setMessageKey("ERROR");
+        r.setSuccess(false);
+        r.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(r);
+    }
 }

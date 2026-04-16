@@ -33,6 +33,9 @@ public class RiderAccessVerifier {
         if ("ADMIN".equals(type)) {
             return true;
         }
+        if ("RIDER".equals(type) && uid != null && uid.equals(riderId)) {
+            return true;
+        }
         if (uid != null && uid.equals(riderId)) {
             return true;
         }
@@ -66,5 +69,31 @@ public class RiderAccessVerifier {
         return riderRepository.findByPhone(user.getPhoneNumber().trim())
                 .map(RiderEntity::getId)
                 .orElseThrow(() -> new RuntimeException("Rider profile not found for this account"));
+    }
+
+    /**
+     * Resolve rider PK from JWT subject + token type without an {@link HttpServletRequest}.
+     */
+    public Long resolveActingRiderIdFromToken(Long tokenUserId, String tokenType) {
+        if (tokenUserId == null) {
+            throw new RuntimeException("Unauthorized");
+        }
+        if ("RIDER".equals(tokenType)) {
+            if (!riderRepository.existsById(tokenUserId)) {
+                throw new RuntimeException("Unauthorized");
+            }
+            return tokenUserId;
+        }
+        if ("USER".equals(tokenType)) {
+            UserEntity user = userRepository.findById(tokenUserId)
+                    .orElseThrow(() -> new RuntimeException("Unauthorized"));
+            if (user.getPhoneNumber() == null || user.getPhoneNumber().isBlank()) {
+                throw new RuntimeException("Rider profile not found for this account");
+            }
+            return riderRepository.findByPhone(user.getPhoneNumber().trim())
+                    .map(RiderEntity::getId)
+                    .orElseThrow(() -> new RuntimeException("Rider profile not found for this account"));
+        }
+        throw new RuntimeException("Unauthorized");
     }
 }

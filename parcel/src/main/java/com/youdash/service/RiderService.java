@@ -5,10 +5,14 @@ import java.util.List;
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.RiderRequestDTO;
 import com.youdash.dto.RiderResponseDTO;
+import com.youdash.dto.RiderSelfUpdateDTO;
+import com.youdash.entity.RiderEntity;
 
 public interface RiderService {
 
     ApiResponse<RiderResponseDTO> createRider(RiderRequestDTO dto);
+
+    ApiResponse<RiderResponseDTO> getRiderProfile(RiderEntity rider);
 
     ApiResponse<List<RiderResponseDTO>> getAllRiders();
 
@@ -17,6 +21,8 @@ public interface RiderService {
     ApiResponse<RiderResponseDTO> updateAvailability(Long riderId, Boolean status);
 
     ApiResponse<RiderResponseDTO> updateLocation(Long riderId, Double lat, Double lng);
+
+    ApiResponse<RiderResponseDTO> patchSelfProfile(Long riderId, RiderSelfUpdateDTO dto);
 
     ApiResponse<List<RiderResponseDTO>> listPendingRiders();
 

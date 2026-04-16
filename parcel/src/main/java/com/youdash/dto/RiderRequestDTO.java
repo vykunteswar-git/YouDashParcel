@@ -15,6 +15,9 @@ public class RiderRequestDTO {
     /** Backward-compatible fallback. Prefer {@code vehicleId}. */
     private String vehicleType;
 
+    /** Vehicle registration / plate number (required at signup). */
+    private String vehicleNumber;
+
     private String emergencyPhone;
 
     private String profileImageUrl;
