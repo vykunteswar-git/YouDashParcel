@@ -87,11 +87,16 @@ public class RiderController {
             dto.setPublicId(rider.getPublicId());
             dto.setName(rider.getName());
             dto.setPhone(rider.getPhone());
+            dto.setVehicleId(rider.getVehicleId());
             dto.setVehicleType(rider.getVehicleType());
             dto.setIsAvailable(rider.getIsAvailable());
             dto.setIsBlocked(rider.getIsBlocked());
             dto.setRating(rider.getRating());
             dto.setApprovalStatus(rider.getApprovalStatus());
+            dto.setProfileImageUrl(rider.getProfileImageUrl());
+            dto.setAadhaarImageUrl(rider.getAadhaarImageUrl());
+            dto.setLicenseImageUrl(rider.getLicenseImageUrl());
+            dto.setRcImageUrl(rider.getRcImageUrl());
 
             response.setData(dto);
             response.setMessage("Rider profile fetched");

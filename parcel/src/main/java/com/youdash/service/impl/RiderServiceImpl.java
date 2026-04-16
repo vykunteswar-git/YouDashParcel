@@ -73,6 +73,7 @@ public class RiderServiceImpl implements RiderService {
                 if (Boolean.FALSE.equals(vehicle.getIsActive())) {
                     throw new RuntimeException("Selected vehicle is not active");
                 }
+                rider.setVehicleId(vehicle.getId());
                 resolvedVehicleType = vehicle.getName();
             } else {
                 resolvedVehicleType = dto.getVehicleType().trim();
@@ -235,6 +236,32 @@ public class RiderServiceImpl implements RiderService {
     }
 
     @Override
+    public ApiResponse<List<RiderResponseDTO>> listByApprovalStatus(String approvalStatus) {
+        ApiResponse<List<RiderResponseDTO>> response = new ApiResponse<>();
+        try {
+            if (approvalStatus == null || approvalStatus.isBlank()) {
+                throw new RuntimeException("status is required");
+            }
+            List<RiderResponseDTO> dtos = riderRepository
+                    .findByApprovalStatusOrderByCreatedAtDesc(approvalStatus.trim()).stream()
+                    .map(this::mapToResponseDTO)
+                    .collect(Collectors.toList());
+            response.setData(dtos);
+            response.setMessage("Riders fetched successfully");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setTotalCount(dtos.size());
+            response.setSuccess(true);
+        } catch (Exception e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(500);
+            response.setSuccess(false);
+        }
+        return response;
+    }
+
+    @Override
     public ApiResponse<RiderResponseDTO> approveRider(Long id) {
         ApiResponse<RiderResponseDTO> response = new ApiResponse<>();
         try {
@@ -315,11 +342,16 @@ public class RiderServiceImpl implements RiderService {
         dto.setPublicId(rider.getPublicId());
         dto.setName(rider.getName());
         dto.setPhone(rider.getPhone());
+        dto.setVehicleId(rider.getVehicleId());
         dto.setVehicleType(rider.getVehicleType());
         dto.setIsAvailable(rider.getIsAvailable());
         dto.setIsBlocked(rider.getIsBlocked());
         dto.setRating(rider.getRating());
         dto.setApprovalStatus(rider.getApprovalStatus());
+        dto.setProfileImageUrl(rider.getProfileImageUrl());
+        dto.setAadhaarImageUrl(rider.getAadhaarImageUrl());
+        dto.setLicenseImageUrl(rider.getLicenseImageUrl());
+        dto.setRcImageUrl(rider.getRcImageUrl());
         return dto;
     }
 

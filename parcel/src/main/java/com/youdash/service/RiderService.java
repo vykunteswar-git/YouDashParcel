@@ -20,6 +20,8 @@ public interface RiderService {
 
     ApiResponse<List<RiderResponseDTO>> listPendingRiders();
 
+    ApiResponse<List<RiderResponseDTO>> listByApprovalStatus(String approvalStatus);
+
     ApiResponse<RiderResponseDTO> approveRider(Long id);
 
     ApiResponse<RiderResponseDTO> rejectRider(Long id);

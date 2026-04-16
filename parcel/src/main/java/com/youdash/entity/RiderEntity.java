@@ -1,6 +1,8 @@
 package com.youdash.entity;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.Locale;
 
 import jakarta.persistence.*;
 import lombok.Data;
@@ -11,6 +13,8 @@ import com.youdash.model.RiderApprovalStatus;
 @Table(name = "youdash_riders")
 @Data
 public class RiderEntity {
+
+    private static final SecureRandom PUBLIC_ID_RANDOM = new SecureRandom();
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -24,6 +28,9 @@ public class RiderEntity {
 
     @Column(name = "public_id", unique = true, length = 32)
     private String publicId;
+
+    @Column(name = "vehicle_id")
+    private Long vehicleId;
 
     @Column(name = "vehicle_type")
     private String vehicleType;
@@ -80,10 +87,24 @@ public class RiderEntity {
         if (this.isBlocked == null) {
             this.isBlocked = false;
         }
+        if (this.publicId == null || this.publicId.isBlank()) {
+            this.publicId = generatePublicId();
+        }
     }
 
     @PreUpdate
     protected void onUpdate() {
         this.updatedAt = LocalDateTime.now();
+    }
+
+    private static String generatePublicId() {
+        long n = Math.abs(PUBLIC_ID_RANDOM.nextLong());
+        String suffix = Long.toString(n, 36).toLowerCase(Locale.ROOT);
+        if (suffix.length() > 10) {
+            suffix = suffix.substring(0, 10);
+        } else if (suffix.length() < 10) {
+            suffix = "0".repeat(10 - suffix.length()) + suffix;
+        }
+        return "rd-" + suffix;
     }
 }

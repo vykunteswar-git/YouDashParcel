@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -28,6 +29,16 @@ public class AdminRiderOpsController {
     @Operation(summary = "Riders awaiting approval")
     public ApiResponse<List<RiderResponseDTO>> pending() {
         return riderService.listPendingRiders();
+    }
+
+    @GetMapping
+    @Operation(summary = "List riders filtered by approval status")
+    public ApiResponse<List<RiderResponseDTO>> listByStatus(@RequestParam(name = "status", required = false) String status) {
+        if (status == null || status.isBlank()) {
+            // Backward compatible: default to pending
+            return riderService.listPendingRiders();
+        }
+        return riderService.listByApprovalStatus(status.trim());
     }
 
     @PostMapping("/{id}/approve")
