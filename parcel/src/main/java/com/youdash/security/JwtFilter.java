@@ -43,7 +43,8 @@ public class JwtFilter extends OncePerRequestFilter {
             path.startsWith("/public/") ||
             path.equals("/payments/webhook") ||
             path.startsWith("/swagger-ui") ||
-            path.startsWith("/v3/api-docs")) {
+            path.startsWith("/v3/api-docs") ||
+            ("POST".equalsIgnoreCase(request.getMethod()) && path.equals("/riders"))) {
             filterChain.doFilter(request, response);
             return;
         }

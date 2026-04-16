@@ -35,8 +35,12 @@ public class RiderServiceImpl implements RiderService {
             if (dto.getPhone() == null || dto.getPhone().isEmpty()) {
                 throw new RuntimeException("Rider phone is required");
             }
-            if (dto.getPhone().length() < 10) {
+            String phone = dto.getPhone().trim();
+            if (phone.length() < 10) {
                 throw new RuntimeException("Invalid phone number");
+            }
+            if (riderRepository.findByPhone(phone).isPresent()) {
+                throw new RuntimeException("A rider is already registered with this phone number");
             }
             if (dto.getEmergencyPhone() == null || dto.getEmergencyPhone().trim().isEmpty()) {
                 throw new RuntimeException("Emergency phone is required");
@@ -53,7 +57,7 @@ public class RiderServiceImpl implements RiderService {
 
             RiderEntity rider = new RiderEntity();
             rider.setName(dto.getName());
-            rider.setPhone(dto.getPhone());
+            rider.setPhone(phone);
 
             // Prefer vehicleId (dropdown) -> resolve to vehicle name; fallback to legacy vehicleType string.
             String resolvedVehicleType = null;
