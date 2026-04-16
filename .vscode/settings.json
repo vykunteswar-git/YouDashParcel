@@ -1,4 +1,15 @@
 {
   "java.compile.nullAnalysis.mode": "automatic",
-  "java.configuration.updateBuildConfiguration": "interactive"
+  "java.configuration.updateBuildConfiguration": "interactive",
+  "cSpell.words": [
+    "adminsdk",
+    "Aurd",
+    "dedup",
+    "hikari",
+    "HOSTINGER",
+    "hstgr",
+    "springdoc",
+    "youdash",
+    "youdbparcel"
+  ]
 }

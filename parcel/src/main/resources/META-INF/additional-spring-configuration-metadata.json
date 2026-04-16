@@ -3,12 +3,17 @@
     {
       "name": "razorpay.key_id",
       "type": "java.lang.String",
-      "description": "Razorpay API key id (used by PaymentServiceImpl)."
+      "description": "Razorpay API key id (PaymentServiceImpl)."
     },
     {
       "name": "razorpay.key_secret",
       "type": "java.lang.String",
       "description": "Razorpay API key secret. Prefer environment variables in production."
+    },
+    {
+      "name": "razorpay.webhook_secret",
+      "type": "java.lang.String",
+      "description": "Razorpay webhook signing secret for POST /payments/webhook (PaymentServiceImpl)."
     },
     {
       "name": "jwt.secret",
@@ -19,6 +24,36 @@
       "name": "jwt.expiration",
       "type": "java.lang.Long",
       "description": "JWT validity in milliseconds (JwtUtil)."
+    },
+    {
+      "name": "youdash.outstation.price-per-km",
+      "type": "java.lang.Double",
+      "description": "Fallback price per km for outstation quotes when vehicle is not selected. Prefer kebab-case in application.properties; camelCase is an accepted alias."
+    },
+    {
+      "name": "youdash.outstation.pricePerKm",
+      "type": "java.lang.Double",
+      "description": "Alias of youdash.outstation.price-per-km (relaxed binding)."
+    },
+    {
+      "name": "youdash.maps.distance.api-key",
+      "type": "java.lang.String",
+      "description": "Google Maps / Distance Matrix API key; when empty, haversine is used (DistanceServiceImpl)."
+    },
+    {
+      "name": "notification.dedup.ttl-ms",
+      "type": "java.lang.Long",
+      "description": "Deduplication window for identical notifications in ms (NotificationDedupService)."
+    },
+    {
+      "name": "notification.admin.fcm.tokens",
+      "type": "java.lang.String",
+      "description": "Comma-separated FCM tokens for admin/ops devices (NotificationService)."
+    },
+    {
+      "name": "firebase.service-account.path",
+      "type": "java.lang.String",
+      "description": "Filesystem path to Firebase service account JSON; enables FCM when set (FirebaseConfig)."
     }
   ]
 }
