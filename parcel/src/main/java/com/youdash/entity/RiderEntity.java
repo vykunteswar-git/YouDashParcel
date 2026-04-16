@@ -22,6 +22,9 @@ public class RiderEntity {
     @Column(name = "phone")
     private String phone;
 
+    @Column(name = "public_id", unique = true, length = 32)
+    private String publicId;
+
     @Column(name = "vehicle_type")
     private String vehicleType;
 
@@ -30,6 +33,9 @@ public class RiderEntity {
 
     @Column(name = "is_available")
     private Boolean isAvailable;
+
+    @Column(name = "is_blocked")
+    private Boolean isBlocked;
 
     @Column(name = "current_lat")
     private Double currentLat;
@@ -70,6 +76,9 @@ public class RiderEntity {
         this.updatedAt = LocalDateTime.now();
         if (this.approvalStatus == null) {
             this.approvalStatus = RiderApprovalStatus.PENDING;
+        }
+        if (this.isBlocked == null) {
+            this.isBlocked = false;
         }
     }
 

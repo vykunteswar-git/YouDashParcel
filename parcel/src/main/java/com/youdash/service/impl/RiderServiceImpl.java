@@ -1,6 +1,8 @@
 package com.youdash.service.impl;
 
 import java.util.List;
+import java.util.Locale;
+import java.security.SecureRandom;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +20,8 @@ import com.youdash.service.RiderService;
 
 @Service
 public class RiderServiceImpl implements RiderService {
+
+    private static final SecureRandom RIDER_ID_RANDOM = new SecureRandom();
 
     @Autowired
     private RiderRepository riderRepository;
@@ -58,8 +62,10 @@ public class RiderServiceImpl implements RiderService {
             RiderEntity rider = new RiderEntity();
             rider.setName(dto.getName());
             rider.setPhone(phone);
+            rider.setPublicId(generateUniquePublicId());
 
-            // Prefer vehicleId (dropdown) -> resolve to vehicle name; fallback to legacy vehicleType string.
+            // Prefer vehicleId (dropdown) -> resolve to vehicle name; fallback to legacy
+            // vehicleType string.
             String resolvedVehicleType = null;
             if (dto.getVehicleId() != null) {
                 VehicleEntity vehicle = vehicleRepository.findById(dto.getVehicleId())
@@ -81,13 +87,14 @@ public class RiderServiceImpl implements RiderService {
             // Location is not required at registration time; it can be updated later.
             rider.setCurrentLat(0.0);
             rider.setCurrentLng(0.0);
-            
+
             // Set defaults
             rider.setIsAvailable(true);
+            rider.setIsBlocked(false);
             rider.setRating(0.0);
 
             RiderEntity savedRider = riderRepository.save(rider);
-            
+
             response.setData(mapToResponseDTO(savedRider));
             response.setMessage("Rider created successfully");
             response.setMessageKey("SUCCESS");
@@ -208,7 +215,8 @@ public class RiderServiceImpl implements RiderService {
     public ApiResponse<List<RiderResponseDTO>> listPendingRiders() {
         ApiResponse<List<RiderResponseDTO>> response = new ApiResponse<>();
         try {
-            List<RiderResponseDTO> dtos = riderRepository.findByApprovalStatusOrderByCreatedAtDesc(RiderApprovalStatus.PENDING).stream()
+            List<RiderResponseDTO> dtos = riderRepository
+                    .findByApprovalStatusOrderByCreatedAtDesc(RiderApprovalStatus.PENDING).stream()
                     .map(this::mapToResponseDTO)
                     .collect(Collectors.toList());
             response.setData(dtos);
@@ -304,12 +312,34 @@ public class RiderServiceImpl implements RiderService {
     private RiderResponseDTO mapToResponseDTO(RiderEntity rider) {
         RiderResponseDTO dto = new RiderResponseDTO();
         dto.setId(rider.getId());
+        dto.setPublicId(rider.getPublicId());
         dto.setName(rider.getName());
         dto.setPhone(rider.getPhone());
         dto.setVehicleType(rider.getVehicleType());
         dto.setIsAvailable(rider.getIsAvailable());
+        dto.setIsBlocked(rider.getIsBlocked());
         dto.setRating(rider.getRating());
         dto.setApprovalStatus(rider.getApprovalStatus());
         return dto;
+    }
+
+    private String generateUniquePublicId() {
+        // Not a security boundary; primary intent is to avoid exposing sequential
+        // numeric ids.
+        // Keep it short and URL-safe: rd-<8 base36 chars>.
+        for (int i = 0; i < 10; i++) {
+            long n = Math.abs(RIDER_ID_RANDOM.nextLong());
+            String suffix = Long.toString(n, 36).toLowerCase(Locale.ROOT);
+            if (suffix.length() > 8) {
+                suffix = suffix.substring(0, 8);
+            } else if (suffix.length() < 8) {
+                suffix = "0".repeat(8 - suffix.length()) + suffix;
+            }
+            String id = "rd-" + suffix;
+            if (riderRepository.findByPublicId(id).isEmpty()) {
+                return id;
+            }
+        }
+        throw new RuntimeException("Failed to generate rider id");
     }
 }

@@ -74,6 +74,64 @@ public class RiderController {
         return riderService.getAvailableRiders();
     }
 
+    @GetMapping("/me")
+    public ApiResponse<RiderResponseDTO> myProfile(HttpServletRequest request) {
+        ApiResponse<RiderResponseDTO> response = new ApiResponse<>();
+        try {
+            Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+            RiderEntity rider = riderRepository.findById(riderId)
+                    .orElseThrow(() -> new RuntimeException("Rider not found"));
+
+            RiderResponseDTO dto = new RiderResponseDTO();
+            dto.setId(rider.getId());
+            dto.setPublicId(rider.getPublicId());
+            dto.setName(rider.getName());
+            dto.setPhone(rider.getPhone());
+            dto.setVehicleType(rider.getVehicleType());
+            dto.setIsAvailable(rider.getIsAvailable());
+            dto.setIsBlocked(rider.getIsBlocked());
+            dto.setRating(rider.getRating());
+            dto.setApprovalStatus(rider.getApprovalStatus());
+
+            response.setData(dto);
+            response.setMessage("Rider profile fetched");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setSuccess(true);
+        } catch (Exception e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(400);
+            response.setSuccess(false);
+        }
+        return response;
+    }
+
+    @PutMapping("/me/availability")
+    public ApiResponse<RiderResponseDTO> updateMyAvailability(
+            @RequestBody Map<String, Boolean> statusMap,
+            HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        Boolean isAvailable = statusMap.get("isAvailable");
+        if (isAvailable == null) {
+            throw new RuntimeException("isAvailable is required");
+        }
+        return riderService.updateAvailability(riderId, isAvailable);
+    }
+
+    @PutMapping("/me/location")
+    public ApiResponse<RiderResponseDTO> updateMyLocation(
+            @RequestBody Map<String, Double> locationMap,
+            HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        Double lat = locationMap.get("lat");
+        Double lng = locationMap.get("lng");
+        if (lat == null || lng == null) {
+            throw new RuntimeException("lat and lng are required");
+        }
+        return riderService.updateLocation(riderId, lat, lng);
+    }
+
     @PutMapping("/{id}/availability")
     public ApiResponse<RiderResponseDTO> updateAvailability(
             @PathVariable Long id,

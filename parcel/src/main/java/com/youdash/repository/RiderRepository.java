@@ -16,5 +16,7 @@ public interface RiderRepository extends JpaRepository<RiderEntity, Long> {
 
     Optional<RiderEntity> findByPhone(String phone);
 
+    Optional<RiderEntity> findByPublicId(String publicId);
+
     Optional<RiderEntity> findByFcmToken(String fcmToken);
 }
