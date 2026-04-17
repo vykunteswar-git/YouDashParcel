@@ -19,6 +19,7 @@ public class RiderResponseDTO {
     private String publicId;
     private String name;
     private String phone;
+    private String email;
     private Long vehicleId;
     private String vehicleType;
     private String vehicleNumber;

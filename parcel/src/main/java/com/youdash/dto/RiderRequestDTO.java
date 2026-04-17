@@ -6,6 +6,8 @@ import lombok.Data;
 public class RiderRequestDTO {
     private String name;
     private String phone;
+    /** Optional at signup; used for important notices (e.g. insurance, compliance). */
+    private String email;
     /**
      * Preferred: vehicle selected from admin-created vehicles (dropdown uses GET /public/vehicles).
      * If provided, backend resolves to vehicle name and stores/returns it as {@code vehicleType}.

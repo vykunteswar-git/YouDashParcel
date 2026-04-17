@@ -13,4 +13,5 @@ public class RiderSelfUpdateDTO {
     private Double currentLng;
     private String emergencyPhone;
     private String fcmToken;
+    private String email;
 }

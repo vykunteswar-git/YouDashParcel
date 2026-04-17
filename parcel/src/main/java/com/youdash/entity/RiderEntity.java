@@ -26,6 +26,9 @@ public class RiderEntity {
     @Column(name = "phone")
     private String phone;
 
+    @Column(name = "email", length = 255, unique = true)
+    private String email;
+
     @Column(name = "public_id", unique = true, length = 32)
     private String publicId;
 

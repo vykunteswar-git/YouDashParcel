@@ -83,6 +83,15 @@ public class RiderServiceImpl implements RiderService {
             if (riderRepository.findByPhone(phone).isPresent()) {
                 throw new RuntimeException("A rider is already registered with this phone number");
             }
+            String email = normalizeEmail(dto.getEmail());
+            if (email != null) {
+                if (!isValidEmail(email)) {
+                    throw new RuntimeException("Invalid email format");
+                }
+                if (riderRepository.findByEmailIgnoreCase(email).isPresent()) {
+                    throw new RuntimeException("A rider is already registered with this email");
+                }
+            }
             if (dto.getEmergencyPhone() == null || dto.getEmergencyPhone().trim().isEmpty()) {
                 throw new RuntimeException("Emergency phone is required");
             }
@@ -106,6 +115,7 @@ public class RiderServiceImpl implements RiderService {
             RiderEntity rider = new RiderEntity();
             rider.setName(dto.getName());
             rider.setPhone(phone);
+            rider.setEmail(email);
             rider.setPublicId(generateUniquePublicId());
 
             // Prefer vehicleId (dropdown) -> resolve to vehicle name; fallback to legacy
@@ -185,6 +195,25 @@ public class RiderServiceImpl implements RiderService {
         }
         String t = s.trim();
         return t.isEmpty() ? null : t;
+    }
+
+    private static final java.util.regex.Pattern EMAIL_REGEX =
+            java.util.regex.Pattern.compile("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
+
+    /** Trim + lowercase; blank/null → null. */
+    private static String normalizeEmail(String email) {
+        if (email == null) {
+            return null;
+        }
+        String t = email.trim();
+        if (t.isEmpty()) {
+            return null;
+        }
+        return t.toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean isValidEmail(String email) {
+        return email != null && EMAIL_REGEX.matcher(email).matches();
     }
 
     @Override
@@ -345,6 +374,23 @@ public class RiderServiceImpl implements RiderService {
                 rider.setFcmToken(fcm);
                 changed = true;
             }
+            if (dto.getEmail() != null) {
+                String newEmail = normalizeEmail(dto.getEmail());
+                if (newEmail == null) {
+                    rider.setEmail(null);
+                } else {
+                    if (!isValidEmail(newEmail)) {
+                        throw new RuntimeException("Invalid email format");
+                    }
+                    riderRepository.findByEmailIgnoreCase(newEmail).ifPresent(existing -> {
+                        if (!existing.getId().equals(rider.getId())) {
+                            throw new RuntimeException("A rider is already registered with this email");
+                        }
+                    });
+                    rider.setEmail(newEmail);
+                }
+                changed = true;
+            }
             if (!changed) {
                 throw new RuntimeException("No updatable fields provided");
             }
@@ -494,6 +540,7 @@ public class RiderServiceImpl implements RiderService {
         dto.setPublicId(rider.getPublicId());
         dto.setName(rider.getName());
         dto.setPhone(rider.getPhone());
+        dto.setEmail(rider.getEmail());
         dto.setVehicleId(rider.getVehicleId());
         dto.setVehicleType(rider.getVehicleType());
         dto.setVehicleNumber(rider.getVehicleNumber());
