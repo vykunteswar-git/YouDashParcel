@@ -7,9 +7,13 @@ import com.youdash.dto.OrderResponseDTO;
 import com.youdash.dto.RazorpayOrderCreatedDTO;
 import com.youdash.dto.RazorpayVerifyRequestDTO;
 import com.youdash.entity.OrderEntity;
+import com.youdash.model.OrderStatus;
 import com.youdash.model.PaymentType;
+import com.youdash.model.ServiceMode;
 import com.youdash.notification.NotificationType;
 import com.youdash.repository.OrderRepository;
+import com.youdash.repository.RiderRepository;
+import com.youdash.dto.realtime.UserOrderEventDTO;
 import com.youdash.service.NotificationDedupService;
 import com.youdash.service.NotificationService;
 import com.youdash.service.OrderService;
@@ -26,6 +30,7 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.List;
 
 @Service
 public class PaymentServiceImpl implements PaymentService {
@@ -51,6 +56,12 @@ public class PaymentServiceImpl implements PaymentService {
     @Autowired
     private NotificationDedupService notificationDedupService;
 
+    @Autowired
+    private RiderRepository riderRepository;
+
+    @Autowired
+    private org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
+
     @Override
     public ApiResponse<RazorpayOrderCreatedDTO> createRazorpayOrder(String orderIdOrReference, Long userId) {
         ApiResponse<RazorpayOrderCreatedDTO> response = new ApiResponse<>();
@@ -63,6 +74,16 @@ public class PaymentServiceImpl implements PaymentService {
             }
             if ("PAID".equalsIgnoreCase(orderEntity.getPaymentStatus())) {
                 throw new RuntimeException("Order already paid");
+            }
+
+            // INCITY new flow: only allow payment initiation after rider accepted, within due time.
+            if (orderEntity.getServiceMode() == ServiceMode.INCITY) {
+                if (orderEntity.getStatus() != OrderStatus.RIDER_ACCEPTED) {
+                    throw new RuntimeException("Payment can be initiated only after rider accepts the order");
+                }
+                if (orderEntity.getPaymentDueAt() != null && orderEntity.getPaymentDueAt().isBefore(Instant.now())) {
+                    throw new RuntimeException("Payment window expired");
+                }
             }
 
             Double amount = orderEntity.getTotalAmount();
@@ -98,6 +119,15 @@ public class PaymentServiceImpl implements PaymentService {
             }
             orderEntity.setPaymentUpdatedAt(now);
             orderRepository.save(orderEntity);
+
+            // status transition: RIDER_ACCEPTED -> PAYMENT_PENDING (idempotent with conditional update)
+            if (orderEntity.getServiceMode() == ServiceMode.INCITY) {
+                orderRepository.tryMarkPaymentPending(
+                        orderEntity.getId(),
+                        OrderStatus.RIDER_ACCEPTED,
+                        OrderStatus.PAYMENT_PENDING,
+                        Instant.now());
+            }
 
             RazorpayOrderCreatedDTO dto = new RazorpayOrderCreatedDTO();
             dto.setRazorpayOrderId(razorpayOrderId);
@@ -142,6 +172,15 @@ public class PaymentServiceImpl implements PaymentService {
                 return response;
             }
 
+            if (order.getServiceMode() == ServiceMode.INCITY) {
+                if (!(order.getStatus() == OrderStatus.PAYMENT_PENDING || order.getStatus() == OrderStatus.RIDER_ACCEPTED)) {
+                    throw new RuntimeException("Payment cannot be verified from status: " + order.getStatus());
+                }
+                if (order.getPaymentDueAt() != null && order.getPaymentDueAt().isBefore(Instant.now())) {
+                    throw new RuntimeException("Payment window expired");
+                }
+            }
+
             if (dto.getRazorpayOrderId() == null || dto.getRazorpayOrderId().trim().isEmpty()) {
                 throw new RuntimeException("razorpayOrderId is required");
             }
@@ -178,14 +217,35 @@ public class PaymentServiceImpl implements PaymentService {
             }
 
             Instant now = Instant.now();
-            order.setPaymentStatus("PAID");
-            order.setRazorpayPaymentId(dto.getRazorpayPaymentId());
-            order.setPaymentMethod("RAZORPAY");
-            if (order.getPaymentCreatedAt() == null) {
-                order.setPaymentCreatedAt(now);
+            if (order.getServiceMode() == ServiceMode.INCITY) {
+                orderRepository.markPaidAndConfirm(
+                        order.getId(),
+                        ServiceMode.INCITY,
+                        List.of(OrderStatus.RIDER_ACCEPTED, OrderStatus.PAYMENT_PENDING),
+                        OrderStatus.CONFIRMED,
+                        "PAID",
+                        dto.getRazorpayPaymentId().trim(),
+                        "RAZORPAY",
+                        now);
+                // If updated==0 it could be already PAID/confirmed/cancelled; refetch to confirm state.
+                order = orderRepository.findById(order.getId()).orElse(order);
+                if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())) {
+                    throw new RuntimeException("Payment verification failed to finalize order");
+                }
+                if (order.getRiderId() != null) {
+                    riderRepository.reserveIfAvailable(order.getRiderId());
+                }
+                sendConfirmedEvent(order.getUserId(), order.getId());
+            } else {
+                order.setPaymentStatus("PAID");
+                order.setRazorpayPaymentId(dto.getRazorpayPaymentId());
+                order.setPaymentMethod("RAZORPAY");
+                if (order.getPaymentCreatedAt() == null) {
+                    order.setPaymentCreatedAt(now);
+                }
+                order.setPaymentUpdatedAt(now);
+                orderRepository.save(order);
             }
-            order.setPaymentUpdatedAt(now);
-            orderRepository.save(order);
             notifyPaymentSuccess(order);
 
             response.setMessage("Payment verified successfully");
@@ -203,6 +263,17 @@ public class PaymentServiceImpl implements PaymentService {
             }
         }
         return response;
+    }
+
+    private void sendConfirmedEvent(Long userId, Long orderId) {
+        if (userId == null || orderId == null) {
+            return;
+        }
+        UserOrderEventDTO evt = new UserOrderEventDTO();
+        evt.setOrderId(orderId);
+        evt.setEvent("confirmed");
+        evt.setStatus(OrderStatus.CONFIRMED.name());
+        messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", evt);
     }
 
     @Override

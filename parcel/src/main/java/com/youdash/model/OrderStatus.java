@@ -1,13 +1,15 @@
 package com.youdash.model;
 
 public enum OrderStatus {
-    /** Incity: no rider available yet, or awaiting manual assignment */
-    PENDING,
-    /** Outstation: created; admin must assign rider */
-    PENDING_ASSIGNMENT,
-    ASSIGNED,
+    CREATED,
+    SEARCHING_RIDER,
+    RIDER_ACCEPTED,
+    PAYMENT_PENDING,
+    CONFIRMED,
     PICKED_UP,
     IN_TRANSIT,
     DELIVERED,
-    CANCELLED
+    CANCELLED,
+    EXPIRED,
+    FAILED
 }

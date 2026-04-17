@@ -15,6 +15,7 @@ import com.youdash.entity.RiderEntity;
 import com.youdash.repository.RiderRepository;
 import com.youdash.security.RiderAccessVerifier;
 import com.youdash.service.RiderService;
+import com.youdash.service.RiderOrderService;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -30,6 +31,9 @@ public class RiderController {
 
     @Autowired
     private RiderAccessVerifier riderAccessVerifier;
+
+    @Autowired
+    private RiderOrderService riderOrderService;
 
     @PostMapping("/fcm-token")
     public ApiResponse<String> saveFcmToken(@RequestBody FcmTokenRequestDTO dto, HttpServletRequest request) {
@@ -144,5 +148,17 @@ public class RiderController {
             throw new RuntimeException("lat and lng are required");
         }
         return riderService.updateLocation(id, lat, lng);
+    }
+
+    @PostMapping("/orders/{orderId}/accept")
+    public ApiResponse<?> acceptOrder(@PathVariable Long orderId, HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return riderOrderService.accept(riderId, orderId);
+    }
+
+    @PostMapping("/orders/{orderId}/reject")
+    public ApiResponse<?> rejectOrder(@PathVariable Long orderId, HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return riderOrderService.reject(riderId, orderId);
     }
 }

@@ -11,7 +11,13 @@ import lombok.Data;
 import java.time.Instant;
 
 @Entity
-@Table(name = "youdash_orders")
+@Table(
+        name = "youdash_orders",
+        indexes = {
+                @Index(name = "idx_orders_status", columnList = "status"),
+                @Index(name = "idx_orders_search_expires_at", columnList = "search_expires_at"),
+                @Index(name = "idx_orders_payment_due_at", columnList = "payment_due_at")
+        })
 @Data
 public class OrderEntity {
 
@@ -82,6 +88,18 @@ public class OrderEntity {
 
     @Column(name = "rider_id")
     private Long riderId;
+
+    @Column(name = "accepted_at")
+    private Instant acceptedAt;
+
+    @Column(name = "search_expires_at")
+    private Instant searchExpiresAt;
+
+    @Column(name = "payment_due_at")
+    private Instant paymentDueAt;
+
+    @Column(name = "cancel_reason", length = 64)
+    private String cancelReason;
 
     @Column(name = "pickup_distance_km")
     private Double pickupDistanceKm;

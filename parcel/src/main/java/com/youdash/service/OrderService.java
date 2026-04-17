@@ -28,4 +28,6 @@ public interface OrderService {
     ApiResponse<OrderResponseDTO> adminUpdateStatus(Long orderId, OrderStatus status);
 
     ApiResponse<OrderResponseDTO> completeOrderForRider(Long tokenUserId, String tokenType, OrderCompleteRequestDTO dto);
+
+    ApiResponse<OrderResponseDTO> cancelOrder(Long orderId, Long tokenUserId, String tokenType);
 }

@@ -197,8 +197,8 @@ public class RiderServiceImpl implements RiderService {
         return t.isEmpty() ? null : t;
     }
 
-    private static final java.util.regex.Pattern EMAIL_REGEX =
-            java.util.regex.Pattern.compile("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
+    private static final java.util.regex.Pattern EMAIL_REGEX = java.util.regex.Pattern
+            .compile("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
 
     /** Trim + lowercase; blank/null → null. */
     private static String normalizeEmail(String email) {
@@ -305,7 +305,7 @@ public class RiderServiceImpl implements RiderService {
                 List<OrderEntity> activeIncityOrders = orderRepository.findByRiderIdAndServiceModeAndStatusIn(
                         riderId,
                         ServiceMode.INCITY,
-                        List.of(OrderStatus.ASSIGNED, OrderStatus.PICKED_UP, OrderStatus.IN_TRANSIT));
+                        List.of(OrderStatus.CONFIRMED, OrderStatus.PICKED_UP, OrderStatus.IN_TRANSIT));
 
                 long ts = System.currentTimeMillis();
                 for (OrderEntity o : activeIncityOrders) {
@@ -572,7 +572,8 @@ public class RiderServiceImpl implements RiderService {
             dto.setWalletTotalWithdrawn(round2(w.getTotalWithdrawn()));
             dto.setWalletCodPendingAmount(round2(w.getCodPendingAmount()));
             dto.setWalletWithdrawalPendingAmount(round2(w.getWithdrawalPendingAmount()));
-            dto.setWalletNetAvailable(round2(w.getCurrentBalance() - w.getCodPendingAmount() - w.getWithdrawalPendingAmount()));
+            dto.setWalletNetAvailable(
+                    round2(w.getCurrentBalance() - w.getCodPendingAmount() - w.getWithdrawalPendingAmount()));
         }
 
         var page = PageRequest.of(0, 10);

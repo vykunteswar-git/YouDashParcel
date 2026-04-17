@@ -8,6 +8,7 @@ import com.youdash.model.*;
 import com.youdash.repository.*;
 import com.youdash.notification.NotificationType;
 import com.youdash.service.DistanceService;
+import com.youdash.service.DispatchService;
 import com.youdash.service.NotificationService;
 import com.youdash.service.OrderService;
 import com.youdash.service.PricingService;
@@ -17,19 +18,18 @@ import com.youdash.security.RiderAccessVerifier;
 import com.youdash.dto.wallet.OrderCompleteRequestDTO;
 import com.youdash.model.wallet.CodCollectionMode;
 import com.youdash.model.wallet.CodSettlementStatus;
-import com.youdash.util.GeoUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.time.Instant;
 import java.util.stream.Collectors;
 
 @Service
@@ -70,6 +70,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private NotificationService notificationService;
+
+    @Autowired
+    private DispatchService dispatchService;
 
     @Autowired
     private RiderWalletService riderWalletService;
@@ -216,13 +219,15 @@ public class OrderServiceImpl implements OrderService {
                     order.setTotalAmount(round2(baseTotal - couponDisc));
                 }
 
-                Optional<Long> riderOpt = pickNearestAvailableRider(dto.getPickupLat(), dto.getPickupLng());
-                if (riderOpt.isPresent()) {
-                    order.setRiderId(riderOpt.get());
-                    order.setStatus(OrderStatus.ASSIGNED);
-                } else {
-                    order.setStatus(OrderStatus.PENDING);
-                }
+                // New INCITY flow: rider is not auto-assigned.
+                order.setRiderId(null);
+                order.setStatus(OrderStatus.SEARCHING_RIDER);
+                order.setPaymentStatus("UNPAID");
+                Instant now = Instant.now();
+                order.setSearchExpiresAt(now.plusSeconds(30));
+                order.setAcceptedAt(null);
+                order.setPaymentDueAt(null);
+                order.setCancelReason(null);
             } else {
                 if (dto.getOriginHubId() == null || dto.getDestinationHubId() == null) {
                     throw new RuntimeException("OUTSTATION order requires originHubId and destinationHubId");
@@ -266,16 +271,20 @@ public class OrderServiceImpl implements OrderService {
                     order.setCouponAmount(round2(couponDiscOs));
                     order.setTotalAmount(round2(b.getTotal() - couponDiscOs));
                 }
-                order.setStatus(OrderStatus.PENDING_ASSIGNMENT);
+                // OUTSTATION stays admin-assigned; use CREATED until admin assigns.
+                order.setStatus(OrderStatus.CREATED);
             }
 
             OrderEntity saved = orderRepository.save(order);
             saved.setDisplayOrderId("YP-" + saved.getId() + System.currentTimeMillis());
-            if (saved.getPaymentType() == PaymentType.ONLINE) {
+            if (saved.getPaymentType() == PaymentType.ONLINE && (saved.getPaymentStatus() == null || saved.getPaymentStatus().isBlank())) {
                 saved.setPaymentStatus("UNPAID");
             }
             saved = orderRepository.save(saved);
             notifyAfterOrderCreated(saved);
+            if (saved.getServiceMode() == ServiceMode.INCITY && saved.getStatus() == OrderStatus.SEARCHING_RIDER) {
+                dispatchService.dispatchNewIncityOrder(saved);
+            }
             response.setData(toOrderDto(saved));
             response.setMessage("Order created");
             response.setMessageKey("SUCCESS");
@@ -417,13 +426,14 @@ public class OrderServiceImpl implements OrderService {
                 throw new RuntimeException("Rider is not approved");
             }
             o.setRiderId(riderId);
-            o.setStatus(OrderStatus.ASSIGNED);
+            // OUTSTATION assignment or manual assignment: treat as confirmed (ready to proceed).
+            o.setStatus(OrderStatus.CONFIRMED);
             OrderEntity saved = orderRepository.save(o);
             notificationService.sendToRider(
                     riderId,
                     "New delivery assigned",
                     "Order #" + saved.getId() + " — open the app for details.",
-                    NotificationService.baseData(saved.getId(), OrderStatus.ASSIGNED.name(), NotificationType.RIDER_JOB_ASSIGNED),
+                    NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(), NotificationType.RIDER_JOB_ASSIGNED),
                     NotificationType.RIDER_JOB_ASSIGNED);
             response.setData(toOrderDto(saved));
             response.setMessage("Rider assigned");
@@ -502,7 +512,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         if (!alreadyDelivered) {
-            if (!(o.getStatus() == OrderStatus.ASSIGNED
+            if (!(o.getStatus() == OrderStatus.CONFIRMED
                     || o.getStatus() == OrderStatus.PICKED_UP
                     || o.getStatus() == OrderStatus.IN_TRANSIT)) {
                 throw new BadRequestException("Order cannot be completed from status: " + o.getStatus());
@@ -554,6 +564,63 @@ public class OrderServiceImpl implements OrderService {
         return response;
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ApiResponse<OrderResponseDTO> cancelOrder(Long orderId, Long tokenUserId, String tokenType) {
+        ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
+        if (orderId == null) {
+            throw new RuntimeException("orderId is required");
+        }
+        OrderEntity o = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found"));
+        if (tokenUserId == null) {
+            throw new RuntimeException("Unauthorized");
+        }
+        boolean admin = "ADMIN".equals(tokenType);
+        if (!admin) {
+            if (!"USER".equals(tokenType) || !Objects.equals(o.getUserId(), tokenUserId)) {
+                throw new RuntimeException("Access denied");
+            }
+        }
+        if (o.getServiceMode() != ServiceMode.INCITY) {
+            throw new RuntimeException("Cancel API is supported only for INCITY orders");
+        }
+        if (o.getStatus() == OrderStatus.DELIVERED) {
+            throw new RuntimeException("Delivered orders cannot be cancelled");
+        }
+        if (o.getStatus() == OrderStatus.CANCELLED || o.getStatus() == OrderStatus.EXPIRED) {
+            response.setData(toOrderDto(o));
+            response.setMessage("Order already closed");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+            return response;
+        }
+
+        OrderStatus expected = o.getStatus();
+        int updated = orderRepository.updateStatusWithReason(
+                o.getId(),
+                ServiceMode.INCITY,
+                expected,
+                OrderStatus.CANCELLED,
+                "USER_CANCELLED",
+                "PAID".equalsIgnoreCase(o.getPaymentStatus()) ? o.getPaymentStatus() : "FAILED");
+        if (updated == 1) {
+            if (o.getRiderId() != null) {
+                riderRepository.release(o.getRiderId());
+            }
+            dispatchService.closeRequest(o.getId(), "cancelled", null);
+        }
+
+        OrderEntity refreshed = orderRepository.findById(o.getId()).orElse(o);
+        response.setData(toOrderDto(refreshed));
+        response.setMessage("Order cancelled");
+        response.setMessageKey("SUCCESS");
+        response.setSuccess(true);
+        response.setStatus(200);
+        return response;
+    }
+
     private OrderEntity resolveOrderByIdOrReference(String raw) {
         if (raw == null || raw.isBlank()) {
             throw new RuntimeException("orderId is required");
@@ -577,19 +644,12 @@ public class OrderServiceImpl implements OrderService {
             notificationService.sendToAdminDevices(
                     "Outstation order needs rider",
                     "Order #" + saved.getId() + " — assign a rider (₹" + saved.getTotalAmount() + ").",
-                    NotificationService.baseData(saved.getId(), OrderStatus.PENDING_ASSIGNMENT.name(),
+                    NotificationService.baseData(saved.getId(), OrderStatus.CREATED.name(),
                             NotificationType.ADMIN_OUTSTATION_PENDING_ASSIGNMENT),
                     NotificationType.ADMIN_OUTSTATION_PENDING_ASSIGNMENT);
             return;
         }
-        if (saved.getRiderId() != null && saved.getStatus() == OrderStatus.ASSIGNED) {
-            notificationService.sendToRider(
-                    saved.getRiderId(),
-                    "New delivery assigned",
-                    "Order #" + saved.getId() + " — pickup nearby.",
-                    NotificationService.baseData(saved.getId(), OrderStatus.ASSIGNED.name(), NotificationType.RIDER_JOB_ASSIGNED),
-                    NotificationType.RIDER_JOB_ASSIGNED);
-        }
+        // INCITY: dispatch service handles rider notifications (socket/push). No auto-assign here.
     }
 
     private void notifyOrderCreationFailed(Long userId, String message) {
@@ -607,23 +667,6 @@ public class OrderServiceImpl implements OrderService {
                 message != null && !message.isBlank() ? message : "Please try again.",
                 data,
                 NotificationType.ORDER_CREATE_FAILED);
-    }
-
-    /**
-     * Nearest available approved rider by haversine distance to pickup (among {@code isAvailable} riders).
-     */
-    private Optional<Long> pickNearestAvailableRider(double lat, double lng) {
-        return riderRepository.findByIsAvailableTrue().stream()
-                .filter(r -> {
-                    String ap = r.getApprovalStatus();
-                    return ap == null || ap.isBlank() || RiderApprovalStatus.APPROVED.equalsIgnoreCase(ap);
-                })
-                .min(Comparator.comparingDouble(r -> {
-                    double clat = r.getCurrentLat() != null ? r.getCurrentLat() : lat;
-                    double clng = r.getCurrentLng() != null ? r.getCurrentLng() : lng;
-                    return GeoUtils.haversineKm(lat, lng, clat, clng);
-                }))
-                .map(RiderEntity::getId);
     }
 
     private AppConfigEntity requireConfig() {
@@ -696,7 +739,7 @@ public class OrderServiceImpl implements OrderService {
         return null;
     }
 
-    private OrderResponseDTO toOrderDto(OrderEntity o) {
+    OrderResponseDTO toOrderDto(OrderEntity o) {
         return OrderResponseDTO.builder()
                 .id(o.getId())
                 .userId(o.getUserId())

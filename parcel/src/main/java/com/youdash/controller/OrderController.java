@@ -54,6 +54,14 @@ public class OrderController {
         return orderService.getOrder(id, tokenUserId, type, admin);
     }
 
+    @PostMapping("/{id}/cancel")
+    public ApiResponse<OrderResponseDTO> cancel(
+            @PathVariable Long id,
+            @RequestAttribute("userId") Long tokenUserId,
+            @RequestAttribute(value = "type", required = false) String type) {
+        return orderService.cancelOrder(id, tokenUserId, type);
+    }
+
     @PostMapping("/manual-request")
     public ApiResponse<ManualOrderRequestResponseDTO> manualRequest(
             @RequestBody ManualOrderRequestDTO dto,

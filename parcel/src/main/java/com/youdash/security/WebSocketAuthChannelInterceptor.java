@@ -32,6 +32,12 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
     private static final Pattern ORDER_RIDER_LOCATION_TOPIC =
             Pattern.compile("^/topic/orders/(\\d+)/rider-location$");
 
+    private static final Pattern RIDER_TOPIC =
+            Pattern.compile("^/topic/riders/(\\d+)/(new_order_request|request_closed)$");
+
+    private static final Pattern USER_EVENTS_TOPIC =
+            Pattern.compile("^/topic/users/(\\d+)/order-events$");
+
     @Autowired
     private JwtUtil jwtUtil;
 
@@ -73,17 +79,41 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
                 return message;
             }
 
+            WsPrincipal p = resolvePrincipal(accessor);
+            if (p == null || p.userId == null || p.tokenType == null) {
+                throw new RuntimeException("Unauthorized");
+            }
+
+            Matcher riderTopic = RIDER_TOPIC.matcher(destination);
+            if (riderTopic.matches()) {
+                Long riderId = Long.valueOf(riderTopic.group(1));
+                if ("ADMIN".equals(p.tokenType)) {
+                    return message;
+                }
+                if ("RIDER".equals(p.tokenType) && p.userId.equals(riderId)) {
+                    return message;
+                }
+                throw new RuntimeException("Access denied");
+            }
+
+            Matcher userEvents = USER_EVENTS_TOPIC.matcher(destination);
+            if (userEvents.matches()) {
+                Long userId = Long.valueOf(userEvents.group(1));
+                if ("ADMIN".equals(p.tokenType)) {
+                    return message;
+                }
+                if ("USER".equals(p.tokenType) && p.userId.equals(userId)) {
+                    return message;
+                }
+                throw new RuntimeException("Access denied");
+            }
+
             Matcher m = ORDER_RIDER_LOCATION_TOPIC.matcher(destination);
             if (!m.matches()) {
                 return message; // other topics are not handled here
             }
 
             Long orderId = Long.valueOf(m.group(1));
-            WsPrincipal p = resolvePrincipal(accessor);
-            if (p == null || p.userId == null || p.tokenType == null) {
-                throw new RuntimeException("Unauthorized");
-            }
-
             OrderEntity order = orderRepository.findById(orderId)
                     .orElseThrow(() -> new RuntimeException("Order not found"));
 
