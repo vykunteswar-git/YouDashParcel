@@ -2,6 +2,8 @@ package com.youdash.dto;
 
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import com.youdash.dto.wallet.RiderWalletTransactionDTO;
 import com.youdash.dto.wallet.RiderWithdrawalDTO;
 
@@ -9,6 +11,10 @@ import lombok.Data;
 
 @Data
 public class RiderResponseDTO {
+    /** Set when registration succeeds; send on subsequent requests in the Authorization Bearer header. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String token;
+
     private Long id;
     private String publicId;
     private String name;

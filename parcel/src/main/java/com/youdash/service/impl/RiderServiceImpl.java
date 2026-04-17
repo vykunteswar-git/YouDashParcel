@@ -31,6 +31,7 @@ import com.youdash.repository.wallet.RiderWalletRepository;
 import com.youdash.repository.wallet.RiderWalletTransactionRepository;
 import com.youdash.repository.wallet.RiderWithdrawalRepository;
 import com.youdash.service.RiderService;
+import com.youdash.util.JwtUtil;
 
 @Service
 public class RiderServiceImpl implements RiderService {
@@ -54,6 +55,9 @@ public class RiderServiceImpl implements RiderService {
 
     @Autowired
     private RiderWithdrawalRepository riderWithdrawalRepository;
+
+    @Autowired
+    private JwtUtil jwtUtil;
 
     @Override
     public ApiResponse<RiderResponseDTO> createRider(RiderRequestDTO dto) {
@@ -130,7 +134,9 @@ public class RiderServiceImpl implements RiderService {
 
             RiderEntity savedRider = riderRepository.save(rider);
 
-            response.setData(mapToResponseDTO(savedRider));
+            RiderResponseDTO data = mapToResponseDTO(savedRider);
+            data.setToken(jwtUtil.generateToken(savedRider.getId(), "RIDER"));
+            response.setData(data);
             response.setMessage("Rider created successfully");
             response.setMessageKey("SUCCESS");
             response.setStatus(200);
