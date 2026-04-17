@@ -16,11 +16,14 @@ import com.youdash.repository.RiderRepository;
 import com.youdash.security.RiderAccessVerifier;
 import com.youdash.service.RiderService;
 import com.youdash.service.RiderOrderService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/riders")
+@Tag(name = "Riders — App", description = "Rider app APIs: profile, availability, live location, and INCITY accept/reject flow.")
 public class RiderController {
 
     @Autowired
@@ -80,6 +83,7 @@ public class RiderController {
     }
 
     @GetMapping("/me")
+    @Operation(summary = "Get my rider profile (JWT)")
     public ApiResponse<RiderResponseDTO> myProfile(HttpServletRequest request) {
         Long riderId = riderAccessVerifier.resolveActingRiderId(request);
         RiderEntity rider = riderRepository.findById(riderId)
@@ -95,6 +99,7 @@ public class RiderController {
     }
 
     @PutMapping("/me/availability")
+    @Operation(summary = "Update my availability (JWT)")
     public ApiResponse<RiderResponseDTO> updateMyAvailability(
             @RequestBody Map<String, Boolean> statusMap,
             HttpServletRequest request) {
@@ -107,6 +112,7 @@ public class RiderController {
     }
 
     @PutMapping("/me/location")
+    @Operation(summary = "Update my location (JWT)", description = "Also publishes live location to order subscribers for active INCITY orders.")
     public ApiResponse<RiderResponseDTO> updateMyLocation(
             @RequestBody Map<String, Double> locationMap,
             HttpServletRequest request) {
@@ -151,12 +157,14 @@ public class RiderController {
     }
 
     @PostMapping("/orders/{orderId}/accept")
+    @Operation(summary = "Accept INCITY order request (JWT)", description = "Locks rider immediately and sets order to RIDER_ACCEPTED with 60s payment window.")
     public ApiResponse<?> acceptOrder(@PathVariable Long orderId, HttpServletRequest request) {
         Long riderId = riderAccessVerifier.resolveActingRiderId(request);
         return riderOrderService.accept(riderId, orderId);
     }
 
     @PostMapping("/orders/{orderId}/reject")
+    @Operation(summary = "Reject INCITY order request (JWT)", description = "Only allowed if rider was in dispatched list for that order.")
     public ApiResponse<?> rejectOrder(@PathVariable Long orderId, HttpServletRequest request) {
         Long riderId = riderAccessVerifier.resolveActingRiderId(request);
         return riderOrderService.reject(riderId, orderId);

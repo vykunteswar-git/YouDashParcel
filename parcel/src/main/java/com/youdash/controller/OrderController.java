@@ -4,6 +4,8 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.*;
 import com.youdash.service.OrderService;
 import com.youdash.service.QuoteService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -11,6 +13,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/orders")
+@Tag(name = "Orders — User", description = "User order lifecycle: quote, create order, fetch, cancel. INCITY uses rider-accept + payment window.")
 public class OrderController {
 
     @Autowired
@@ -20,16 +23,19 @@ public class OrderController {
     private OrderService orderService;
 
     @PostMapping("/quote")
+    @Operation(summary = "Get price quote (INCITY/OUTSTATION)")
     public ApiResponse<QuoteResponseDTO> quote(@RequestBody QuoteRequestDTO dto) {
         return quoteService.quote(dto);
     }
 
     @PostMapping("/calculate-final")
+    @Operation(summary = "Calculate outstation final price (hub-based)")
     public ApiResponse<FinalPriceResponseDTO> calculateFinal(@RequestBody FinalPriceRequestDTO dto) {
         return orderService.calculateFinal(dto);
     }
 
     @PostMapping
+    @Operation(summary = "Create order", description = "INCITY: status=SEARCHING_RIDER, dispatches to nearby riders via socket. OUTSTATION: status=CREATED, admin assigns rider.")
     public ApiResponse<OrderResponseDTO> createOrder(
             @RequestBody CreateOrderRequestDTO dto,
             @RequestAttribute("userId") Long userId) {
@@ -46,6 +52,7 @@ public class OrderController {
     }
 
     @GetMapping("/{id}")
+    @Operation(summary = "Get order by id")
     public ApiResponse<OrderResponseDTO> getOrder(
             @PathVariable Long id,
             @RequestAttribute("userId") Long tokenUserId,
@@ -55,6 +62,7 @@ public class OrderController {
     }
 
     @PostMapping("/{id}/cancel")
+    @Operation(summary = "Cancel order (INCITY only)", description = "Cancels an active INCITY order, releases reserved rider if any, closes rider request.")
     public ApiResponse<OrderResponseDTO> cancel(
             @PathVariable Long id,
             @RequestAttribute("userId") Long tokenUserId,
