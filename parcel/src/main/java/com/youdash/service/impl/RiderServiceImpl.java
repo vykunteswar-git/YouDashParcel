@@ -24,6 +24,7 @@ import com.youdash.entity.wallet.RiderWalletTransactionEntity;
 import com.youdash.entity.wallet.RiderWithdrawalEntity;
 import com.youdash.model.OrderStatus;
 import com.youdash.model.RiderApprovalStatus;
+import com.youdash.model.ServiceMode;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.repository.VehicleRepository;
@@ -32,6 +33,9 @@ import com.youdash.repository.wallet.RiderWalletTransactionRepository;
 import com.youdash.repository.wallet.RiderWithdrawalRepository;
 import com.youdash.service.RiderService;
 import com.youdash.util.JwtUtil;
+import com.youdash.dto.realtime.RiderLocationEventDTO;
+
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 @Service
 public class RiderServiceImpl implements RiderService {
@@ -58,6 +62,9 @@ public class RiderServiceImpl implements RiderService {
 
     @Autowired
     private JwtUtil jwtUtil;
+
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
 
     @Override
     public ApiResponse<RiderResponseDTO> createRider(RiderRequestDTO dto) {
@@ -263,6 +270,27 @@ public class RiderServiceImpl implements RiderService {
             response.setMessageKey("SUCCESS");
             response.setStatus(200);
             response.setSuccess(true);
+
+            // INCITY only: broadcast rider live location to all active assigned orders.
+            try {
+                List<OrderEntity> activeIncityOrders = orderRepository.findByRiderIdAndServiceModeAndStatusIn(
+                        riderId,
+                        ServiceMode.INCITY,
+                        List.of(OrderStatus.ASSIGNED, OrderStatus.PICKED_UP, OrderStatus.IN_TRANSIT));
+
+                long ts = System.currentTimeMillis();
+                for (OrderEntity o : activeIncityOrders) {
+                    RiderLocationEventDTO evt = new RiderLocationEventDTO();
+                    evt.setOrderId(o.getId());
+                    evt.setRiderId(riderId);
+                    evt.setLat(lat);
+                    evt.setLng(lng);
+                    evt.setTs(ts);
+                    messagingTemplate.convertAndSend("/topic/orders/" + o.getId() + "/rider-location", evt);
+                }
+            } catch (Exception ignored) {
+                // Never fail the REST update just because realtime publish failed.
+            }
 
         } catch (Exception e) {
             response.setMessage(e.getMessage());

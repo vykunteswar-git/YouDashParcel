@@ -6,9 +6,9 @@ import com.google.firebase.FirebaseOptions;
 import com.google.firebase.messaging.FirebaseMessaging;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Conditional;
 
 import java.io.FileInputStream;
 import java.io.InputStream;
@@ -18,7 +18,7 @@ import java.io.InputStream;
 public class FirebaseConfig {
 
     @Bean
-    @ConditionalOnProperty(name = "firebase.service-account.path")
+    @Conditional(FirebaseCredentialsPresentCondition.class)
     public FirebaseApp firebaseApp(@Value("${firebase.service-account.path}") String serviceAccountPath) {
         try {
             if (FirebaseApp.getApps() != null && !FirebaseApp.getApps().isEmpty()) {
@@ -33,15 +33,15 @@ public class FirebaseConfig {
                 return FirebaseApp.initializeApp(options);
             }
         } catch (Exception e) {
-            log.error("Failed to initialize FirebaseApp. Notifications will be disabled. Reason: {}", e.getMessage(), e);
+            log.error("Failed to initialize FirebaseApp. Notifications will be disabled. Reason: {}", e.getMessage(),
+                    e);
             throw new IllegalStateException("Failed to initialize FirebaseApp", e);
         }
     }
 
     @Bean
-    @ConditionalOnProperty(name = "firebase.service-account.path")
+    @Conditional(FirebaseCredentialsPresentCondition.class)
     public FirebaseMessaging firebaseMessaging(FirebaseApp firebaseApp) {
         return FirebaseMessaging.getInstance(firebaseApp);
     }
 }
-

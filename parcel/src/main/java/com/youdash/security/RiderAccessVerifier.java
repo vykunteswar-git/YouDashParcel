@@ -51,18 +51,43 @@ public class RiderAccessVerifier {
     }
 
     /**
-     * JWT {@code userId} may be the rider primary key, or a customer user id whose phone matches a rider row.
+     * Resolve the acting rider based on JWT {@code type} + {@code userId}.
+     * <ul>
+     *   <li>{@code RIDER} token → {@code userId} is the rider PK.</li>
+     *   <li>{@code USER} token → look up user, then find rider by matching phone.</li>
+     * </ul>
      */
     public Long resolveActingRiderId(HttpServletRequest request) {
         Long uid = (Long) request.getAttribute("userId");
+        String type = (String) request.getAttribute("type");
         if (uid == null) {
             throw new RuntimeException("Unauthorized");
         }
+
+        if ("RIDER".equals(type)) {
+            if (!riderRepository.existsById(uid)) {
+                throw new RuntimeException("Rider not found for this token (id=" + uid + ")");
+            }
+            return uid;
+        }
+
+        if ("USER".equals(type)) {
+            UserEntity user = userRepository.findById(uid)
+                    .orElseThrow(() -> new RuntimeException("User not found for this token (id=" + uid + ")"));
+            if (user.getPhoneNumber() == null || user.getPhoneNumber().isBlank()) {
+                throw new RuntimeException("Rider profile not found for this account");
+            }
+            return riderRepository.findByPhone(user.getPhoneNumber().trim())
+                    .map(RiderEntity::getId)
+                    .orElseThrow(() -> new RuntimeException("Rider profile not found for this account"));
+        }
+
+        // Legacy fallback: no type on token, infer from tables.
         if (riderRepository.findById(uid).isPresent()) {
             return uid;
         }
         UserEntity user = userRepository.findById(uid)
-                .orElseThrow(() -> new RuntimeException("Unauthorized"));
+                .orElseThrow(() -> new RuntimeException("No rider or user found for id=" + uid));
         if (user.getPhoneNumber() == null || user.getPhoneNumber().isBlank()) {
             throw new RuntimeException("Rider profile not found for this account");
         }

@@ -2,6 +2,7 @@ package com.youdash.repository;
 
 import com.youdash.entity.OrderEntity;
 import com.youdash.model.OrderStatus;
+import com.youdash.model.ServiceMode;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -17,6 +18,8 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     List<OrderEntity> findByRiderIdOrderByCreatedAtDesc(Long riderId);
 
     List<OrderEntity> findByRiderIdOrderByCreatedAtDesc(Long riderId, Pageable pageable);
+
+    List<OrderEntity> findByRiderIdAndServiceModeAndStatusIn(Long riderId, ServiceMode serviceMode, List<OrderStatus> statuses);
 
     Optional<OrderEntity> findByDisplayOrderId(String displayOrderId);
 
