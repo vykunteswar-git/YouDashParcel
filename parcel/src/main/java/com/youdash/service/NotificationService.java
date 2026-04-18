@@ -3,6 +3,7 @@ package com.youdash.service;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,14 +22,29 @@ import com.youdash.notification.NotificationType;
 import com.youdash.repository.RiderRepository;
 import com.youdash.repository.UserRepository;
 
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
 public class NotificationService {
 
+    private static final AtomicBoolean LOGGED_FCM_SKIP = new AtomicBoolean(false);
+
     @Autowired(required = false)
     private FirebaseMessaging firebaseMessaging;
+
+    @PostConstruct
+    void logPushConfiguration() {
+        if (firebaseMessaging == null) {
+            log.warn(
+                    "FCM is not configured: firebase.service-account.path must point to a Firebase service account JSON "
+                            + "file on the server (Firebase Console → Project settings → Service accounts). "
+                            + "Client FCM tokens are still saved, but no pushes will be sent until this is set.");
+        } else {
+            log.info("Firebase Cloud Messaging (FCM) is enabled.");
+        }
+    }
 
     @Autowired
     private UserRepository userRepository;
@@ -96,7 +112,13 @@ public class NotificationService {
         CompletableFuture.runAsync(() -> {
             try {
                 if (firebaseMessaging == null) {
-                    log.warn("FirebaseMessaging not configured. Skipping notification type={}", type);
+                    if (LOGGED_FCM_SKIP.compareAndSet(false, true)) {
+                        log.warn(
+                                "FCM send skipped — Firebase Admin SDK not loaded (see startup log). type={}",
+                                type);
+                    } else {
+                        log.debug("FCM send skipped (not configured). type={}", type);
+                    }
                     return;
                 }
 

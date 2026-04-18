@@ -324,7 +324,11 @@ public class OrderServiceImpl implements OrderService {
                     throw new RuntimeException("Access denied");
                 }
             }
-            response.setData(toOrderDto(o));
+            OrderResponseDTO data = toOrderDto(o);
+            if ("RIDER".equals(tokenType)) {
+                data = stripCommercialDetailsForRider(data);
+            }
+            response.setData(data);
             response.setMessage("OK");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
@@ -339,10 +343,17 @@ public class OrderServiceImpl implements OrderService {
     public ApiResponse<List<OrderResponseDTO>> listRiderOrders(Long riderId) {
         ApiResponse<List<OrderResponseDTO>> response = new ApiResponse<>();
         try {
-            List<OrderResponseDTO> list = orderRepository
-                    .findByRiderIdOrderByCreatedAtDesc(riderId, PageRequest.of(0, 200))
-                    .stream()
-                    .map(this::toOrderDto)
+            List<OrderEntity> orders = orderRepository.findByRiderIdOrderByCreatedAtDesc(riderId, PageRequest.of(0, 200));
+            Set<Long> riderIds = orders.stream()
+                    .map(OrderEntity::getRiderId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+            Map<Long, RiderEntity> riderMap = riderIds.isEmpty()
+                    ? Map.of()
+                    : riderRepository.findAllById(riderIds).stream()
+                            .collect(Collectors.toMap(RiderEntity::getId, Function.identity()));
+            List<OrderResponseDTO> list = orders.stream()
+                    .map(o -> stripCommercialDetailsForRider(toOrderDto(o, riderMap)))
                     .collect(Collectors.toList());
             response.setData(list);
             response.setMessage("OK");
@@ -525,7 +536,7 @@ public class OrderServiceImpl implements OrderService {
         if (alreadyDelivered && financialExists) {
             OrderEntity refreshed = orderRepository.findById(o.getId()).orElse(o);
             markRiderAvailableAfterDelivery(refreshed.getRiderId());
-            response.setData(toOrderDto(refreshed));
+            response.setData(stripCommercialDetailsForRider(toOrderDto(refreshed)));
             response.setMessage("Order completed");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
@@ -542,12 +553,27 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        if (o.getPaymentType() == PaymentType.COD) {
+        if (o.getPaymentType() == null) {
+            throw new BadRequestException("Order payment type is missing");
+        }
+
+        if (o.getPaymentType() == PaymentType.ONLINE) {
+            // Amount was settled at payment gateway; order row holds totalAmount + PAID — body only needs orderId.
+            if (!alreadyDelivered && !isOrderPaidOnline(o)) {
+                throw new BadRequestException("Online order must be paid before marking delivered");
+            }
+            o.setCodCollectedAmount(null);
+            o.setCodCollectionMode(null);
+            o.setCodSettlementStatus(CodSettlementStatus.SETTLED);
+        } else if (o.getPaymentType() == PaymentType.COD) {
             if (dto.getCodCollectionMode() == null || dto.getCodCollectionMode().isBlank()) {
-                throw new BadRequestException("codCollectionMode is required (CASH or QR)");
+                throw new BadRequestException("codCollectionMode is required for COD (CASH or QR)");
+            }
+            if (dto.getCodCollectedAmount() == null) {
+                throw new BadRequestException("codCollectedAmount is required for COD orders");
             }
             CodCollectionMode mode = CodCollectionMode.valueOf(dto.getCodCollectionMode().trim().toUpperCase());
-            double collected = dto.getCodCollectedAmount() == null ? nz(o.getTotalAmount()) : dto.getCodCollectedAmount();
+            double collected = dto.getCodCollectedAmount();
             if (collected <= 0) {
                 throw new BadRequestException("codCollectedAmount must be > 0");
             }
@@ -558,10 +584,6 @@ public class OrderServiceImpl implements OrderService {
             o.setCodCollectionMode(mode);
             o.setCodCollectedAmount(round2(collected));
             o.setCodSettlementStatus(CodSettlementStatus.PENDING);
-        } else if (o.getPaymentType() == PaymentType.ONLINE) {
-            o.setCodCollectedAmount(null);
-            o.setCodCollectionMode(null);
-            o.setCodSettlementStatus(CodSettlementStatus.SETTLED);
         } else {
             throw new BadRequestException("Unsupported payment type: " + o.getPaymentType());
         }
@@ -583,7 +605,7 @@ public class OrderServiceImpl implements OrderService {
         riderActiveOrderTopicPublisher.publish(actingRiderId, saved.getId(), OrderStatus.DELIVERED, "delivered");
 
         OrderEntity refreshed = orderRepository.findById(saved.getId()).orElse(saved);
-        response.setData(toOrderDto(refreshed));
+        response.setData(stripCommercialDetailsForRider(toOrderDto(refreshed)));
         response.setMessage("Order completed");
         response.setMessageKey("SUCCESS");
         response.setSuccess(true);
@@ -645,7 +667,11 @@ public class OrderServiceImpl implements OrderService {
                     saved.getRiderId(), saved.getId(), OrderStatus.IN_TRANSIT, "otp_verified");
         }
 
-        response.setData(toOrderDto(saved));
+        OrderResponseDTO data = toOrderDto(saved);
+        if ("RIDER".equals(tokenType)) {
+            data = stripCommercialDetailsForRider(data);
+        }
+        response.setData(data);
         response.setMessage("OTP verified");
         response.setMessageKey("SUCCESS");
         response.setSuccess(true);
@@ -847,6 +873,11 @@ public class OrderServiceImpl implements OrderService {
         return toOrderDto(o, null);
     }
 
+    /** Same as {@link #toOrderDto(OrderEntity)} but omits GST/platform/pricing breakdown for rider UIs. */
+    OrderResponseDTO toOrderDtoForRider(OrderEntity o) {
+        return stripCommercialDetailsForRider(toOrderDto(o));
+    }
+
     /**
      * @param riderBatch optional map of rider id → entity for batch APIs; {@code null} loads rider individually.
      */
@@ -902,6 +933,23 @@ public class OrderServiceImpl implements OrderService {
                 .build();
     }
 
+    /**
+     * Riders do not need GST, platform fee, coupon, or gateway pricing components — only operational fields
+     * (e.g. {@code totalAmount}, {@code distanceKm}, addresses, status).
+     */
+    private static OrderResponseDTO stripCommercialDetailsForRider(OrderResponseDTO dto) {
+        if (dto == null) {
+            return null;
+        }
+        dto.setSubtotal(null);
+        dto.setGstAmount(null);
+        dto.setPlatformFee(null);
+        dto.setCouponAmount(null);
+        dto.setVehiclePricePerKm(null);
+        dto.setRazorpayOrderId(null);
+        return dto;
+    }
+
     private RiderEntity resolveRiderForOrderDto(Long riderId, Map<Long, RiderEntity> riderBatch) {
         if (riderId == null) {
             return null;
@@ -920,6 +968,12 @@ public class OrderServiceImpl implements OrderService {
             r.setIsAvailable(true);
             riderRepository.save(r);
         });
+    }
+
+    /** ONLINE pre-paid orders: wallet settlement uses {@code order.totalAmount}; gateway payment is reflected as PAID. */
+    private static boolean isOrderPaidOnline(OrderEntity o) {
+        String ps = o.getPaymentStatus();
+        return ps != null && "PAID".equalsIgnoreCase(ps.trim());
     }
 
     private static void assertPricingAllOrNothing(CreateOrderRequestDTO dto) {

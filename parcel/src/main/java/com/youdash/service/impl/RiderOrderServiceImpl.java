@@ -46,7 +46,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
     private SimpMessagingTemplate messagingTemplate;
 
     @Autowired
-    private OrderServiceImpl orderServiceImpl; // reuse toOrderDto without duplicating mapping
+    private OrderServiceImpl orderServiceImpl; // reuse toOrderDtoForRider (strips GST/platform breakdown)
 
     @Autowired
     private NotificationService notificationService;
@@ -163,7 +163,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
             riderActiveOrderTopicPublisher.publish(riderIdFinal, acceptedOrderId, statusAfterAccept, "assigned");
         });
 
-        response.setData(orderServiceImpl.toOrderDto(refreshed));
+        response.setData(orderServiceImpl.toOrderDtoForRider(refreshed));
         response.setMessage("Order accepted");
         response.setMessageKey("SUCCESS");
         response.setStatus(200);
@@ -185,7 +185,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         OrderEntity saved = orderRepository.save(order);
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
         riderActiveOrderTopicPublisher.publish(riderId, saved.getId(), saved.getStatus(), "status_updated");
-        response.setData(orderServiceImpl.toOrderDto(saved));
+        response.setData(orderServiceImpl.toOrderDtoForRider(saved));
         response.setMessage("Pickup recorded");
         response.setMessageKey("SUCCESS");
         response.setStatus(200);
@@ -207,7 +207,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         OrderEntity saved = orderRepository.save(order);
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
         riderActiveOrderTopicPublisher.publish(riderId, saved.getId(), saved.getStatus(), "status_updated");
-        response.setData(orderServiceImpl.toOrderDto(saved));
+        response.setData(orderServiceImpl.toOrderDtoForRider(saved));
         response.setMessage("Transit started");
         response.setMessageKey("SUCCESS");
         response.setStatus(200);
@@ -227,7 +227,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         }
         sendTypedUserEvent(order.getUserId(), order.getId(), "reach_destination", order.getStatus(), riderId);
         riderActiveOrderTopicPublisher.publish(riderId, order.getId(), order.getStatus(), "reach_destination");
-        response.setData(orderServiceImpl.toOrderDto(order));
+        response.setData(orderServiceImpl.toOrderDtoForRider(order));
         response.setMessage("Destination reached");
         response.setMessageKey("SUCCESS");
         response.setStatus(200);
