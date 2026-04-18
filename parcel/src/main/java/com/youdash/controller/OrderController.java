@@ -70,6 +70,16 @@ public class OrderController {
         return orderService.cancelOrder(id, tokenUserId, type);
     }
 
+    @PostMapping("/{id}/verify-otp")
+    @Operation(summary = "Verify delivery OTP (USER or assigned RIDER, IN_TRANSIT)")
+    public ApiResponse<OrderResponseDTO> verifyDeliveryOtp(
+            @PathVariable Long id,
+            @RequestBody VerifyDeliveryOtpRequestDTO dto,
+            @RequestAttribute("userId") Long tokenUserId,
+            @RequestAttribute(value = "type", required = false) String type) {
+        return orderService.verifyDeliveryOtp(id, dto, tokenUserId, type);
+    }
+
     @PostMapping("/manual-request")
     public ApiResponse<ManualOrderRequestResponseDTO> manualRequest(
             @RequestBody ManualOrderRequestDTO dto,

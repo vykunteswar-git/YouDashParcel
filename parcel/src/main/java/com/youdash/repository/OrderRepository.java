@@ -130,6 +130,9 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
 
     boolean existsByRiderIdAndServiceModeAndStatusIn(Long riderId, ServiceMode serviceMode, List<OrderStatus> statuses);
 
+    /** True if the rider has any order in one of the given statuses (any service mode). */
+    boolean existsByRiderIdAndStatusIn(Long riderId, List<OrderStatus> statuses);
+
     @Modifying
     @Query("""
             update OrderEntity o

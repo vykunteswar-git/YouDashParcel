@@ -1,5 +1,6 @@
 package com.youdash.service.impl;
 
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -12,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.OrderResponseDTO;
 import com.youdash.dto.realtime.UserOrderEventDTO;
+import com.youdash.exception.BadRequestException;
 import com.youdash.entity.OrderEntity;
 import com.youdash.entity.RiderEntity;
 import com.youdash.model.PaymentType;
@@ -26,6 +28,8 @@ import com.youdash.service.RiderOrderService;
 
 @Service
 public class RiderOrderServiceImpl implements RiderOrderService {
+
+    private static final SecureRandom DELIVERY_OTP_RANDOM = new SecureRandom();
 
     @Autowired
     private OrderRepository orderRepository;
@@ -139,10 +143,75 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                     NotificationType.USER_RIDER_ACCEPTED);
         }
 
-        // return updated order DTO
+        // Persist delivery OTP once (COD → CONFIRMED; ONLINE → RIDER_ACCEPTED).
         OrderEntity refreshed = orderRepository.findById(orderId).orElse(order);
+        if (refreshed.getDeliveryOtp() == null) {
+            refreshed.setDeliveryOtp(generateDeliveryOtp());
+            refreshed = orderRepository.save(refreshed);
+        }
         response.setData(orderServiceImpl.toOrderDto(refreshed));
         response.setMessage("Order accepted");
+        response.setMessageKey("SUCCESS");
+        response.setStatus(200);
+        response.setSuccess(true);
+        return response;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ApiResponse<OrderResponseDTO> markPickedUp(Long riderId, Long orderId) {
+        ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
+        OrderEntity order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new BadRequestException("Order not found"));
+        requireAssignedIncityRider(order, riderId);
+        if (order.getStatus() != OrderStatus.CONFIRMED) {
+            throw new BadRequestException("Order must be CONFIRMED to mark picked up");
+        }
+        order.setStatus(OrderStatus.PICKED_UP);
+        OrderEntity saved = orderRepository.save(order);
+        sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
+        response.setData(orderServiceImpl.toOrderDto(saved));
+        response.setMessage("Pickup recorded");
+        response.setMessageKey("SUCCESS");
+        response.setStatus(200);
+        response.setSuccess(true);
+        return response;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ApiResponse<OrderResponseDTO> startTransit(Long riderId, Long orderId) {
+        ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
+        OrderEntity order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new BadRequestException("Order not found"));
+        requireAssignedIncityRider(order, riderId);
+        if (order.getStatus() != OrderStatus.PICKED_UP) {
+            throw new BadRequestException("Order must be PICKED_UP to start transit");
+        }
+        order.setStatus(OrderStatus.IN_TRANSIT);
+        OrderEntity saved = orderRepository.save(order);
+        sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
+        response.setData(orderServiceImpl.toOrderDto(saved));
+        response.setMessage("Transit started");
+        response.setMessageKey("SUCCESS");
+        response.setStatus(200);
+        response.setSuccess(true);
+        return response;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ApiResponse<OrderResponseDTO> reachDestination(Long riderId, Long orderId) {
+        ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
+        OrderEntity order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new BadRequestException("Order not found"));
+        requireAssignedIncityRider(order, riderId);
+        if (order.getStatus() != OrderStatus.IN_TRANSIT) {
+            throw new BadRequestException("Order must be IN_TRANSIT to record destination arrival");
+        }
+        sendTypedUserEvent(order.getUserId(), order.getId(), "reach_destination", order.getStatus(), riderId);
+        response.setData(orderServiceImpl.toOrderDto(order));
+        response.setMessage("Destination reached");
         response.setMessageKey("SUCCESS");
         response.setStatus(200);
         response.setSuccess(true);
@@ -194,14 +263,43 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         UserOrderEventDTO dto = new UserOrderEventDTO();
         dto.setOrderId(orderId);
         dto.setEvent(event);
+        dto.setEventType(event);
         dto.setStatus(status == null ? null : status.name());
         dto.setPaymentDueAtEpochMs(paymentDueAt == null ? null : paymentDueAt.toEpochMilli());
         dto.setRiderId(riderId);
         messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", dto);
     }
 
+    private void sendTypedUserEvent(Long userId, Long orderId, String eventType, OrderStatus status, Long riderId) {
+        if (userId == null) {
+            return;
+        }
+        UserOrderEventDTO dto = new UserOrderEventDTO();
+        dto.setOrderId(orderId);
+        dto.setEvent(eventType);
+        dto.setEventType(eventType);
+        dto.setStatus(status == null ? null : status.name());
+        dto.setRiderId(riderId);
+        messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", dto);
+    }
+
+    private static void requireAssignedIncityRider(OrderEntity order, Long riderId) {
+        if (order.getServiceMode() != ServiceMode.INCITY) {
+            throw new BadRequestException("Only INCITY orders support this action");
+        }
+        if (order.getRiderId() == null || !order.getRiderId().equals(riderId)) {
+            throw new BadRequestException("Access denied");
+        }
+    }
+
     @SuppressWarnings("unused")
     private RiderEntity requireRider(Long riderId) {
         return riderRepository.findById(riderId).orElseThrow(() -> new RuntimeException("Rider not found"));
+    }
+
+    /** 6-digit numeric string (fits {@code VARCHAR(6)}). */
+    private static String generateDeliveryOtp() {
+        int n = 100000 + DELIVERY_OTP_RANDOM.nextInt(900000);
+        return String.valueOf(n);
     }
 }

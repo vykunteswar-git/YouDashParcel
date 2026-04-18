@@ -314,6 +314,7 @@ public class PaymentServiceImpl implements PaymentService {
         UserOrderEventDTO evt = new UserOrderEventDTO();
         evt.setOrderId(orderId);
         evt.setEvent("confirmed");
+        evt.setEventType("confirmed");
         evt.setStatus(OrderStatus.CONFIRMED.name());
         messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", evt);
     }

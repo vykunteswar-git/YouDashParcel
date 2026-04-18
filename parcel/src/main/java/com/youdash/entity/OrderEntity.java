@@ -167,6 +167,14 @@ public class OrderEntity {
     @Column(name = "cod_settlement_status", length = 16)
     private CodSettlementStatus codSettlementStatus;
 
+    /** Handover OTP; generated once when rider accepts (INCITY). */
+    @Column(name = "delivery_otp", length = 6)
+    private String deliveryOtp;
+
+    /** True after successful {@code POST /orders/{id}/verify-otp} while {@code IN_TRANSIT}. */
+    @Column(name = "is_otp_verified")
+    private Boolean isOtpVerified;
+
     @Column(name = "created_at")
     private Instant createdAt;
 
@@ -180,6 +188,9 @@ public class OrderEntity {
             createdAt = now;
         }
         updatedAt = now;
+        if (isOtpVerified == null) {
+            isOtpVerified = false;
+        }
     }
 
     @PreUpdate

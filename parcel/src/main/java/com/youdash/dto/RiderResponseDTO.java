@@ -25,6 +25,9 @@ public class RiderResponseDTO {
     private String vehicleNumber;
     private Boolean isAvailable;
     private Boolean isBlocked;
+    /** Derived for {@code GET /riders/me}: ONLINE | OFFLINE | ORDER_ASSIGNED | BLOCKED */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String riderStatus;
     private Double rating;
     private String approvalStatus;
     private String emergencyPhone;

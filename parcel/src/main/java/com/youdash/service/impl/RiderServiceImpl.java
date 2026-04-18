@@ -175,7 +175,9 @@ public class RiderServiceImpl implements RiderService {
             if (rider == null || rider.getId() == null) {
                 throw new RuntimeException("Rider not found");
             }
-            response.setData(mapToResponseDTO(rider));
+            RiderResponseDTO data = mapToResponseDTO(rider, false);
+            data.setRiderStatus(computeRiderStatus(rider));
+            response.setData(data);
             response.setMessage("Rider profile fetched");
             response.setMessageKey("SUCCESS");
             response.setStatus(200);
@@ -535,6 +537,10 @@ public class RiderServiceImpl implements RiderService {
     }
 
     private RiderResponseDTO mapToResponseDTO(RiderEntity rider) {
+        return mapToResponseDTO(rider, true);
+    }
+
+    private RiderResponseDTO mapToResponseDTO(RiderEntity rider, boolean includeRecentOrders) {
         RiderResponseDTO dto = new RiderResponseDTO();
         dto.setId(rider.getId());
         dto.setPublicId(rider.getPublicId());
@@ -555,11 +561,36 @@ public class RiderServiceImpl implements RiderService {
         dto.setProfileImageUrl(rider.getProfileImageUrl());
         dto.setAadhaarImageUrl(rider.getAadhaarImageUrl());
         dto.setLicenseImageUrl(rider.getLicenseImageUrl());
-        enrichWalletAndHistory(dto, rider.getId());
+        enrichWalletAndHistory(dto, rider.getId(), includeRecentOrders);
         return dto;
     }
 
-    private void enrichWalletAndHistory(RiderResponseDTO dto, Long riderId) {
+    /**
+     * BLOCKED → ORDER_ASSIGNED (active trip) → ONLINE → OFFLINE.
+     */
+    private String computeRiderStatus(RiderEntity rider) {
+        if (Boolean.TRUE.equals(rider.getIsBlocked())) {
+            return "BLOCKED";
+        }
+        Long id = rider.getId();
+        if (id != null) {
+            List<OrderStatus> activeAssignment = List.of(
+                    OrderStatus.RIDER_ACCEPTED,
+                    OrderStatus.PAYMENT_PENDING,
+                    OrderStatus.CONFIRMED,
+                    OrderStatus.PICKED_UP,
+                    OrderStatus.IN_TRANSIT);
+            if (orderRepository.existsByRiderIdAndStatusIn(id, activeAssignment)) {
+                return "ORDER_ASSIGNED";
+            }
+        }
+        if (Boolean.TRUE.equals(rider.getIsAvailable())) {
+            return "ONLINE";
+        }
+        return "OFFLINE";
+    }
+
+    private void enrichWalletAndHistory(RiderResponseDTO dto, Long riderId, boolean includeRecentOrders) {
         if (riderId == null) {
             return;
         }
@@ -585,10 +616,12 @@ public class RiderServiceImpl implements RiderService {
                 riderWithdrawalRepository.findByRiderIdOrderByCreatedAtDesc(riderId, page).stream()
                         .map(this::toWithdrawalDto)
                         .collect(Collectors.toList()));
-        dto.setRecentOrders(
-                orderRepository.findByRiderIdOrderByCreatedAtDesc(riderId, page).stream()
-                        .map(this::toRiderOrderPreview)
-                        .collect(Collectors.toList()));
+        if (includeRecentOrders) {
+            dto.setRecentOrders(
+                    orderRepository.findByRiderIdOrderByCreatedAtDesc(riderId, page).stream()
+                            .map(this::toRiderOrderPreview)
+                            .collect(Collectors.toList()));
+        }
     }
 
     private RiderWalletTransactionDTO toWalletTxnDto(RiderWalletTransactionEntity e) {

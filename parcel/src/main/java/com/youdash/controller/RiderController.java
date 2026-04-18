@@ -169,4 +169,25 @@ public class RiderController {
         Long riderId = riderAccessVerifier.resolveActingRiderId(request);
         return riderOrderService.reject(riderId, orderId);
     }
+
+    @PutMapping("/orders/{orderId}/pickup")
+    @Operation(summary = "Mark parcel picked up (CONFIRMED → PICKED_UP)")
+    public ApiResponse<?> markPickedUp(@PathVariable Long orderId, HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return riderOrderService.markPickedUp(riderId, orderId);
+    }
+
+    @PutMapping("/orders/{orderId}/start-transit")
+    @Operation(summary = "Start transit (PICKED_UP → IN_TRANSIT)")
+    public ApiResponse<?> startTransit(@PathVariable Long orderId, HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return riderOrderService.startTransit(riderId, orderId);
+    }
+
+    @PutMapping("/orders/{orderId}/reach-destination")
+    @Operation(summary = "Reach destination (logging only; status remains IN_TRANSIT)")
+    public ApiResponse<?> reachDestination(@PathVariable Long orderId, HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return riderOrderService.reachDestination(riderId, orderId);
+    }
 }

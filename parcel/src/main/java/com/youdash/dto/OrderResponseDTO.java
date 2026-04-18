@@ -34,6 +34,12 @@ public class OrderResponseDTO {
     private PaymentType paymentType;
     private OrderStatus status;
     private Long riderId;
+    /** Populated when {@code riderId} is set (rider profile name / phone). */
+    private String riderName;
+    private String riderPhone;
+    /** Shown in {@code IN_TRANSIT} until OTP is verified; then cleared in API responses. */
+    private String deliveryOtp;
+    private Boolean isOtpVerified;
     private Double subtotal;
     private Double gstAmount;
     private Double platformFee;

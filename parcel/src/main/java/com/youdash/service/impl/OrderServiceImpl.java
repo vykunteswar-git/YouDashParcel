@@ -21,16 +21,21 @@ import com.youdash.model.wallet.CodSettlementStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.youdash.dto.realtime.UserOrderEventDTO;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.time.Instant;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.time.Instant;
 
 @Service
 public class OrderServiceImpl implements OrderService {
@@ -79,6 +84,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private RiderAccessVerifier riderAccessVerifier;
+
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
 
     @Override
     public ApiResponse<FinalPriceResponseDTO> calculateFinal(FinalPriceRequestDTO dto) {
@@ -351,8 +359,17 @@ public class OrderServiceImpl implements OrderService {
             if (!admin && !Objects.equals(userId, tokenUserId)) {
                 throw new RuntimeException("Access denied");
             }
-            List<OrderResponseDTO> list = orderRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
-                    .map(this::toOrderDto)
+            List<OrderEntity> orders = orderRepository.findByUserIdOrderByCreatedAtDesc(userId);
+            Set<Long> riderIds = orders.stream()
+                    .map(OrderEntity::getRiderId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+            Map<Long, RiderEntity> riderMap = riderIds.isEmpty()
+                    ? Map.of()
+                    : riderRepository.findAllById(riderIds).stream()
+                            .collect(Collectors.toMap(RiderEntity::getId, Function.identity()));
+            List<OrderResponseDTO> list = orders.stream()
+                    .map(o -> toOrderDto(o, riderMap))
                     .collect(Collectors.toList());
             response.setData(list);
             response.setMessage("OK");
@@ -503,6 +520,7 @@ public class OrderServiceImpl implements OrderService {
 
         if (alreadyDelivered && financialExists) {
             OrderEntity refreshed = orderRepository.findById(o.getId()).orElse(o);
+            markRiderAvailableAfterDelivery(refreshed.getRiderId());
             response.setData(toOrderDto(refreshed));
             response.setMessage("Order completed");
             response.setMessageKey("SUCCESS");
@@ -512,10 +530,11 @@ public class OrderServiceImpl implements OrderService {
         }
 
         if (!alreadyDelivered) {
-            if (!(o.getStatus() == OrderStatus.CONFIRMED
-                    || o.getStatus() == OrderStatus.PICKED_UP
-                    || o.getStatus() == OrderStatus.IN_TRANSIT)) {
+            if (o.getStatus() != OrderStatus.IN_TRANSIT) {
                 throw new BadRequestException("Order cannot be completed from status: " + o.getStatus());
+            }
+            if (!Boolean.TRUE.equals(o.getIsOtpVerified())) {
+                throw new BadRequestException("OTP not verified");
             }
         }
 
@@ -555,9 +574,68 @@ public class OrderServiceImpl implements OrderService {
                 actingRiderId,
                 "RIDER");
 
+        markRiderAvailableAfterDelivery(saved.getRiderId());
+
         OrderEntity refreshed = orderRepository.findById(saved.getId()).orElse(saved);
         response.setData(toOrderDto(refreshed));
         response.setMessage("Order completed");
+        response.setMessageKey("SUCCESS");
+        response.setSuccess(true);
+        response.setStatus(200);
+        return response;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ApiResponse<OrderResponseDTO> verifyDeliveryOtp(
+            Long orderId, VerifyDeliveryOtpRequestDTO dto, Long tokenUserId, String tokenType) {
+        ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
+        if (orderId == null) {
+            throw new BadRequestException("orderId is required");
+        }
+        if (dto == null || dto.getOtp() == null || dto.getOtp().isBlank()) {
+            throw new BadRequestException("otp is required");
+        }
+        OrderEntity o = orderRepository.findById(orderId)
+                .orElseThrow(() -> new BadRequestException("Order not found"));
+
+        boolean allowed = false;
+        if ("USER".equals(tokenType) && Objects.equals(o.getUserId(), tokenUserId)) {
+            allowed = true;
+        } else if ("RIDER".equals(tokenType)) {
+            Long actingRiderId = riderAccessVerifier.resolveActingRiderIdFromToken(tokenUserId, tokenType);
+            allowed = Objects.equals(o.getRiderId(), actingRiderId);
+        }
+        if (!allowed) {
+            throw new BadRequestException("Access denied");
+        }
+
+        if (o.getServiceMode() != ServiceMode.INCITY) {
+            throw new BadRequestException("OTP verification applies to INCITY orders only");
+        }
+        if (o.getStatus() != OrderStatus.IN_TRANSIT) {
+            throw new BadRequestException("OTP can only be verified while order is IN_TRANSIT");
+        }
+        if (o.getDeliveryOtp() == null) {
+            throw new BadRequestException("No delivery OTP on this order");
+        }
+        String provided = dto.getOtp().trim();
+        if (!o.getDeliveryOtp().equals(provided)) {
+            throw new BadRequestException("Invalid OTP");
+        }
+        o.setIsOtpVerified(true);
+        OrderEntity saved = orderRepository.save(o);
+
+        UserOrderEventDTO evt = new UserOrderEventDTO();
+        evt.setOrderId(saved.getId());
+        evt.setEvent("otp_verified");
+        evt.setEventType("otp_verified");
+        evt.setStatus(OrderStatus.IN_TRANSIT.name());
+        evt.setRiderId(saved.getRiderId());
+        messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", evt);
+
+        response.setData(toOrderDto(saved));
+        response.setMessage("OTP verified");
         response.setMessageKey("SUCCESS");
         response.setSuccess(true);
         response.setStatus(200);
@@ -753,6 +831,21 @@ public class OrderServiceImpl implements OrderService {
     }
 
     OrderResponseDTO toOrderDto(OrderEntity o) {
+        return toOrderDto(o, null);
+    }
+
+    /**
+     * @param riderBatch optional map of rider id → entity for batch APIs; {@code null} loads rider individually.
+     */
+    OrderResponseDTO toOrderDto(OrderEntity o, Map<Long, RiderEntity> riderBatch) {
+        RiderEntity rider = resolveRiderForOrderDto(o.getRiderId(), riderBatch);
+        String riderName = rider != null ? rider.getName() : null;
+        String riderPhone = rider != null ? rider.getPhone() : null;
+        String deliveryOtp = null;
+        if (o.getStatus() == OrderStatus.IN_TRANSIT && !Boolean.TRUE.equals(o.getIsOtpVerified())) {
+            deliveryOtp = o.getDeliveryOtp();
+        }
+
         return OrderResponseDTO.builder()
                 .id(o.getId())
                 .userId(o.getUserId())
@@ -776,6 +869,10 @@ public class OrderServiceImpl implements OrderService {
                 .paymentType(o.getPaymentType())
                 .status(o.getStatus())
                 .riderId(o.getRiderId())
+                .riderName(riderName)
+                .riderPhone(riderPhone)
+                .deliveryOtp(deliveryOtp)
+                .isOtpVerified(o.getIsOtpVerified())
                 .subtotal(o.getSubtotal())
                 .gstAmount(o.getGstAmount())
                 .platformFee(o.getPlatformFee())
@@ -790,6 +887,26 @@ public class OrderServiceImpl implements OrderService {
                 .codSettlementStatus(o.getCodSettlementStatus())
                 .createdAt(o.getCreatedAt() != null ? o.getCreatedAt().toString() : null)
                 .build();
+    }
+
+    private RiderEntity resolveRiderForOrderDto(Long riderId, Map<Long, RiderEntity> riderBatch) {
+        if (riderId == null) {
+            return null;
+        }
+        if (riderBatch != null) {
+            return riderBatch.get(riderId);
+        }
+        return riderRepository.findById(riderId).orElse(null);
+    }
+
+    private void markRiderAvailableAfterDelivery(Long riderId) {
+        if (riderId == null) {
+            return;
+        }
+        riderRepository.findById(riderId).ifPresent(r -> {
+            r.setIsAvailable(true);
+            riderRepository.save(r);
+        });
     }
 
     private static void assertPricingAllOrNothing(CreateOrderRequestDTO dto) {
