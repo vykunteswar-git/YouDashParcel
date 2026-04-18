@@ -1,7 +1,9 @@
 package com.youdash.service.impl;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -11,11 +13,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.youdash.dto.realtime.UserOrderEventDTO;
 import com.youdash.entity.OrderEntity;
+import com.youdash.notification.NotificationType;
 import com.youdash.model.OrderStatus;
+import com.youdash.model.PaymentType;
 import com.youdash.model.ServiceMode;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.service.DispatchService;
+import com.youdash.service.NotificationService;
 
 @Service
 public class IncityOrderTimeoutScheduler {
@@ -31,6 +36,9 @@ public class IncityOrderTimeoutScheduler {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private NotificationService notificationService;
 
     @Scheduled(fixedDelayString = "${incity.scheduler.delay-ms:3000}")
     @Transactional(rollbackFor = Exception.class)
@@ -49,6 +57,13 @@ public class IncityOrderTimeoutScheduler {
             if (updated == 1) {
                 dispatchService.closeRequest(o.getId(), "expired", null);
                 sendUserCancelled(o.getUserId(), o.getId(), "NO_RIDER_FOUND", OrderStatus.EXPIRED);
+                pushUserOrderClosed(
+                        o.getUserId(),
+                        o.getId(),
+                        OrderStatus.EXPIRED,
+                        "NO_RIDER_FOUND",
+                        "No rider available",
+                        "We could not find a rider in time for order #" + o.getId() + ".");
             }
         }
     }
@@ -57,8 +72,10 @@ public class IncityOrderTimeoutScheduler {
     @Transactional(rollbackFor = Exception.class)
     public void cancelPaymentTimeoutOrders() {
         Instant now = Instant.now();
-        List<OrderEntity> timedOut = orderRepository.findByServiceModeAndStatusInAndPaymentDueAtBefore(
+        // Only ONLINE orders should be subject to the post-accept payment window.
+        List<OrderEntity> timedOut = orderRepository.findByServiceModeAndPaymentTypeAndStatusInAndPaymentDueAtBefore(
                 ServiceMode.INCITY,
+                PaymentType.ONLINE,
                 List.of(OrderStatus.RIDER_ACCEPTED, OrderStatus.PAYMENT_PENDING),
                 now);
 
@@ -83,6 +100,13 @@ public class IncityOrderTimeoutScheduler {
                 }
                 dispatchService.closeRequest(o.getId(), "cancelled", null);
                 sendUserCancelled(o.getUserId(), o.getId(), "PAYMENT_TIMEOUT", OrderStatus.CANCELLED);
+                pushUserOrderClosed(
+                        o.getUserId(),
+                        o.getId(),
+                        OrderStatus.CANCELLED,
+                        "PAYMENT_TIMEOUT",
+                        "Payment timeout",
+                        "Payment was not completed in time for order #" + o.getId() + ".");
             }
         }
     }
@@ -124,6 +148,27 @@ public class IncityOrderTimeoutScheduler {
         evt.setPaymentDueAtEpochMs(null);
         evt.setRiderId(null);
         messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", evt);
+    }
+
+    private void pushUserOrderClosed(
+            Long userId,
+            Long orderId,
+            OrderStatus status,
+            String cancelReason,
+            String title,
+            String body) {
+        if (userId == null || orderId == null) {
+            return;
+        }
+        Map<String, String> data = new HashMap<>(
+                NotificationService.baseData(
+                        orderId,
+                        status != null ? status.name() : null,
+                        NotificationType.USER_ORDER_CLOSED));
+        if (cancelReason != null) {
+            data.put("cancelReason", cancelReason);
+        }
+        notificationService.sendToUser(userId, title, body, data, NotificationType.USER_ORDER_CLOSED);
     }
 }
 

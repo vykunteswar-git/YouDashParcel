@@ -610,6 +610,19 @@ public class OrderServiceImpl implements OrderService {
                 riderRepository.release(o.getRiderId());
             }
             dispatchService.closeRequest(o.getId(), "cancelled", null);
+            OrderEntity refreshedForPush = orderRepository.findById(o.getId()).orElse(o);
+            Map<String, String> closedData = new HashMap<>(
+                    NotificationService.baseData(
+                            refreshedForPush.getId(),
+                            OrderStatus.CANCELLED.name(),
+                            NotificationType.USER_ORDER_CLOSED));
+            closedData.put("cancelReason", "USER_CANCELLED");
+            notificationService.sendToUser(
+                    refreshedForPush.getUserId(),
+                    "Order cancelled",
+                    "Order #" + refreshedForPush.getId() + " was cancelled.",
+                    closedData,
+                    NotificationType.USER_ORDER_CLOSED);
         }
 
         OrderEntity refreshed = orderRepository.findById(o.getId()).orElse(o);

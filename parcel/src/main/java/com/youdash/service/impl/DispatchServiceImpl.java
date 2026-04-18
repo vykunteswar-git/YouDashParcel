@@ -3,7 +3,9 @@ package com.youdash.service.impl;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -22,10 +24,12 @@ import com.youdash.entity.OrderDispatchEntity;
 import com.youdash.entity.RiderEntity;
 import com.youdash.model.OrderStatus;
 import com.youdash.model.ServiceMode;
+import com.youdash.notification.NotificationType;
 import com.youdash.repository.OrderDispatchRepository;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.service.DispatchService;
+import com.youdash.service.NotificationService;
 import com.youdash.util.GeoUtils;
 
 /**
@@ -55,6 +59,9 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private NotificationService notificationService;
 
     @Override
     @Transactional
@@ -127,7 +134,40 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
 
         for (Long riderId : picked) {
             messagingTemplate.convertAndSend("/topic/riders/" + riderId + "/new_order_request", evt);
+            notificationService.sendToRider(
+                    riderId,
+                    "New delivery request",
+                    "Order #" + order.getId() + " — open the app to accept or decline.",
+                    riderNewOrderPushData(order, expiryMs),
+                    NotificationType.RIDER_NEW_ORDER_REQUEST);
         }
+    }
+
+    private static Map<String, String> riderNewOrderPushData(OrderEntity order, long expiryMs) {
+        Map<String, String> d = new HashMap<>(
+                NotificationService.baseData(order.getId(),
+                        order.getStatus() != null ? order.getStatus().name() : null,
+                        NotificationType.RIDER_NEW_ORDER_REQUEST));
+        d.put("expiryTimeEpochMs", String.valueOf(expiryMs));
+        if (order.getPickupLat() != null) {
+            d.put("pickupLat", String.valueOf(order.getPickupLat()));
+        }
+        if (order.getPickupLng() != null) {
+            d.put("pickupLng", String.valueOf(order.getPickupLng()));
+        }
+        if (order.getDropLat() != null) {
+            d.put("dropLat", String.valueOf(order.getDropLat()));
+        }
+        if (order.getDropLng() != null) {
+            d.put("dropLng", String.valueOf(order.getDropLng()));
+        }
+        if (order.getDistanceKm() != null) {
+            d.put("distanceKm", String.valueOf(order.getDistanceKm()));
+        }
+        if (order.getTotalAmount() != null) {
+            d.put("earningAmount", String.valueOf(order.getTotalAmount()));
+        }
+        return d;
     }
 
     private List<Long> pickNearestRiders(Double pickupLat, Double pickupLng, Long orderId, int limit) {
@@ -170,6 +210,21 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
                 continue;
             }
             messagingTemplate.convertAndSend("/topic/riders/" + riderId + "/request_closed", evt);
+            Map<String, String> data = new HashMap<>(
+                    NotificationService.baseData(orderId, null, NotificationType.RIDER_REQUEST_CLOSED));
+            String reasonKey = evt.getReason() == null ? "closed" : evt.getReason();
+            data.put("reason", reasonKey);
+            if (acceptedRiderId != null) {
+                data.put("acceptedRiderId", String.valueOf(acceptedRiderId));
+            }
+            String title = "Request closed";
+            String body = switch (reasonKey) {
+                case "accepted" -> "Another rider took order #" + orderId + ".";
+                case "expired" -> "Order #" + orderId + " offer has expired.";
+                case "cancelled" -> "Order #" + orderId + " was cancelled.";
+                default -> "Order #" + orderId + " is no longer available.";
+            };
+            notificationService.sendToRider(riderId, title, body, data, NotificationType.RIDER_REQUEST_CLOSED);
         }
     }
 

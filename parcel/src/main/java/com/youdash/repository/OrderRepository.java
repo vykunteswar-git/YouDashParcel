@@ -2,6 +2,7 @@ package com.youdash.repository;
 
 import com.youdash.entity.OrderEntity;
 import com.youdash.model.OrderStatus;
+import com.youdash.model.PaymentType;
 import com.youdash.model.ServiceMode;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -49,6 +50,34 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             @Param("paymentStatus") String paymentStatus,
             @Param("now") Instant now);
 
+    /**
+     * INCITY + COD: after rider accepts, confirm immediately (no online payment window).
+     */
+    @Modifying
+    @Query("""
+            update OrderEntity o
+               set o.riderId = :riderId,
+                   o.status = :newStatus,
+                   o.acceptedAt = :acceptedAt,
+                   o.paymentDueAt = null,
+                   o.paymentStatus = :paymentStatus
+             where o.id = :orderId
+               and o.serviceMode = :serviceMode
+               and o.paymentType = :paymentType
+               and o.status = :expectedStatus
+               and (o.searchExpiresAt is null or o.searchExpiresAt > :now)
+            """)
+    int tryAcceptIncityCodOrder(
+            @Param("orderId") Long orderId,
+            @Param("riderId") Long riderId,
+            @Param("serviceMode") ServiceMode serviceMode,
+            @Param("paymentType") PaymentType paymentType,
+            @Param("expectedStatus") OrderStatus expectedStatus,
+            @Param("newStatus") OrderStatus newStatus,
+            @Param("acceptedAt") Instant acceptedAt,
+            @Param("paymentStatus") String paymentStatus,
+            @Param("now") Instant now);
+
     @Modifying
     @Query("""
             update OrderEntity o
@@ -85,6 +114,20 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
 
     List<OrderEntity> findByServiceModeAndStatusInAndPaymentDueAtBefore(ServiceMode serviceMode, List<OrderStatus> statuses, Instant now);
 
+    @Query("""
+            select o from OrderEntity o
+             where o.serviceMode = :serviceMode
+               and o.paymentType = :paymentType
+               and o.status in :statuses
+               and o.paymentDueAt is not null
+               and o.paymentDueAt < :now
+            """)
+    List<OrderEntity> findByServiceModeAndPaymentTypeAndStatusInAndPaymentDueAtBefore(
+            @Param("serviceMode") ServiceMode serviceMode,
+            @Param("paymentType") PaymentType paymentType,
+            @Param("statuses") List<OrderStatus> statuses,
+            @Param("now") Instant now);
+
     boolean existsByRiderIdAndServiceModeAndStatusIn(Long riderId, ServiceMode serviceMode, List<OrderStatus> statuses);
 
     @Modifying
@@ -100,7 +143,6 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
                and o.serviceMode = :serviceMode
                and o.status in :expectedStatuses
                and (o.paymentStatus is null or upper(o.paymentStatus) <> 'PAID')
-               and (o.paymentDueAt is null or o.paymentDueAt > :now)
             """)
     int markPaidAndConfirm(
             @Param("orderId") Long orderId,

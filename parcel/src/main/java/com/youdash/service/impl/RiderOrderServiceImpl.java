@@ -1,6 +1,8 @@
 package com.youdash.service.impl;
 
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -12,11 +14,14 @@ import com.youdash.dto.OrderResponseDTO;
 import com.youdash.dto.realtime.UserOrderEventDTO;
 import com.youdash.entity.OrderEntity;
 import com.youdash.entity.RiderEntity;
+import com.youdash.model.PaymentType;
 import com.youdash.model.OrderStatus;
 import com.youdash.model.ServiceMode;
+import com.youdash.notification.NotificationType;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.service.DispatchService;
+import com.youdash.service.NotificationService;
 import com.youdash.service.RiderOrderService;
 
 @Service
@@ -36,6 +41,9 @@ public class RiderOrderServiceImpl implements RiderOrderService {
 
     @Autowired
     private OrderServiceImpl orderServiceImpl; // reuse toOrderDto without duplicating mapping
+
+    @Autowired
+    private NotificationService notificationService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -72,17 +80,34 @@ public class RiderOrderServiceImpl implements RiderOrderService {
 
         // 2) Concurrency-safe order accept.
         Instant now = Instant.now();
-        Instant paymentDue = now.plusSeconds(60);
-        int updated = orderRepository.tryAcceptOrder(
-                orderId,
-                riderId,
-                ServiceMode.INCITY,
-                OrderStatus.SEARCHING_RIDER,
-                OrderStatus.RIDER_ACCEPTED,
-                now,
-                paymentDue,
-                "UNPAID",
-                now);
+        boolean cod = order.getPaymentType() == PaymentType.COD;
+        int updated;
+        Instant paymentDue = null;
+        if (cod) {
+            // COD: confirm immediately (no Razorpay / no 60s payment window).
+            updated = orderRepository.tryAcceptIncityCodOrder(
+                    orderId,
+                    riderId,
+                    ServiceMode.INCITY,
+                    PaymentType.COD,
+                    OrderStatus.SEARCHING_RIDER,
+                    OrderStatus.CONFIRMED,
+                    now,
+                    "UNPAID",
+                    now);
+        } else {
+            paymentDue = now.plusSeconds(60);
+            updated = orderRepository.tryAcceptOrder(
+                    orderId,
+                    riderId,
+                    ServiceMode.INCITY,
+                    OrderStatus.SEARCHING_RIDER,
+                    OrderStatus.RIDER_ACCEPTED,
+                    now,
+                    paymentDue,
+                    "UNPAID",
+                    now);
+        }
         if (updated == 0) {
             // someone else accepted / expired; release rider
             riderRepository.release(riderId);
@@ -92,10 +117,27 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         // 3) Close request for other riders.
         dispatchService.closeRequest(orderId, "accepted", riderId);
 
-        // 4) Notify user immediately: rider_found + payment_required.
+        // 4) Notify user immediately.
         Long userId = order.getUserId();
-        sendUserEvent(userId, orderId, "rider_found", OrderStatus.RIDER_ACCEPTED, paymentDue, riderId);
-        sendUserEvent(userId, orderId, "payment_required", OrderStatus.RIDER_ACCEPTED, paymentDue, riderId);
+        if (cod) {
+            sendUserEvent(userId, orderId, "rider_found", OrderStatus.CONFIRMED, null, riderId);
+            sendUserEvent(userId, orderId, "confirmed", OrderStatus.CONFIRMED, null, riderId);
+            notificationService.sendToUser(
+                    userId,
+                    "Rider assigned",
+                    "A rider accepted order #" + orderId + ". Your delivery is confirmed.",
+                    userRiderAcceptedPushData(orderId, OrderStatus.CONFIRMED, null, riderId),
+                    NotificationType.USER_RIDER_ACCEPTED);
+        } else {
+            sendUserEvent(userId, orderId, "rider_found", OrderStatus.RIDER_ACCEPTED, paymentDue, riderId);
+            sendUserEvent(userId, orderId, "payment_required", OrderStatus.RIDER_ACCEPTED, paymentDue, riderId);
+            notificationService.sendToUser(
+                    userId,
+                    "Rider accepted",
+                    "Complete payment within 60 seconds to confirm order #" + orderId + ".",
+                    userRiderAcceptedPushData(orderId, OrderStatus.RIDER_ACCEPTED, paymentDue, riderId),
+                    NotificationType.USER_RIDER_ACCEPTED);
+        }
 
         // return updated order DTO
         OrderEntity refreshed = orderRepository.findById(orderId).orElse(order);
@@ -127,6 +169,21 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         response.setStatus(200);
         response.setSuccess(true);
         return response;
+    }
+
+    private static Map<String, String> userRiderAcceptedPushData(
+            Long orderId, OrderStatus status, Instant paymentDueAt, Long riderId) {
+        Map<String, String> d = new HashMap<>(NotificationService.baseData(
+                orderId,
+                status != null ? status.name() : null,
+                NotificationType.USER_RIDER_ACCEPTED));
+        if (paymentDueAt != null) {
+            d.put("paymentDueAtEpochMs", String.valueOf(paymentDueAt.toEpochMilli()));
+        }
+        if (riderId != null) {
+            d.put("riderId", String.valueOf(riderId));
+        }
+        return d;
     }
 
     private void sendUserEvent(Long userId, Long orderId, String event, OrderStatus status, Instant paymentDueAt,

@@ -19,9 +19,12 @@ import com.youdash.service.NotificationService;
 import com.youdash.service.OrderService;
 import com.youdash.service.PaymentService;
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -34,6 +37,7 @@ import java.util.List;
 
 @Service
 public class PaymentServiceImpl implements PaymentService {
+    private static final Logger log = LoggerFactory.getLogger(PaymentServiceImpl.class);
 
     @Value("${razorpay.key_id}")
     private String keyId;
@@ -63,6 +67,7 @@ public class PaymentServiceImpl implements PaymentService {
     private org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public ApiResponse<RazorpayOrderCreatedDTO> createRazorpayOrder(String orderIdOrReference, Long userId) {
         ApiResponse<RazorpayOrderCreatedDTO> response = new ApiResponse<>();
         try {
@@ -122,6 +127,9 @@ public class PaymentServiceImpl implements PaymentService {
 
             // status transition: RIDER_ACCEPTED -> PAYMENT_PENDING (idempotent with conditional update)
             if (orderEntity.getServiceMode() == ServiceMode.INCITY) {
+                if (orderEntity.getPaymentType() == PaymentType.COD) {
+                    throw new RuntimeException("Razorpay is not applicable for COD orders");
+                }
                 orderRepository.tryMarkPaymentPending(
                         orderEntity.getId(),
                         OrderStatus.RIDER_ACCEPTED,
@@ -152,10 +160,14 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public ApiResponse<OrderResponseDTO> verifyPayment(RazorpayVerifyRequestDTO dto, Long userId) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         OrderEntity resolvedOrder = null;
         try {
+            // Use one reference time for the full verification flow to avoid
+            // boundary races (window expires mid-request after payment success).
+            Instant verificationStartedAt = Instant.now();
             if (dto == null || dto.getOrderId() == null || dto.getOrderId().isBlank()) {
                 throw new RuntimeException("orderId is required");
             }
@@ -175,9 +187,6 @@ public class PaymentServiceImpl implements PaymentService {
             if (order.getServiceMode() == ServiceMode.INCITY) {
                 if (!(order.getStatus() == OrderStatus.PAYMENT_PENDING || order.getStatus() == OrderStatus.RIDER_ACCEPTED)) {
                     throw new RuntimeException("Payment cannot be verified from status: " + order.getStatus());
-                }
-                if (order.getPaymentDueAt() != null && order.getPaymentDueAt().isBefore(Instant.now())) {
-                    throw new RuntimeException("Payment window expired");
                 }
             }
 
@@ -216,9 +225,8 @@ public class PaymentServiceImpl implements PaymentService {
                 // Signature already verified; optional amount check
             }
 
-            Instant now = Instant.now();
             if (order.getServiceMode() == ServiceMode.INCITY) {
-                orderRepository.markPaidAndConfirm(
+                int updated = orderRepository.markPaidAndConfirm(
                         order.getId(),
                         ServiceMode.INCITY,
                         List.of(OrderStatus.RIDER_ACCEPTED, OrderStatus.PAYMENT_PENDING),
@@ -226,10 +234,43 @@ public class PaymentServiceImpl implements PaymentService {
                         "PAID",
                         dto.getRazorpayPaymentId().trim(),
                         "RAZORPAY",
-                        now);
+                        verificationStartedAt);
+                log.info(
+                        "PAY_VERIFY_FINALIZE orderId={} updated={} statusBefore={} paymentStatusBefore={} dueAt={}",
+                        order.getId(),
+                        updated,
+                        order.getStatus(),
+                        order.getPaymentStatus(),
+                        order.getPaymentDueAt());
                 // If updated==0 it could be already PAID/confirmed/cancelled; refetch to confirm state.
                 order = orderRepository.findById(order.getId()).orElse(order);
+                if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())
+                        && (order.getStatus() == OrderStatus.RIDER_ACCEPTED || order.getStatus() == OrderStatus.PAYMENT_PENDING)) {
+                    // Fallback path: if conditional bulk update misses due to race/timing,
+                    // finalize directly when order is still in a verifiable state.
+                    Instant now = Instant.now();
+                    order.setPaymentStatus("PAID");
+                    order.setStatus(OrderStatus.CONFIRMED);
+                    order.setRazorpayPaymentId(dto.getRazorpayPaymentId().trim());
+                    order.setPaymentMethod("RAZORPAY");
+                    if (order.getPaymentCreatedAt() == null) {
+                        order.setPaymentCreatedAt(now);
+                    }
+                    order.setPaymentUpdatedAt(now);
+                    order = orderRepository.save(order);
+                    log.warn(
+                            "PAY_VERIFY_FALLBACK_APPLIED orderId={} statusAfter={} paymentStatusAfter={}",
+                            order.getId(),
+                            order.getStatus(),
+                            order.getPaymentStatus());
+                }
                 if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())) {
+                    log.warn(
+                            "PAY_VERIFY_FINALIZE_FAILED orderId={} statusAfter={} paymentStatusAfter={} dueAt={}",
+                            order.getId(),
+                            order.getStatus(),
+                            order.getPaymentStatus(),
+                            order.getPaymentDueAt());
                     throw new RuntimeException("Payment verification failed to finalize order");
                 }
                 if (order.getRiderId() != null) {
@@ -237,6 +278,7 @@ public class PaymentServiceImpl implements PaymentService {
                 }
                 sendConfirmedEvent(order.getUserId(), order.getId());
             } else {
+                Instant now = Instant.now();
                 order.setPaymentStatus("PAID");
                 order.setRazorpayPaymentId(dto.getRazorpayPaymentId());
                 order.setPaymentMethod("RAZORPAY");

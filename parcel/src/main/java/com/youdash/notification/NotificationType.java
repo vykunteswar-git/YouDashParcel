@@ -26,5 +26,13 @@ public enum NotificationType {
     ADMIN_COD_ORDER,
     ADMIN_PAYMENT_SUCCESS,
     ADMIN_PAYMENT_FAILED,
-    RIDER_JOB_ASSIGNED
+    RIDER_JOB_ASSIGNED,
+    /** Nearby rider: new INCITY dispatch offer */
+    RIDER_NEW_ORDER_REQUEST,
+    /** Dispatch round ended for this rider (accepted elsewhere, cancelled, expired, etc.) */
+    RIDER_REQUEST_CLOSED,
+    /** User: a rider accepted the order (COD confirmed or online awaiting payment) */
+    USER_RIDER_ACCEPTED,
+    /** User: order ended as cancelled or expired (includes no rider, payment timeout, user cancel) */
+    USER_ORDER_CLOSED
 }
