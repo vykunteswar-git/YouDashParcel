@@ -72,6 +72,7 @@ public class RiderActiveOrderSubscriptionListener {
         dto.setHasActiveOrder(true);
         dto.setOrderId(o.getId());
         dto.setStatus(o.getStatus() == null ? null : o.getStatus().name());
+        dto.setNextStatus(IncityActiveOrderNextStatus.resolve(o.getStatus()));
         dto.setReason(null);
         return dto;
     }
@@ -82,6 +83,7 @@ public class RiderActiveOrderSubscriptionListener {
         dto.setHasActiveOrder(false);
         dto.setOrderId(null);
         dto.setStatus(null);
+        dto.setNextStatus(null);
         dto.setReason(null);
         return dto;
     }

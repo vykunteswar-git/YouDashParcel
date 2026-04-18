@@ -14,12 +14,19 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UrlPathHelper;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.List;
+
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 @Component
 public class JwtFilter extends OncePerRequestFilter {
+
+    private static final UrlPathHelper PATH_HELPER = new UrlPathHelper();
 
     @Autowired
     private JwtUtil jwtUtil;
@@ -35,10 +42,8 @@ public class JwtFilter extends OncePerRequestFilter {
             token = header.substring(7).trim();
         }
 
-        String path = request.getServletPath();
-        if (path == null || path.isEmpty()) {
-            path = request.getRequestURI();
-        }
+        // Path without context path; avoids empty servletPath + pathInfo quirks on some containers.
+        String path = PATH_HELPER.getPathWithinApplication(request);
 
         // 1. Skip validation for public endpoints
         if (path.startsWith("/auth/") ||
@@ -87,9 +92,10 @@ public class JwtFilter extends OncePerRequestFilter {
                 return;
             }
 
-            // 6. Set Authentication in Context
+            // 6. Set Authentication in Context (authorities help any ROLE_* matchers; empty list caused 403 on some setups)
+            List<GrantedAuthority> authorities = buildAuthorities(type);
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    id, null, Collections.emptyList());
+                    id, null, authorities);
             authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             SecurityContextHolder.getContext().setAuthentication(authentication);
 
@@ -99,6 +105,17 @@ public class JwtFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private static List<GrantedAuthority> buildAuthorities(String type) {
+        if (type == null || type.isBlank()) {
+            return Collections.emptyList();
+        }
+        String role = type.trim().toUpperCase();
+        if (!role.startsWith("ROLE_")) {
+            role = "ROLE_" + role;
+        }
+        return List.of(new SimpleGrantedAuthority(role));
     }
 
     private void sendErrorResponse(HttpServletResponse response, String message, int status) throws IOException {

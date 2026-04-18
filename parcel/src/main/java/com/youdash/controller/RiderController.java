@@ -170,6 +170,15 @@ public class RiderController {
         return riderService.updateLocation(id, lat, lng);
     }
 
+    @GetMapping("/orders/{orderId}")
+    @Operation(summary = "Get order by id (assigned to me)", description = "Same as GET /riders/me/orders/{orderId} and GET /rider/orders/{orderId}. Use this path if /me/orders returns 403 (same prefix as accept/pickup).")
+    public ApiResponse<OrderResponseDTO> getOrderByIdForRider(
+            @PathVariable Long orderId,
+            HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return orderService.getOrder(orderId, riderId, "RIDER", false);
+    }
+
     @PostMapping("/orders/{orderId}/accept")
     @Operation(summary = "Accept INCITY order request (JWT)", description = "Locks rider immediately and sets order to RIDER_ACCEPTED with 60s payment window.")
     public ApiResponse<?> acceptOrder(@PathVariable Long orderId, HttpServletRequest request) {

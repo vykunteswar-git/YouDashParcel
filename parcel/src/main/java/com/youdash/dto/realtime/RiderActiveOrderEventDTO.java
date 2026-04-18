@@ -18,6 +18,11 @@ public class RiderActiveOrderEventDTO {
     /** Current {@link com.youdash.model.OrderStatus} name */
     private String status;
     /**
+     * Suggested next {@link com.youdash.model.OrderStatus} name in the INCITY rider flow (e.g. after PICKED_UP → IN_TRANSIT).
+     * Null when idle snapshot, terminal, or not applicable.
+     */
+    private String nextStatus;
+    /**
      * snapshot — sent once when subscribing to {@code /topic/riders/{id}/active-order} (includes {@link #hasActiveOrder});
      * assigned — rider accepted (COD → CONFIRMED or online → RIDER_ACCEPTED);
      * confirmed — online payment completed → CONFIRMED;

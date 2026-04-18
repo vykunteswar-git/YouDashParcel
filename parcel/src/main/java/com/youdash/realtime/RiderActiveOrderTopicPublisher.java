@@ -29,6 +29,7 @@ public class RiderActiveOrderTopicPublisher {
         dto.setEvent(event);
         dto.setReason(reason);
         dto.setHasActiveOrder(hasActiveOrderForLifecycleEvent(event));
+        dto.setNextStatus(nextStatusForEvent(status, event));
         messagingTemplate.convertAndSend("/topic/riders/" + riderId + "/active-order", dto);
     }
 
@@ -44,5 +45,12 @@ public class RiderActiveOrderTopicPublisher {
             case "released", "delivered" -> false;
             default -> true;
         };
+    }
+
+    private static String nextStatusForEvent(OrderStatus status, String event) {
+        if (event != null && (event.equals("released") || event.equals("delivered"))) {
+            return null;
+        }
+        return IncityActiveOrderNextStatus.resolve(status);
     }
 }
