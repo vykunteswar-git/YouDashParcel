@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.youdash.dto.realtime.UserOrderEventDTO;
 import com.youdash.entity.OrderEntity;
+import com.youdash.realtime.RiderActiveOrderTopicPublisher;
 import com.youdash.notification.NotificationType;
 import com.youdash.model.OrderStatus;
 import com.youdash.model.PaymentType;
@@ -39,6 +40,9 @@ public class IncityOrderTimeoutScheduler {
 
     @Autowired
     private NotificationService notificationService;
+
+    @Autowired
+    private RiderActiveOrderTopicPublisher riderActiveOrderTopicPublisher;
 
     @Scheduled(fixedDelayString = "${incity.scheduler.delay-ms:3000}")
     @Transactional(rollbackFor = Exception.class)
@@ -97,6 +101,8 @@ public class IncityOrderTimeoutScheduler {
             if (updated == 1) {
                 if (o.getRiderId() != null) {
                     riderRepository.release(o.getRiderId());
+                    riderActiveOrderTopicPublisher.publish(
+                            o.getRiderId(), o.getId(), OrderStatus.CANCELLED, "released", "PAYMENT_TIMEOUT");
                 }
                 dispatchService.closeRequest(o.getId(), "cancelled", null);
                 sendUserCancelled(o.getUserId(), o.getId(), "PAYMENT_TIMEOUT", OrderStatus.CANCELLED);

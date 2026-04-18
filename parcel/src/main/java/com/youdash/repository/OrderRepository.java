@@ -26,7 +26,11 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
 
     List<OrderEntity> findByRiderIdAndServiceModeAndStatusIn(Long riderId, ServiceMode serviceMode, List<OrderStatus> statuses);
 
-    @Modifying
+    /** Latest INCITY order for this rider in one of the given statuses (e.g. active job). */
+    Optional<OrderEntity> findFirstByRiderIdAndServiceModeAndStatusInOrderByIdDesc(
+            Long riderId, ServiceMode serviceMode, List<OrderStatus> statuses);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             update OrderEntity o
                set o.riderId = :riderId,
@@ -53,7 +57,7 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     /**
      * INCITY + COD: after rider accepts, confirm immediately (no online payment window).
      */
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             update OrderEntity o
                set o.riderId = :riderId,

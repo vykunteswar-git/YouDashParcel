@@ -55,7 +55,22 @@ public class JwtUtil {
 
     public Long extractId(String token) {
         final Claims claims = extractAllClaims(token);
-        return claims.get("id", Long.class);
+        Object raw = claims.get("id");
+        if (raw instanceof Number) {
+            return ((Number) raw).longValue();
+        }
+        if (raw instanceof String s && !s.isBlank()) {
+            return Long.parseLong(s.trim());
+        }
+        // JSON integers often deserialize as Integer; Long.class lookup can return null.
+        if (raw == null && claims.getSubject() != null && !claims.getSubject().isBlank()) {
+            try {
+                return Long.parseLong(claims.getSubject().trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     public String extractType(String token) {

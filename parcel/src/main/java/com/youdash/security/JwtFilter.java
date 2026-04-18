@@ -32,10 +32,13 @@ public class JwtFilter extends OncePerRequestFilter {
         String token = null;
 
         if (header != null && header.startsWith("Bearer ")) {
-            token = header.substring(7);
+            token = header.substring(7).trim();
         }
 
-        String path = request.getRequestURI();
+        String path = request.getServletPath();
+        if (path == null || path.isEmpty()) {
+            path = request.getRequestURI();
+        }
 
         // 1. Skip validation for public endpoints
         if (path.startsWith("/auth/") ||
@@ -52,7 +55,7 @@ public class JwtFilter extends OncePerRequestFilter {
         }
 
         // 2. Missing Token (401)
-        if (token == null) {
+        if (token == null || token.isEmpty()) {
             sendErrorResponse(response, "Authorization token is missing", 401);
             return;
         }
@@ -67,10 +70,13 @@ public class JwtFilter extends OncePerRequestFilter {
             Long id = jwtUtil.extractId(token);
             String type = jwtUtil.extractType(token);
 
-            // 4. Null safety for attributes
-            if (id != null) {
-                request.setAttribute("userId", id);
+            if (id == null) {
+                sendErrorResponse(response, "Invalid token: missing subject id", 401);
+                return;
             }
+
+            // 4. Null safety for attributes
+            request.setAttribute("userId", id);
             if (type != null) {
                 request.setAttribute("type", type);
             }

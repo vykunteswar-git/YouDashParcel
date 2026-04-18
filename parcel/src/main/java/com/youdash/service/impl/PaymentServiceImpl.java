@@ -14,6 +14,7 @@ import com.youdash.notification.NotificationType;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.dto.realtime.UserOrderEventDTO;
+import com.youdash.realtime.RiderActiveOrderTopicPublisher;
 import com.youdash.service.NotificationDedupService;
 import com.youdash.service.NotificationService;
 import com.youdash.service.OrderService;
@@ -65,6 +66,9 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Autowired
     private org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private RiderActiveOrderTopicPublisher riderActiveOrderTopicPublisher;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -277,6 +281,11 @@ public class PaymentServiceImpl implements PaymentService {
                     riderRepository.reserveIfAvailable(order.getRiderId());
                 }
                 sendConfirmedEvent(order.getUserId(), order.getId());
+                OrderEntity forRider = orderRepository.findById(order.getId()).orElse(order);
+                if (forRider.getRiderId() != null && forRider.getStatus() == OrderStatus.CONFIRMED) {
+                    riderActiveOrderTopicPublisher.publish(
+                            forRider.getRiderId(), forRider.getId(), OrderStatus.CONFIRMED, "confirmed");
+                }
             } else {
                 Instant now = Instant.now();
                 order.setPaymentStatus("PAID");

@@ -26,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.youdash.dto.realtime.UserOrderEventDTO;
+import com.youdash.realtime.RiderActiveOrderTopicPublisher;
 
 import java.util.HashMap;
 import java.util.List;
@@ -87,6 +88,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private RiderActiveOrderTopicPublisher riderActiveOrderTopicPublisher;
 
     @Override
     public ApiResponse<FinalPriceResponseDTO> calculateFinal(FinalPriceRequestDTO dto) {
@@ -576,6 +580,8 @@ public class OrderServiceImpl implements OrderService {
 
         markRiderAvailableAfterDelivery(saved.getRiderId());
 
+        riderActiveOrderTopicPublisher.publish(actingRiderId, saved.getId(), OrderStatus.DELIVERED, "delivered");
+
         OrderEntity refreshed = orderRepository.findById(saved.getId()).orElse(saved);
         response.setData(toOrderDto(refreshed));
         response.setMessage("Order completed");
@@ -634,6 +640,11 @@ public class OrderServiceImpl implements OrderService {
         evt.setRiderId(saved.getRiderId());
         messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", evt);
 
+        if (saved.getRiderId() != null) {
+            riderActiveOrderTopicPublisher.publish(
+                    saved.getRiderId(), saved.getId(), OrderStatus.IN_TRANSIT, "otp_verified");
+        }
+
         response.setData(toOrderDto(saved));
         response.setMessage("OTP verified");
         response.setMessageKey("SUCCESS");
@@ -686,6 +697,8 @@ public class OrderServiceImpl implements OrderService {
         if (updated == 1) {
             if (o.getRiderId() != null) {
                 riderRepository.release(o.getRiderId());
+                riderActiveOrderTopicPublisher.publish(
+                        o.getRiderId(), o.getId(), OrderStatus.CANCELLED, "released", "USER_CANCELLED");
             }
             dispatchService.closeRequest(o.getId(), "cancelled", null);
             OrderEntity refreshedForPush = orderRepository.findById(o.getId()).orElse(o);

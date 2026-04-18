@@ -22,6 +22,8 @@ import com.youdash.model.ServiceMode;
 import com.youdash.notification.NotificationType;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
+import com.youdash.realtime.RiderActiveOrderTopicPublisher;
+import com.youdash.util.TransactionAfterCommit;
 import com.youdash.service.DispatchService;
 import com.youdash.service.NotificationService;
 import com.youdash.service.RiderOrderService;
@@ -48,6 +50,9 @@ public class RiderOrderServiceImpl implements RiderOrderService {
 
     @Autowired
     private NotificationService notificationService;
+
+    @Autowired
+    private RiderActiveOrderTopicPublisher riderActiveOrderTopicPublisher;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -121,34 +126,43 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         // 3) Close request for other riders.
         dispatchService.closeRequest(orderId, "accepted", riderId);
 
-        // 4) Notify user immediately.
-        Long userId = order.getUserId();
-        if (cod) {
-            sendUserEvent(userId, orderId, "rider_found", OrderStatus.CONFIRMED, null, riderId);
-            sendUserEvent(userId, orderId, "confirmed", OrderStatus.CONFIRMED, null, riderId);
-            notificationService.sendToUser(
-                    userId,
-                    "Rider assigned",
-                    "A rider accepted order #" + orderId + ". Your delivery is confirmed.",
-                    userRiderAcceptedPushData(orderId, OrderStatus.CONFIRMED, null, riderId),
-                    NotificationType.USER_RIDER_ACCEPTED);
-        } else {
-            sendUserEvent(userId, orderId, "rider_found", OrderStatus.RIDER_ACCEPTED, paymentDue, riderId);
-            sendUserEvent(userId, orderId, "payment_required", OrderStatus.RIDER_ACCEPTED, paymentDue, riderId);
-            notificationService.sendToUser(
-                    userId,
-                    "Rider accepted",
-                    "Complete payment within 60 seconds to confirm order #" + orderId + ".",
-                    userRiderAcceptedPushData(orderId, OrderStatus.RIDER_ACCEPTED, paymentDue, riderId),
-                    NotificationType.USER_RIDER_ACCEPTED);
-        }
-
         // Persist delivery OTP once (COD → CONFIRMED; ONLINE → RIDER_ACCEPTED).
         OrderEntity refreshed = orderRepository.findById(orderId).orElse(order);
         if (refreshed.getDeliveryOtp() == null) {
             refreshed.setDeliveryOtp(generateDeliveryOtp());
             refreshed = orderRepository.save(refreshed);
         }
+
+        // 4) Notify user + rider topic after commit so HTTP (e.g. POST /payments/create-order) sees RIDER_ACCEPTED.
+        final Long userId = order.getUserId();
+        final Long acceptedOrderId = orderId;
+        final Instant paymentDueFinal = paymentDue;
+        final boolean codFinal = cod;
+        final Long riderIdFinal = riderId;
+        final OrderStatus statusAfterAccept = cod ? OrderStatus.CONFIRMED : OrderStatus.RIDER_ACCEPTED;
+        TransactionAfterCommit.run(() -> {
+            if (codFinal) {
+                sendUserEvent(userId, acceptedOrderId, "rider_found", OrderStatus.CONFIRMED, null, riderIdFinal);
+                sendUserEvent(userId, acceptedOrderId, "confirmed", OrderStatus.CONFIRMED, null, riderIdFinal);
+                notificationService.sendToUser(
+                        userId,
+                        "Rider assigned",
+                        "A rider accepted order #" + acceptedOrderId + ". Your delivery is confirmed.",
+                        userRiderAcceptedPushData(acceptedOrderId, OrderStatus.CONFIRMED, null, riderIdFinal),
+                        NotificationType.USER_RIDER_ACCEPTED);
+            } else {
+                sendUserEvent(userId, acceptedOrderId, "rider_found", OrderStatus.RIDER_ACCEPTED, paymentDueFinal, riderIdFinal);
+                sendUserEvent(userId, acceptedOrderId, "payment_required", OrderStatus.RIDER_ACCEPTED, paymentDueFinal, riderIdFinal);
+                notificationService.sendToUser(
+                        userId,
+                        "Rider accepted",
+                        "Complete payment within 60 seconds to confirm order #" + acceptedOrderId + ".",
+                        userRiderAcceptedPushData(acceptedOrderId, OrderStatus.RIDER_ACCEPTED, paymentDueFinal, riderIdFinal),
+                        NotificationType.USER_RIDER_ACCEPTED);
+            }
+            riderActiveOrderTopicPublisher.publish(riderIdFinal, acceptedOrderId, statusAfterAccept, "assigned");
+        });
+
         response.setData(orderServiceImpl.toOrderDto(refreshed));
         response.setMessage("Order accepted");
         response.setMessageKey("SUCCESS");
@@ -170,6 +184,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         order.setStatus(OrderStatus.PICKED_UP);
         OrderEntity saved = orderRepository.save(order);
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
+        riderActiveOrderTopicPublisher.publish(riderId, saved.getId(), saved.getStatus(), "status_updated");
         response.setData(orderServiceImpl.toOrderDto(saved));
         response.setMessage("Pickup recorded");
         response.setMessageKey("SUCCESS");
@@ -191,6 +206,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         order.setStatus(OrderStatus.IN_TRANSIT);
         OrderEntity saved = orderRepository.save(order);
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
+        riderActiveOrderTopicPublisher.publish(riderId, saved.getId(), saved.getStatus(), "status_updated");
         response.setData(orderServiceImpl.toOrderDto(saved));
         response.setMessage("Transit started");
         response.setMessageKey("SUCCESS");
@@ -210,6 +226,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
             throw new BadRequestException("Order must be IN_TRANSIT to record destination arrival");
         }
         sendTypedUserEvent(order.getUserId(), order.getId(), "reach_destination", order.getStatus(), riderId);
+        riderActiveOrderTopicPublisher.publish(riderId, order.getId(), order.getStatus(), "reach_destination");
         response.setData(orderServiceImpl.toOrderDto(order));
         response.setMessage("Destination reached");
         response.setMessageKey("SUCCESS");

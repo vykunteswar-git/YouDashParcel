@@ -22,6 +22,7 @@ import com.youdash.util.JwtUtil;
  *
  * Expected destinations:
  * - /topic/orders/{orderId}/rider-location
+ * - /topic/riders/{riderId}/active-order (INCITY assignment lifecycle; rider-only)
  */
 @Component
 public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
@@ -33,7 +34,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             Pattern.compile("^/topic/orders/(\\d+)/rider-location$");
 
     private static final Pattern RIDER_TOPIC =
-            Pattern.compile("^/topic/riders/(\\d+)/(new_order_request|request_closed)$");
+            Pattern.compile("^/topic/riders/(\\d+)/(new_order_request|request_closed|active-order)$");
 
     private static final Pattern USER_EVENTS_TOPIC =
             Pattern.compile("^/topic/users/(\\d+)/order-events$");

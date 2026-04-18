@@ -10,10 +10,12 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.FcmTokenRequestDTO;
 import com.youdash.dto.RiderRequestDTO;
 import com.youdash.dto.RiderResponseDTO;
+import com.youdash.dto.OrderResponseDTO;
 import com.youdash.dto.RiderSelfUpdateDTO;
 import com.youdash.entity.RiderEntity;
 import com.youdash.repository.RiderRepository;
 import com.youdash.security.RiderAccessVerifier;
+import com.youdash.service.OrderService;
 import com.youdash.service.RiderService;
 import com.youdash.service.RiderOrderService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -37,6 +39,9 @@ public class RiderController {
 
     @Autowired
     private RiderOrderService riderOrderService;
+
+    @Autowired
+    private OrderService orderService;
 
     @PostMapping("/fcm-token")
     public ApiResponse<String> saveFcmToken(@RequestBody FcmTokenRequestDTO dto, HttpServletRequest request) {
@@ -80,6 +85,15 @@ public class RiderController {
     @GetMapping("/available")
     public ApiResponse<List<RiderResponseDTO>> getAvailableRiders() {
         return riderService.getAvailableRiders();
+    }
+
+    @GetMapping("/me/orders/{orderId}")
+    @Operation(summary = "Get order by id (my assignment)", description = "Same as GET /rider/orders/{orderId}: order must be assigned to this rider.")
+    public ApiResponse<OrderResponseDTO> getMyOrderById(
+            @PathVariable Long orderId,
+            HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return orderService.getOrder(orderId, riderId, "RIDER", false);
     }
 
     @GetMapping("/me")

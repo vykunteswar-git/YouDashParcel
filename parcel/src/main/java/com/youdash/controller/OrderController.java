@@ -71,7 +71,10 @@ public class OrderController {
     }
 
     @PostMapping("/{id}/verify-otp")
-    @Operation(summary = "Verify delivery OTP (USER or assigned RIDER, IN_TRANSIT)")
+    @Operation(
+            summary = "Verify delivery OTP (USER or assigned RIDER, IN_TRANSIT)",
+            description = "Call while the order is IN_TRANSIT. After success, the assigned rider marks delivery with POST /order/complete "
+                    + "(ONLINE: body orderId only; COD: include cod collection fields on complete).")
     public ApiResponse<OrderResponseDTO> verifyDeliveryOtp(
             @PathVariable Long id,
             @RequestBody VerifyDeliveryOtpRequestDTO dto,
