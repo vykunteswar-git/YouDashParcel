@@ -37,7 +37,10 @@ public class OrderResponseDTO {
     /** Populated when {@code riderId} is set (rider profile name / phone). */
     private String riderName;
     private String riderPhone;
-    /** Shown in {@code IN_TRANSIT} until OTP is verified; then cleared in API responses. */
+    /**
+     * Customer: visible from post-accept job states until verified. Rider APIs: only in {@code IN_TRANSIT}.
+     * Cleared after OTP verification.
+     */
     private String deliveryOtp;
     private Boolean isOtpVerified;
     private Double subtotal;

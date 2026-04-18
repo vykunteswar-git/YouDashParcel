@@ -297,7 +297,7 @@ public class OrderServiceImpl implements OrderService {
             if (saved.getServiceMode() == ServiceMode.INCITY && saved.getStatus() == OrderStatus.SEARCHING_RIDER) {
                 dispatchService.dispatchNewIncityOrder(saved);
             }
-            response.setData(toOrderDto(saved));
+            response.setData(toOrderDto(saved, null, false));
             response.setMessage("Order created");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
@@ -324,8 +324,9 @@ public class OrderServiceImpl implements OrderService {
                     throw new RuntimeException("Access denied");
                 }
             }
-            OrderResponseDTO data = toOrderDto(o);
-            if ("RIDER".equals(tokenType)) {
+            boolean riderOrderApi = "RIDER".equals(tokenType);
+            OrderResponseDTO data = toOrderDto(o, null, riderOrderApi);
+            if (riderOrderApi) {
                 data = stripCommercialDetailsForRider(data);
             }
             response.setData(data);
@@ -353,7 +354,7 @@ public class OrderServiceImpl implements OrderService {
                     : riderRepository.findAllById(riderIds).stream()
                             .collect(Collectors.toMap(RiderEntity::getId, Function.identity()));
             List<OrderResponseDTO> list = orders.stream()
-                    .map(o -> stripCommercialDetailsForRider(toOrderDto(o, riderMap)))
+                    .map(o -> stripCommercialDetailsForRider(toOrderDto(o, riderMap, true)))
                     .collect(Collectors.toList());
             response.setData(list);
             response.setMessage("OK");
@@ -384,7 +385,7 @@ public class OrderServiceImpl implements OrderService {
                     : riderRepository.findAllById(riderIds).stream()
                             .collect(Collectors.toMap(RiderEntity::getId, Function.identity()));
             List<OrderResponseDTO> list = orders.stream()
-                    .map(o -> toOrderDto(o, riderMap))
+                    .map(o -> toOrderDto(o, riderMap, false))
                     .collect(Collectors.toList());
             response.setData(list);
             response.setMessage("OK");
@@ -432,7 +433,7 @@ public class OrderServiceImpl implements OrderService {
         ApiResponse<List<OrderResponseDTO>> response = new ApiResponse<>();
         try {
             List<OrderResponseDTO> list = orderRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
-                    .map(this::toOrderDto)
+                    .map(o -> toOrderDto(o, null, false))
                     .collect(Collectors.toList());
             response.setData(list);
             response.setMessage("OK");
@@ -467,7 +468,7 @@ public class OrderServiceImpl implements OrderService {
                     "Order #" + saved.getId() + " — open the app for details.",
                     NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(), NotificationType.RIDER_JOB_ASSIGNED),
                     NotificationType.RIDER_JOB_ASSIGNED);
-            response.setData(toOrderDto(saved));
+            response.setData(toOrderDto(saved, null, false));
             response.setMessage("Rider assigned");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
@@ -505,7 +506,7 @@ public class OrderServiceImpl implements OrderService {
                 "Order #" + saved.getId() + " is now " + status.name().replace('_', ' '),
                 NotificationService.baseData(saved.getId(), status.name(), NotificationType.USER_ORDER_STATUS_UPDATE),
                 NotificationType.USER_ORDER_STATUS_UPDATE);
-        response.setData(toOrderDto(saved));
+        response.setData(toOrderDto(saved, null, false));
         response.setMessage("Status updated");
         response.setMessageKey("SUCCESS");
         response.setSuccess(true);
@@ -536,7 +537,7 @@ public class OrderServiceImpl implements OrderService {
         if (alreadyDelivered && financialExists) {
             OrderEntity refreshed = orderRepository.findById(o.getId()).orElse(o);
             markRiderAvailableAfterDelivery(refreshed.getRiderId());
-            response.setData(stripCommercialDetailsForRider(toOrderDto(refreshed)));
+            response.setData(stripCommercialDetailsForRider(toOrderDto(refreshed, null, true)));
             response.setMessage("Order completed");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
@@ -605,7 +606,7 @@ public class OrderServiceImpl implements OrderService {
         riderActiveOrderTopicPublisher.publish(actingRiderId, saved.getId(), OrderStatus.DELIVERED, "delivered");
 
         OrderEntity refreshed = orderRepository.findById(saved.getId()).orElse(saved);
-        response.setData(stripCommercialDetailsForRider(toOrderDto(refreshed)));
+        response.setData(stripCommercialDetailsForRider(toOrderDto(refreshed, null, true)));
         response.setMessage("Order completed");
         response.setMessageKey("SUCCESS");
         response.setSuccess(true);
@@ -667,8 +668,9 @@ public class OrderServiceImpl implements OrderService {
                     saved.getRiderId(), saved.getId(), OrderStatus.IN_TRANSIT, "otp_verified");
         }
 
-        OrderResponseDTO data = toOrderDto(saved);
-        if ("RIDER".equals(tokenType)) {
+        boolean riderApi = "RIDER".equals(tokenType);
+        OrderResponseDTO data = toOrderDto(saved, null, riderApi);
+        if (riderApi) {
             data = stripCommercialDetailsForRider(data);
         }
         response.setData(data);
@@ -704,7 +706,7 @@ public class OrderServiceImpl implements OrderService {
             throw new RuntimeException("Delivered orders cannot be cancelled");
         }
         if (o.getStatus() == OrderStatus.CANCELLED || o.getStatus() == OrderStatus.EXPIRED) {
-            response.setData(toOrderDto(o));
+            response.setData(toOrderDto(o, null, false));
             response.setMessage("Order already closed");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
@@ -743,7 +745,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         OrderEntity refreshed = orderRepository.findById(o.getId()).orElse(o);
-        response.setData(toOrderDto(refreshed));
+        response.setData(toOrderDto(refreshed, null, false));
         response.setMessage("Order cancelled");
         response.setMessageKey("SUCCESS");
         response.setSuccess(true);
@@ -870,25 +872,24 @@ public class OrderServiceImpl implements OrderService {
     }
 
     OrderResponseDTO toOrderDto(OrderEntity o) {
-        return toOrderDto(o, null);
+        return toOrderDto(o, null, false);
     }
 
-    /** Same as {@link #toOrderDto(OrderEntity)} but omits GST/platform/pricing breakdown for rider UIs. */
+    /** Full mapping for rider apps: narrower OTP rules + strips GST/platform fields. */
     OrderResponseDTO toOrderDtoForRider(OrderEntity o) {
-        return stripCommercialDetailsForRider(toOrderDto(o));
+        return stripCommercialDetailsForRider(toOrderDto(o, null, true));
     }
 
     /**
-     * @param riderBatch optional map of rider id → entity for batch APIs; {@code null} loads rider individually.
+     * @param riderBatch      optional map of rider id → entity for batch APIs; {@code null} loads rider individually.
+     * @param riderOrderApi   {@code true} for rider-facing endpoints (OTP only in {@code IN_TRANSIT} until verified).
+     *                        {@code false} for customer/admin — OTP shown from accept/payment through trip until verified.
      */
-    OrderResponseDTO toOrderDto(OrderEntity o, Map<Long, RiderEntity> riderBatch) {
+    OrderResponseDTO toOrderDto(OrderEntity o, Map<Long, RiderEntity> riderBatch, boolean riderOrderApi) {
         RiderEntity rider = resolveRiderForOrderDto(o.getRiderId(), riderBatch);
         String riderName = rider != null ? rider.getName() : null;
         String riderPhone = rider != null ? rider.getPhone() : null;
-        String deliveryOtp = null;
-        if (o.getStatus() == OrderStatus.IN_TRANSIT && !Boolean.TRUE.equals(o.getIsOtpVerified())) {
-            deliveryOtp = o.getDeliveryOtp();
-        }
+        String deliveryOtp = resolveDeliveryOtpForResponse(o, riderOrderApi);
 
         return OrderResponseDTO.builder()
                 .id(o.getId())
@@ -931,6 +932,27 @@ public class OrderServiceImpl implements OrderService {
                 .codSettlementStatus(o.getCodSettlementStatus())
                 .createdAt(o.getCreatedAt() != null ? o.getCreatedAt().toString() : null)
                 .build();
+    }
+
+    /**
+     * Customer/admin: OTP from post-accept job states until verified. Rider app: only {@code IN_TRANSIT} (handover).
+     */
+    private static String resolveDeliveryOtpForResponse(OrderEntity o, boolean riderOrderApi) {
+        if (Boolean.TRUE.equals(o.getIsOtpVerified())) {
+            return null;
+        }
+        String otp = o.getDeliveryOtp();
+        if (otp == null || otp.isBlank()) {
+            return null;
+        }
+        OrderStatus s = o.getStatus();
+        if (riderOrderApi) {
+            return s == OrderStatus.IN_TRANSIT ? otp : null;
+        }
+        return switch (s) {
+            case RIDER_ACCEPTED, PAYMENT_PENDING, CONFIRMED, PICKED_UP, IN_TRANSIT -> otp;
+            default -> null;
+        };
     }
 
     /**

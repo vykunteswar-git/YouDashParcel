@@ -42,6 +42,14 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
     private static final int RIDER_FANOUT = 5;
     private static final long RETRY_DELAY_SECONDS = 12; // 10–15s
 
+    /** Do not offer new INCITY jobs to riders who already have an active INCITY order. */
+    private static final List<OrderStatus> RIDER_BUSY_INCITY = List.of(
+            OrderStatus.RIDER_ACCEPTED,
+            OrderStatus.PAYMENT_PENDING,
+            OrderStatus.CONFIRMED,
+            OrderStatus.PICKED_UP,
+            OrderStatus.IN_TRANSIT);
+
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "dispatch-retry");
         t.setDaemon(true);
@@ -182,6 +190,7 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
                 .filter(r -> r.getId() != null)
                 .filter(r -> r.getCurrentLat() != null && r.getCurrentLng() != null)
                 .filter(r -> !alreadyNotified.contains(r.getId()))
+                .filter(r -> !hasActiveIncityAssignment(r.getId()))
                 .sorted(Comparator.comparingDouble(r -> GeoUtils.haversineKm(
                         pickupLat, pickupLng, r.getCurrentLat(), r.getCurrentLng())))
                 .limit(limit)
@@ -192,6 +201,13 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
             ids.add(r.getId());
         }
         return ids;
+    }
+
+    private boolean hasActiveIncityAssignment(Long riderId) {
+        if (riderId == null) {
+            return true;
+        }
+        return orderRepository.existsByRiderIdAndServiceModeAndStatusIn(riderId, ServiceMode.INCITY, RIDER_BUSY_INCITY);
     }
 
     @Override
