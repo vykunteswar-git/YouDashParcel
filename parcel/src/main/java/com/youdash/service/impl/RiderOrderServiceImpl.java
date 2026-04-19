@@ -1,6 +1,5 @@
 package com.youdash.service.impl;
 
-import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -23,6 +22,7 @@ import com.youdash.notification.NotificationType;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.realtime.RiderActiveOrderTopicPublisher;
+import com.youdash.util.DeliveryOtpGenerator;
 import com.youdash.util.TransactionAfterCommit;
 import com.youdash.service.DispatchService;
 import com.youdash.service.NotificationService;
@@ -30,8 +30,6 @@ import com.youdash.service.RiderOrderService;
 
 @Service
 public class RiderOrderServiceImpl implements RiderOrderService {
-
-    private static final SecureRandom DELIVERY_OTP_RANDOM = new SecureRandom();
 
     @Autowired
     private OrderRepository orderRepository;
@@ -129,7 +127,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         // Persist delivery OTP once (COD → CONFIRMED; ONLINE → RIDER_ACCEPTED).
         OrderEntity refreshed = orderRepository.findById(orderId).orElse(order);
         if (refreshed.getDeliveryOtp() == null) {
-            refreshed.setDeliveryOtp(generateDeliveryOtp());
+            refreshed.setDeliveryOtp(DeliveryOtpGenerator.generate());
             refreshed = orderRepository.save(refreshed);
         }
 
@@ -314,9 +312,4 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         return riderRepository.findById(riderId).orElseThrow(() -> new RuntimeException("Rider not found"));
     }
 
-    /** 6-digit numeric string (fits {@code VARCHAR(6)}). */
-    private static String generateDeliveryOtp() {
-        int n = 100000 + DELIVERY_OTP_RANDOM.nextInt(900000);
-        return String.valueOf(n);
-    }
 }

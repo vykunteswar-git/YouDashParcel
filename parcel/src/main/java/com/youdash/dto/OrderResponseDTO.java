@@ -25,7 +25,17 @@ public class OrderResponseDTO {
     private Double dropLat;
     private Double dropLng;
     private ServiceMode serviceMode;
+    /**
+     * Vehicle shown for this job: assigned rider's catalog vehicle when set, otherwise the order's
+     * booked vehicle (INCITY). May be null if neither is set.
+     */
     private Long vehicleId;
+    /** Display name from {@code youdash_vehicles} for {@link #vehicleId} when resolved. */
+    private String vehicleName;
+    /** Vehicle image from catalog for {@link #vehicleId} when resolved. */
+    private String vehicleImageUrl;
+    /** Assigned rider's registration / plate when a rider is set. */
+    private String vehicleNumber;
     private String deliveryType;
     private Long originHubId;
     private Long destinationHubId;
