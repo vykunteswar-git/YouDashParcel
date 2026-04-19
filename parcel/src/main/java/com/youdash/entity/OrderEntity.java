@@ -129,6 +129,10 @@ public class OrderEntity {
     @Column(name = "coupon_amount")
     private Double couponAmount;
 
+    /** Admin/user coupon code applied at checkout (server-validated), when used. */
+    @Column(name = "applied_coupon_code", length = 32)
+    private String appliedCouponCode;
+
     /** Snapshot of vehicle {@code pricePerKm} from quote (incity), when applicable. */
     @Column(name = "vehicle_price_per_km")
     private Double vehiclePricePerKm;

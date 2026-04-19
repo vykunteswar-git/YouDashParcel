@@ -32,4 +32,13 @@ public interface RiderWalletService {
     void ensureDefaultCommissionConfig();
 
     ApiResponse<String> adminSettleCod(Long adminUserId, AdminCodSettleRequestDTO dto);
+
+    /**
+     * Rider earning from current commission config (base + per-km × distance + surge),
+     * same formula as delivery settlement before wallet rows exist.
+     */
+    double estimateRiderEarningForOrder(OrderEntity order);
+
+    /** Settled {@link com.youdash.entity.wallet.OrderRiderFinancialEntity} amount when present, otherwise {@link #estimateRiderEarningForOrder}. */
+    double resolveRiderEarningForOrder(OrderEntity order);
 }

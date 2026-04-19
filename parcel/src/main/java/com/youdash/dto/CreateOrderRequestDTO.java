@@ -49,4 +49,10 @@ public class CreateOrderRequestDTO {
 
     /** Discount; payable stored is {@code totalAmount - couponAmount}. Default 0. */
     private Double couponAmount;
+
+    /**
+     * Optional promo code (admin-created). When set, discount is computed on the server and overrides
+     * {@link #couponAmount} for pricing (legacy clients can still send couponAmount only).
+     */
+    private String couponCode;
 }

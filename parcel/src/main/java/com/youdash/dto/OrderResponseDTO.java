@@ -49,6 +49,13 @@ public class OrderResponseDTO {
     /** Payable amount after coupon (pre-coupon total minus couponAmount). */
     private Double totalAmount;
     private Double couponAmount;
+    /** When a promo code was applied at checkout (users see this on order detail/history). */
+    private String appliedCouponCode;
+    /**
+     * Rider APIs: estimated or settled earning for this order (same formula as wallet settlement;
+     * before delivery this is an estimate from distance + commission config).
+     */
+    private Double earnedAmount;
     private Double vehiclePricePerKm;
     /** Public reference for payments (e.g. YP-…). */
     private String displayOrderId;

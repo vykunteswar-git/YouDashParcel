@@ -30,6 +30,7 @@ import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.service.DispatchService;
 import com.youdash.service.NotificationService;
+import com.youdash.service.wallet.RiderWalletService;
 import com.youdash.util.GeoUtils;
 
 /**
@@ -70,6 +71,9 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
 
     @Autowired
     private NotificationService notificationService;
+
+    @Autowired
+    private RiderWalletService riderWalletService;
 
     @Override
     @Transactional
@@ -136,8 +140,8 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
         evt.setDropLat(order.getDropLat());
         evt.setDropLng(order.getDropLng());
         evt.setDistanceKm(order.getDistanceKm());
-        // minimal earning signal: use totalAmount for now (can be replaced with commission calc later)
-        evt.setEarningAmount(order.getTotalAmount());
+        double riderEarning = riderWalletService.estimateRiderEarningForOrder(order);
+        evt.setEarningAmount(riderEarning);
         evt.setExpiryTimeEpochMs(expiryMs);
 
         for (Long riderId : picked) {
@@ -146,12 +150,12 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
                     riderId,
                     "New delivery request",
                     "Order #" + order.getId() + " — open the app to accept or decline.",
-                    riderNewOrderPushData(order, expiryMs),
+                    riderNewOrderPushData(order, expiryMs, riderEarning),
                     NotificationType.RIDER_NEW_ORDER_REQUEST);
         }
     }
 
-    private static Map<String, String> riderNewOrderPushData(OrderEntity order, long expiryMs) {
+    private static Map<String, String> riderNewOrderPushData(OrderEntity order, long expiryMs, double riderEarning) {
         Map<String, String> d = new HashMap<>(
                 NotificationService.baseData(order.getId(),
                         order.getStatus() != null ? order.getStatus().name() : null,
@@ -172,9 +176,7 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
         if (order.getDistanceKm() != null) {
             d.put("distanceKm", String.valueOf(order.getDistanceKm()));
         }
-        if (order.getTotalAmount() != null) {
-            d.put("earningAmount", String.valueOf(order.getTotalAmount()));
-        }
+        d.put("earningAmount", String.valueOf(riderEarning));
         return d;
     }
 

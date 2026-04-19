@@ -3,6 +3,7 @@ package com.youdash.service.impl;
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.*;
 import com.youdash.entity.*;
+import com.youdash.entity.wallet.OrderRiderFinancialEntity;
 import com.youdash.exception.BadRequestException;
 import com.youdash.model.*;
 import com.youdash.repository.*;
@@ -13,7 +14,10 @@ import com.youdash.service.NotificationService;
 import com.youdash.service.OrderService;
 import com.youdash.service.PricingService;
 import com.youdash.service.ZoneService;
+import com.youdash.service.CouponService;
 import com.youdash.service.wallet.RiderWalletService;
+import com.youdash.dto.coupon.CouponApplication;
+import com.youdash.repository.wallet.OrderRiderFinancialRepository;
 import com.youdash.security.RiderAccessVerifier;
 import com.youdash.dto.wallet.OrderCompleteRequestDTO;
 import com.youdash.model.wallet.CodCollectionMode;
@@ -24,10 +28,12 @@ import org.springframework.data.domain.Sort;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import com.youdash.dto.realtime.UserOrderEventDTO;
 import com.youdash.realtime.RiderActiveOrderTopicPublisher;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -84,6 +90,12 @@ public class OrderServiceImpl implements OrderService {
     private RiderWalletService riderWalletService;
 
     @Autowired
+    private CouponService couponService;
+
+    @Autowired
+    private OrderRiderFinancialRepository orderRiderFinancialRepository;
+
+    @Autowired
     private RiderAccessVerifier riderAccessVerifier;
 
     @Autowired
@@ -93,7 +105,7 @@ public class OrderServiceImpl implements OrderService {
     private RiderActiveOrderTopicPublisher riderActiveOrderTopicPublisher;
 
     @Override
-    public ApiResponse<FinalPriceResponseDTO> calculateFinal(FinalPriceRequestDTO dto) {
+    public ApiResponse<FinalPriceResponseDTO> calculateFinal(Long userId, FinalPriceRequestDTO dto) {
         ApiResponse<FinalPriceResponseDTO> response = new ApiResponse<>();
         try {
             validateCoordsWeight(dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng(), dto.getWeight());
@@ -121,6 +133,16 @@ public class OrderServiceImpl implements OrderService {
             PricingService.OutstationBreakdown b = pricingService.outstationBreakdown(
                     pickupDist, hubDist, dropDist, routeRate, dto.getWeight(), dtype, cfg);
 
+            double preCouponTotal = round2(b.getTotal());
+            double couponDiscount = 0.0;
+            String appliedCode = null;
+            if (StringUtils.hasText(dto.getCouponCode())) {
+                CouponApplication cap = couponService.resolveApplication(
+                        userId, dto.getCouponCode(), preCouponTotal, ServiceMode.OUTSTATION);
+                couponDiscount = round2(cap.discountAmount());
+                appliedCode = cap.normalizedCode();
+            }
+
             FinalPriceResponseDTO data = FinalPriceResponseDTO.builder()
                     .pickupDistanceKm(b.getPickupDistanceKm())
                     .hubDistanceKm(b.getHubDistanceKm())
@@ -132,7 +154,9 @@ public class OrderServiceImpl implements OrderService {
                     .subtotal(b.getSubtotal())
                     .gstAmount(b.getGstAmount())
                     .platformFee(b.getPlatformFee())
-                    .total(b.getTotal())
+                    .total(round2(preCouponTotal - couponDiscount))
+                    .couponDiscount(couponDiscount > 0 ? couponDiscount : null)
+                    .appliedCouponCode(appliedCode)
                     .build();
             response.setData(data);
             response.setMessage("Final price calculated");
@@ -146,6 +170,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    @Transactional
     public ApiResponse<OrderResponseDTO> createOrder(Long userId, CreateOrderRequestDTO dto) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         try {
@@ -189,6 +214,7 @@ public class OrderServiceImpl implements OrderService {
 
             assertPricingAllOrNothing(dto);
             boolean clientPricing = hasFullClientPricing(dto);
+            CouponApplication promo = null;
 
             if (sameZone) {
                 if (dto.getVehicleId() == null) {
@@ -216,14 +242,36 @@ public class OrderServiceImpl implements OrderService {
                 }
 
                 if (clientPricing) {
-                    applyClientPricing(order, dto);
+                    if (StringUtils.hasText(dto.getCouponCode())) {
+                        double preCoupon = dto.getTotalAmount();
+                        CouponApplication cap = couponService.resolveApplication(
+                                userId, dto.getCouponCode(), preCoupon, ServiceMode.INCITY);
+                        promo = cap;
+                        order.setSubtotal(round2(dto.getSubtotal()));
+                        order.setGstAmount(round2(dto.getGstAmount()));
+                        order.setPlatformFee(round2(dto.getPlatformFee()));
+                        order.setCouponAmount(round2(cap.discountAmount()));
+                        order.setTotalAmount(round2(preCoupon - cap.discountAmount()));
+                        order.setAppliedCouponCode(cap.normalizedCode());
+                    } else {
+                        applyClientPricing(order, dto);
+                    }
                 } else {
                     AppConfigEntity cfg = requireConfig();
                     double sub = pricingService.incityVehicleTotal(dist, dto.getWeight(), vehicle);
                     double gst = sub * (nz(cfg.getGstPercent()) / 100.0);
                     double platform = nz(cfg.getPlatformFee());
                     double baseTotal = round2(sub + gst + platform);
-                    double couponDisc = resolveCouponAmount(dto.getCouponAmount(), baseTotal);
+                    double couponDisc;
+                    if (StringUtils.hasText(dto.getCouponCode())) {
+                        CouponApplication cap = couponService.resolveApplication(
+                                userId, dto.getCouponCode(), baseTotal, ServiceMode.INCITY);
+                        promo = cap;
+                        couponDisc = cap.discountAmount();
+                        order.setAppliedCouponCode(cap.normalizedCode());
+                    } else {
+                        couponDisc = resolveCouponAmount(dto.getCouponAmount(), baseTotal);
+                    }
                     order.setSubtotal(round2(sub));
                     order.setGstAmount(round2(gst));
                     order.setPlatformFee(round2(platform));
@@ -270,18 +318,41 @@ public class OrderServiceImpl implements OrderService {
                 order.setDistanceKm(round4(nz(order.getPickupDistanceKm()) + nz(order.getHubDistanceKm()) + nz(order.getDropDistanceKm())));
 
                 if (clientPricing) {
-                    applyClientPricing(order, dto);
+                    if (StringUtils.hasText(dto.getCouponCode())) {
+                        double preCoupon = dto.getTotalAmount();
+                        CouponApplication cap = couponService.resolveApplication(
+                                userId, dto.getCouponCode(), preCoupon, ServiceMode.OUTSTATION);
+                        promo = cap;
+                        order.setSubtotal(round2(dto.getSubtotal()));
+                        order.setGstAmount(round2(dto.getGstAmount()));
+                        order.setPlatformFee(round2(dto.getPlatformFee()));
+                        order.setCouponAmount(round2(cap.discountAmount()));
+                        order.setTotalAmount(round2(preCoupon - cap.discountAmount()));
+                        order.setAppliedCouponCode(cap.normalizedCode());
+                    } else {
+                        applyClientPricing(order, dto);
+                    }
                 } else {
                     AppConfigEntity cfg = requireConfig();
                     double routeRate = resolveRouteRate(dto.getOriginHubId(), dto.getDestinationHubId(), cfg);
                     PricingService.OutstationBreakdown b = pricingService.outstationBreakdown(
                             pickupDist, hubDist, dropDist, routeRate, dto.getWeight(), dtype, cfg);
-                    double couponDiscOs = resolveCouponAmount(dto.getCouponAmount(), b.getTotal());
+                    double baseOs = round2(b.getTotal());
+                    double couponDiscOs;
+                    if (StringUtils.hasText(dto.getCouponCode())) {
+                        CouponApplication cap = couponService.resolveApplication(
+                                userId, dto.getCouponCode(), baseOs, ServiceMode.OUTSTATION);
+                        promo = cap;
+                        couponDiscOs = cap.discountAmount();
+                        order.setAppliedCouponCode(cap.normalizedCode());
+                    } else {
+                        couponDiscOs = resolveCouponAmount(dto.getCouponAmount(), baseOs);
+                    }
                     order.setSubtotal(b.getSubtotal());
                     order.setGstAmount(b.getGstAmount());
                     order.setPlatformFee(b.getPlatformFee());
                     order.setCouponAmount(round2(couponDiscOs));
-                    order.setTotalAmount(round2(b.getTotal() - couponDiscOs));
+                    order.setTotalAmount(round2(baseOs - couponDiscOs));
                 }
                 // OUTSTATION stays admin-assigned; use CREATED until admin assigns.
                 order.setStatus(OrderStatus.CREATED);
@@ -293,6 +364,9 @@ public class OrderServiceImpl implements OrderService {
                 saved.setPaymentStatus("UNPAID");
             }
             saved = orderRepository.save(saved);
+            if (promo != null) {
+                couponService.recordRedemption(promo.couponId(), userId, saved.getId());
+            }
             notifyAfterOrderCreated(saved);
             if (saved.getServiceMode() == ServiceMode.INCITY && saved.getStatus() == OrderStatus.SEARCHING_RIDER) {
                 dispatchService.dispatchNewIncityOrder(saved);
@@ -328,6 +402,7 @@ public class OrderServiceImpl implements OrderService {
             OrderResponseDTO data = toOrderDto(o, null, riderOrderApi);
             if (riderOrderApi) {
                 data = stripCommercialDetailsForRider(data);
+                data.setEarnedAmount(riderWalletService.resolveRiderEarningForOrder(o));
             }
             response.setData(data);
             response.setMessage("OK");
@@ -353,9 +428,18 @@ public class OrderServiceImpl implements OrderService {
                     ? Map.of()
                     : riderRepository.findAllById(riderIds).stream()
                             .collect(Collectors.toMap(RiderEntity::getId, Function.identity()));
-            List<OrderResponseDTO> list = orders.stream()
-                    .map(o -> stripCommercialDetailsForRider(toOrderDto(o, riderMap, true)))
-                    .collect(Collectors.toList());
+            List<Long> orderIds = orders.stream().map(OrderEntity::getId).filter(Objects::nonNull).toList();
+            Map<Long, Double> settledEarningByOrderId = orderIds.isEmpty()
+                    ? Map.of()
+                    : orderRiderFinancialRepository.findByOrderIdIn(orderIds).stream()
+                            .collect(Collectors.toMap(OrderRiderFinancialEntity::getOrderId, OrderRiderFinancialEntity::getRiderEarningAmount, (a, b) -> a));
+            List<OrderResponseDTO> list = new ArrayList<>(orders.size());
+            for (OrderEntity o : orders) {
+                OrderResponseDTO d = stripCommercialDetailsForRider(toOrderDto(o, riderMap, true));
+                Double settled = settledEarningByOrderId.get(o.getId());
+                d.setEarnedAmount(settled != null ? settled : riderWalletService.estimateRiderEarningForOrder(o));
+                list.add(d);
+            }
             response.setData(list);
             response.setMessage("OK");
             response.setMessageKey("SUCCESS");
@@ -923,6 +1007,7 @@ public class OrderServiceImpl implements OrderService {
                 .platformFee(o.getPlatformFee())
                 .totalAmount(o.getTotalAmount())
                 .couponAmount(o.getCouponAmount())
+                .appliedCouponCode(o.getAppliedCouponCode())
                 .vehiclePricePerKm(o.getVehiclePricePerKm())
                 .displayOrderId(o.getDisplayOrderId())
                 .paymentStatus(o.getPaymentStatus())

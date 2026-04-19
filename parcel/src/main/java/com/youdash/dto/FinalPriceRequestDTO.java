@@ -13,4 +13,7 @@ public class FinalPriceRequestDTO {
     private Double dropLat;
     private Double dropLng;
     private Double weight;
+
+    /** Optional — preview discount on outstation final price (same rules as checkout). */
+    private String couponCode;
 }

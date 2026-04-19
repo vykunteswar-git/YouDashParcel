@@ -429,7 +429,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             log.warn("Invalid or zero distance for orderId={}, riderId={}", order.getId(), order.getRiderId());
         }
         double surge = nz(cfg.getPeakSurgeBonusFlat());
-        double riderEarning = round2(baseFee + (distanceKm * perKmRate) + surge);
+        double riderEarning = computeRiderEarning(cfg, distanceKm);
 
         log.info("EARNING_CALCULATION -> riderId={}, orderId={}, baseFee={}, perKmRate={}, distance={}, surge={}, earning={}",
                 order.getRiderId(),
@@ -551,6 +551,37 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 "paymentType", payType.name(),
                 "riderEarning", riderEarning
         ));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public double estimateRiderEarningForOrder(OrderEntity order) {
+        if (order == null) {
+            return 0.0;
+        }
+        RiderCommissionConfigEntity cfg = riderCommissionConfigRepository.findById(COMMISSION_CONFIG_ID).orElse(null);
+        if (cfg == null) {
+            return 0.0;
+        }
+        return computeRiderEarning(cfg, nz(order.getDistanceKm()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public double resolveRiderEarningForOrder(OrderEntity order) {
+        if (order == null || order.getId() == null) {
+            return 0.0;
+        }
+        return orderRiderFinancialRepository.findByOrderId(order.getId())
+                .map(OrderRiderFinancialEntity::getRiderEarningAmount)
+                .orElseGet(() -> estimateRiderEarningForOrder(order));
+    }
+
+    private static double computeRiderEarning(RiderCommissionConfigEntity cfg, double distanceKm) {
+        double baseFee = nz(cfg.getBaseFee());
+        double perKmRate = nz(cfg.getPerKmRate());
+        double surge = nz(cfg.getPeakSurgeBonusFlat());
+        return round2(baseFee + (distanceKm * perKmRate) + surge);
     }
 
     private Map<String, Object> buildEarningTxnMetadata(

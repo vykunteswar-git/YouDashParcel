@@ -30,8 +30,19 @@ public class OrderController {
 
     @PostMapping("/calculate-final")
     @Operation(summary = "Calculate outstation final price (hub-based)")
-    public ApiResponse<FinalPriceResponseDTO> calculateFinal(@RequestBody FinalPriceRequestDTO dto) {
-        return orderService.calculateFinal(dto);
+    public ApiResponse<FinalPriceResponseDTO> calculateFinal(
+            @RequestBody FinalPriceRequestDTO dto,
+            @RequestAttribute("userId") Long userId,
+            @RequestAttribute(value = "type", required = false) String type) {
+        if (!"USER".equals(type)) {
+            ApiResponse<FinalPriceResponseDTO> denied = new ApiResponse<>();
+            denied.setMessage("User token required for price preview with coupons");
+            denied.setMessageKey("ERROR");
+            denied.setSuccess(false);
+            denied.setStatus(403);
+            return denied;
+        }
+        return orderService.calculateFinal(userId, dto);
     }
 
     @PostMapping

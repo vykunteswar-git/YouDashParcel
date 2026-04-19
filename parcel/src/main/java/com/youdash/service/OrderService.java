@@ -9,7 +9,7 @@ import java.util.List;
 
 public interface OrderService {
 
-    ApiResponse<FinalPriceResponseDTO> calculateFinal(FinalPriceRequestDTO dto);
+    ApiResponse<FinalPriceResponseDTO> calculateFinal(Long userId, FinalPriceRequestDTO dto);
 
     ApiResponse<OrderResponseDTO> createOrder(Long userId, CreateOrderRequestDTO dto);
 

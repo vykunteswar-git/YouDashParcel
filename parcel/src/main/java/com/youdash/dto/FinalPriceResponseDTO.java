@@ -20,4 +20,6 @@ public class FinalPriceResponseDTO {
     private Double gstAmount;
     private Double platformFee;
     private Double total;
+    private Double couponDiscount;
+    private String appliedCouponCode;
 }
