@@ -3,6 +3,7 @@ package com.youdash.service;
 import java.util.List;
 
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.FcmTokenRequestDTO;
 import com.youdash.dto.UserRequestDTO;
 import com.youdash.dto.UserResponseDTO;
 
@@ -19,4 +20,7 @@ public interface UserService {
     ApiResponse<UserResponseDTO> updateUser(Long id, UserRequestDTO request);
 
     ApiResponse<String> deleteUser(Long id);
+
+    /** Persist FCM registration token for the authenticated customer app. */
+    ApiResponse<String> saveFcmToken(Long userId, FcmTokenRequestDTO dto);
 }

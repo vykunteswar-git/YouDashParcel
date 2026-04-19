@@ -40,6 +40,7 @@ import com.youdash.model.wallet.WalletTxnReferenceType;
 import com.youdash.model.wallet.WalletTxnStatus;
 import com.youdash.model.wallet.WalletTxnType;
 import com.youdash.model.wallet.WithdrawalStatus;
+import com.youdash.notification.NotificationType;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.wallet.FinAuditLogRepository;
 import com.youdash.repository.wallet.OrderRiderFinancialRepository;
@@ -47,6 +48,8 @@ import com.youdash.repository.wallet.RiderCommissionConfigRepository;
 import com.youdash.repository.wallet.RiderWalletRepository;
 import com.youdash.repository.wallet.RiderWalletTransactionRepository;
 import com.youdash.repository.wallet.RiderWithdrawalRepository;
+import com.youdash.service.NotificationDedupService;
+import com.youdash.service.NotificationService;
 import com.youdash.service.wallet.RiderWalletService;
 
 @Service
@@ -79,6 +82,12 @@ public class RiderWalletServiceImpl implements RiderWalletService {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private NotificationService notificationService;
+
+    @Autowired
+    private NotificationDedupService notificationDedupService;
 
     @PostConstruct
     void initDefaults() {
@@ -227,6 +236,17 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                     "walletTxnId", txn.getId()
             ));
 
+            Map<String, String> adminWd = new HashMap<>();
+            adminWd.put("withdrawalId", String.valueOf(w.getId()));
+            adminWd.put("riderId", String.valueOf(riderId));
+            adminWd.put("amount", String.valueOf(amount));
+            adminWd.put("type", NotificationType.ADMIN_RIDER_WITHDRAWAL_REQUESTED.name());
+            notificationService.sendToAdminDevices(
+                    "Rider withdrawal requested",
+                    "Rider " + riderId + " requested ₹" + amount + " withdrawal (id " + w.getId() + ").",
+                    adminWd,
+                    NotificationType.ADMIN_RIDER_WITHDRAWAL_REQUESTED);
+
             response.setData(toWithdrawalDto(w));
             response.setMessage("Withdrawal requested");
             response.setMessageKey("SUCCESS");
@@ -291,6 +311,18 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 }
 
                 audit("WITHDRAW_APPROVED", "ADMIN", adminUserId, "WITHDRAWAL", w.getId(), Map.of("riderId", w.getRiderId(), "amount", w.getAmount()));
+                if (notificationDedupService.tryAcquire("rider-withdrawal-approved:" + w.getId())) {
+                    Map<String, String> d = new HashMap<>();
+                    d.put("withdrawalId", String.valueOf(w.getId()));
+                    d.put("amount", String.valueOf(w.getAmount()));
+                    d.put("type", NotificationType.RIDER_WITHDRAWAL_APPROVED.name());
+                    notificationService.sendToRider(
+                            w.getRiderId(),
+                            "Withdrawal approved",
+                            "Your withdrawal of ₹" + w.getAmount() + " was approved.",
+                            d,
+                            NotificationType.RIDER_WITHDRAWAL_APPROVED);
+                }
             } else {
                 w.setStatus(WithdrawalStatus.REJECTED);
                 riderWithdrawalRepository.save(w);
@@ -305,6 +337,18 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 }
 
                 audit("WITHDRAW_REJECTED", "ADMIN", adminUserId, "WITHDRAWAL", w.getId(), Map.of("riderId", w.getRiderId(), "amount", w.getAmount()));
+                if (notificationDedupService.tryAcquire("rider-withdrawal-rejected:" + w.getId())) {
+                    Map<String, String> d = new HashMap<>();
+                    d.put("withdrawalId", String.valueOf(w.getId()));
+                    d.put("amount", String.valueOf(w.getAmount()));
+                    d.put("type", NotificationType.RIDER_WITHDRAWAL_REJECTED.name());
+                    notificationService.sendToRider(
+                            w.getRiderId(),
+                            "Withdrawal rejected",
+                            "Your withdrawal request of ₹" + w.getAmount() + " was rejected. Balance unchanged.",
+                            d,
+                            NotificationType.RIDER_WITHDRAWAL_REJECTED);
+                }
             }
 
             response.setData(toWithdrawalDto(w));
@@ -551,6 +595,22 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 "paymentType", payType.name(),
                 "riderEarning", riderEarning
         ));
+
+        if (notificationDedupService.tryAcquire("rider-wallet-earning:" + order.getId())) {
+            Map<String, String> earnData = new HashMap<>(
+                    NotificationService.baseData(
+                            order.getId(),
+                            OrderStatus.DELIVERED.name(),
+                            NotificationType.RIDER_WALLET_EARNING_CREDITED));
+            earnData.put("riderEarning", String.valueOf(riderEarning));
+            earnData.put("paymentType", payType.name());
+            notificationService.sendToRider(
+                    order.getRiderId(),
+                    "Earning credited",
+                    "₹" + String.format("%.2f", riderEarning) + " credited for order #" + order.getId() + ".",
+                    earnData,
+                    NotificationType.RIDER_WALLET_EARNING_CREDITED);
+        }
     }
 
     @Override
@@ -704,6 +764,21 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                     "riderId", order.getRiderId(),
                     "amount", amt
             ));
+
+            if (notificationDedupService.tryAcquire("rider-cod-settled:" + order.getId())) {
+                Map<String, String> codData = new HashMap<>(
+                        NotificationService.baseData(
+                                order.getId(),
+                                order.getStatus() != null ? order.getStatus().name() : null,
+                                NotificationType.RIDER_COD_SETTLED_ADMIN));
+                codData.put("settledAmount", String.valueOf(amt));
+                notificationService.sendToRider(
+                        order.getRiderId(),
+                        "COD settled",
+                        "₹" + String.format("%.2f", amt) + " COD for order #" + order.getId() + " was settled.",
+                        codData,
+                        NotificationType.RIDER_COD_SETTLED_ADMIN);
+            }
 
             response.setData("OK");
             response.setMessage("COD settled");

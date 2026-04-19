@@ -368,6 +368,19 @@ public class OrderServiceImpl implements OrderService {
             saved = orderRepository.save(saved);
             if (promo != null) {
                 couponService.recordRedemption(promo.couponId(), userId, saved.getId());
+                Map<String, String> couponData = new HashMap<>(
+                        NotificationService.baseData(
+                                saved.getId(),
+                                saved.getStatus() != null ? saved.getStatus().name() : null,
+                                NotificationType.USER_COUPON_APPLIED));
+                couponData.put("couponCode", promo.normalizedCode());
+                couponData.put("discountAmount", String.valueOf(promo.discountAmount()));
+                notificationService.sendToUser(
+                        userId,
+                        "Coupon applied",
+                        promo.normalizedCode() + " saved you ₹" + String.format("%.2f", promo.discountAmount()) + " on order " + saved.getId() + ".",
+                        couponData,
+                        NotificationType.USER_COUPON_APPLIED);
             }
             notifyAfterOrderCreated(saved);
             if (saved.getServiceMode() == ServiceMode.INCITY && saved.getStatus() == OrderStatus.SEARCHING_RIDER) {
@@ -502,6 +515,24 @@ public class OrderServiceImpl implements OrderService {
             e.setNote(dto.getNote());
             e.setStatus(ManualRequestStatus.PENDING);
             ManualOrderRequestEntity saved = manualOrderRequestRepository.save(e);
+            Map<String, String> manualUserData = new HashMap<>();
+            manualUserData.put("manualRequestId", String.valueOf(saved.getId()));
+            manualUserData.put("type", NotificationType.USER_MANUAL_REQUEST_SUBMITTED.name());
+            notificationService.sendToUser(
+                    userId,
+                    "Request received",
+                    "Manual order request #" + saved.getId() + " is pending admin review.",
+                    manualUserData,
+                    NotificationType.USER_MANUAL_REQUEST_SUBMITTED);
+            Map<String, String> manualAdminData = new HashMap<>();
+            manualAdminData.put("manualRequestId", String.valueOf(saved.getId()));
+            manualAdminData.put("userId", String.valueOf(userId));
+            manualAdminData.put("type", NotificationType.ADMIN_MANUAL_REQUEST_NEW.name());
+            notificationService.sendToAdminDevices(
+                    "New manual order request",
+                    "Request #" + saved.getId() + " from user " + userId + " — review in admin.",
+                    manualAdminData,
+                    NotificationType.ADMIN_MANUAL_REQUEST_NEW);
             response.setData(ManualOrderRequestResponseDTO.builder()
                     .id(saved.getId())
                     .status(saved.getStatus().name())
@@ -773,6 +804,35 @@ public class OrderServiceImpl implements OrderService {
                     saved.getRiderId(), saved.getId(), OrderStatus.IN_TRANSIT, "otp_verified");
         }
 
+        if ("RIDER".equals(tokenType) && saved.getUserId() != null) {
+            Map<String, String> userOtpData = new HashMap<>(
+                    NotificationService.baseData(
+                            saved.getId(),
+                            OrderStatus.IN_TRANSIT.name(),
+                            NotificationType.USER_OTP_VERIFIED_BY_RIDER));
+            if (saved.getRiderId() != null) {
+                userOtpData.put("riderId", String.valueOf(saved.getRiderId()));
+            }
+            notificationService.sendToUser(
+                    saved.getUserId(),
+                    "Delivery OTP verified",
+                    "Rider verified the OTP for order #" + saved.getId() + ".",
+                    userOtpData,
+                    NotificationType.USER_OTP_VERIFIED_BY_RIDER);
+        } else if ("USER".equals(tokenType) && saved.getRiderId() != null) {
+            Map<String, String> riderOtpData = new HashMap<>(
+                    NotificationService.baseData(
+                            saved.getId(),
+                            OrderStatus.IN_TRANSIT.name(),
+                            NotificationType.RIDER_OTP_VERIFIED_BY_USER));
+            notificationService.sendToRider(
+                    saved.getRiderId(),
+                    "Delivery OTP verified",
+                    "Customer verified the OTP for order #" + saved.getId() + ". You can complete delivery.",
+                    riderOtpData,
+                    NotificationType.RIDER_OTP_VERIFIED_BY_USER);
+        }
+
         boolean riderApi = "RIDER".equals(tokenType);
         OrderResponseDTO data = toOrderDto(saved, null, null, riderApi);
         if (riderApi) {
@@ -877,6 +937,39 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private void notifyAfterOrderCreated(OrderEntity saved) {
+        if (saved.getUserId() == null) {
+            return;
+        }
+        String ref = saved.getDisplayOrderId() != null ? saved.getDisplayOrderId() : "#" + saved.getId();
+        if (saved.getPaymentType() == PaymentType.COD) {
+            notificationService.sendToUser(
+                    saved.getUserId(),
+                    "Order placed",
+                    "COD order " + ref + " is confirmed. We're finding a rider.",
+                    NotificationService.baseData(
+                            saved.getId(),
+                            saved.getStatus() != null ? saved.getStatus().name() : null,
+                            NotificationType.ORDER_PLACED_COD),
+                    NotificationType.ORDER_PLACED_COD);
+            notificationService.sendToAdminDevices(
+                    "New COD order",
+                    "Order " + ref + " — COD ₹" + saved.getTotalAmount() + " (user " + saved.getUserId() + ").",
+                    NotificationService.baseData(
+                            saved.getId(),
+                            saved.getStatus() != null ? saved.getStatus().name() : null,
+                            NotificationType.ADMIN_COD_ORDER),
+                    NotificationType.ADMIN_COD_ORDER);
+        } else {
+            notificationService.sendToUser(
+                    saved.getUserId(),
+                    "Order placed",
+                    "Order " + ref + " was created successfully.",
+                    NotificationService.baseData(
+                            saved.getId(),
+                            saved.getStatus() != null ? saved.getStatus().name() : null,
+                            NotificationType.ORDER_CREATED),
+                    NotificationType.ORDER_CREATED);
+        }
         if (saved.getServiceMode() == ServiceMode.OUTSTATION) {
             notificationService.sendToAdminDevices(
                     "Outstation order needs rider",
@@ -884,7 +977,6 @@ public class OrderServiceImpl implements OrderService {
                     NotificationService.baseData(saved.getId(), OrderStatus.CREATED.name(),
                             NotificationType.ADMIN_OUTSTATION_PENDING_ASSIGNMENT),
                     NotificationType.ADMIN_OUTSTATION_PENDING_ASSIGNMENT);
-            return;
         }
         // INCITY: dispatch service handles rider notifications (socket/push). No auto-assign here.
     }

@@ -5,11 +5,14 @@ import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.FcmTokenRequestDTO;
 import com.youdash.dto.UserRequestDTO;
 import com.youdash.dto.UserResponseDTO;
 import com.youdash.entity.UserEntity;
+import com.youdash.repository.RiderRepository;
 import com.youdash.repository.UserRepository;
 import com.youdash.service.UserService;
 
@@ -18,6 +21,9 @@ public class UserServiceImpl implements UserService {
 
   @Autowired
   private UserRepository userRepository;
+
+  @Autowired
+  private RiderRepository riderRepository;
 
   // CREATE USER
   @Override
@@ -197,6 +203,42 @@ public class UserServiceImpl implements UserService {
       response.setSuccess(false);
     }
 
+    return response;
+  }
+
+  @Override
+  public ApiResponse<String> saveFcmToken(Long userId, FcmTokenRequestDTO dto) {
+    ApiResponse<String> response = new ApiResponse<>();
+    try {
+      if (userId == null) {
+        throw new RuntimeException("Unauthorized");
+      }
+      if (dto == null || !StringUtils.hasText(dto.getToken())) {
+        throw new RuntimeException("FCM token is required");
+      }
+      String trimmed = dto.getToken().trim();
+      UserEntity user = userRepository.findById(userId)
+          .filter(u -> Boolean.TRUE.equals(u.getActive()))
+          .orElseThrow(() -> new RuntimeException("User not found"));
+      user.setFcmToken(trimmed);
+      userRepository.save(user);
+      if (StringUtils.hasText(user.getPhoneNumber())) {
+        riderRepository.findByPhone(user.getPhoneNumber().trim()).ifPresent(rider -> {
+          rider.setFcmToken(trimmed);
+          riderRepository.save(rider);
+        });
+      }
+      response.setData("Token saved");
+      response.setMessage("FCM token saved successfully");
+      response.setMessageKey("SUCCESS");
+      response.setStatus(200);
+      response.setSuccess(true);
+    } catch (Exception e) {
+      response.setMessage(e.getMessage());
+      response.setMessageKey("ERROR");
+      response.setStatus(400);
+      response.setSuccess(false);
+    }
     return response;
   }
 

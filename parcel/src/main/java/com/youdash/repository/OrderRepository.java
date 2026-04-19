@@ -132,6 +132,27 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             @Param("statuses") List<OrderStatus> statuses,
             @Param("now") Instant now);
 
+    /**
+     * INCITY online orders still in the post-accept payment window, with due time in
+     * {@code (now + minRemaining, now + maxRemaining]} — used for a single reminder push.
+     */
+    @Query("""
+            select o from OrderEntity o
+             where o.serviceMode = :serviceMode
+               and o.paymentType = :paymentType
+               and o.status in :statuses
+               and o.paymentDueAt is not null
+               and o.paymentDueAt > :nowPlusMinRemaining
+               and o.paymentDueAt <= :nowPlusMaxRemaining
+               and (o.paymentStatus is null or upper(o.paymentStatus) <> 'PAID')
+            """)
+    List<OrderEntity> findIncityOnlinePaymentDueBetween(
+            @Param("serviceMode") ServiceMode serviceMode,
+            @Param("paymentType") PaymentType paymentType,
+            @Param("statuses") List<OrderStatus> statuses,
+            @Param("nowPlusMinRemaining") Instant nowPlusMinRemaining,
+            @Param("nowPlusMaxRemaining") Instant nowPlusMaxRemaining);
+
     boolean existsByRiderIdAndServiceModeAndStatusIn(Long riderId, ServiceMode serviceMode, List<OrderStatus> statuses);
 
     /** True if the rider has any order in one of the given statuses (any service mode). */

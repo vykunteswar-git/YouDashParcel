@@ -51,9 +51,29 @@
       "description": "Comma-separated FCM tokens for admin/ops devices (NotificationService)."
     },
     {
-      "name": "firebase.service-account.path",
+      "name": "firebase.user.service-account.path",
       "type": "java.lang.String",
-      "description": "Filesystem path to Firebase service account JSON; enables FCM when set (FirebaseConfig)."
+      "description": "Filesystem path to the User app Firebase Admin SDK JSON. Enables user FCM when set and file exists (FirebaseConfig). Override via env FIREBASE_USER_SA_PATH."
+    },
+    {
+      "name": "firebase.rider.service-account.path",
+      "type": "java.lang.String",
+      "description": "Filesystem path to the Rider app Firebase Admin SDK JSON. Enables rider FCM when set and file exists (FirebaseConfig). Override via env FIREBASE_RIDER_SA_PATH."
+    },
+    {
+      "name": "incity.payment-reminder.remaining-seconds-min",
+      "type": "java.lang.Long",
+      "description": "Lower bound (exclusive) of seconds-until-payment-due for PAYMENT_PENDING_REMINDER (IncityPaymentReminderScheduler)."
+    },
+    {
+      "name": "incity.payment-reminder.remaining-seconds-max",
+      "type": "java.lang.Long",
+      "description": "Upper bound (inclusive) of seconds-until-payment-due for PAYMENT_PENDING_REMINDER (IncityPaymentReminderScheduler)."
+    },
+    {
+      "name": "incity.payment-reminder.scheduler-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Fixed delay between scheduler runs for payment reminders (IncityPaymentReminderScheduler)."
     }
   ]
 }

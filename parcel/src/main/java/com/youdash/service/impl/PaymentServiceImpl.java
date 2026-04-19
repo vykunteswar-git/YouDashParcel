@@ -32,7 +32,9 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.List;
 
@@ -442,6 +444,20 @@ public class PaymentServiceImpl implements PaymentService {
                 "Order " + ref + " was paid successfully.",
                 NotificationService.baseData(order.getId(), order.getPaymentStatus(), NotificationType.ADMIN_PAYMENT_SUCCESS),
                 NotificationType.ADMIN_PAYMENT_SUCCESS);
+        if (order.getRiderId() != null && "PAID".equalsIgnoreCase(order.getPaymentStatus())) {
+            Map<String, String> riderData = new HashMap<>(
+                    NotificationService.baseData(
+                            order.getId(),
+                            order.getStatus() != null ? order.getStatus().name() : null,
+                            NotificationType.RIDER_ORDER_PAYMENT_CONFIRMED));
+            riderData.put("riderId", String.valueOf(order.getRiderId()));
+            notificationService.sendToRider(
+                    order.getRiderId(),
+                    "Payment received",
+                    "Customer paid for order " + ref + ". You can proceed with pickup.",
+                    riderData,
+                    NotificationType.RIDER_ORDER_PAYMENT_CONFIRMED);
+        }
     }
 
     private void notifyPaymentFailed(OrderEntity order) {

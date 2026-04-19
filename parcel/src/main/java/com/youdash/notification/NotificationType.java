@@ -34,5 +34,28 @@ public enum NotificationType {
     /** User: a rider accepted the order (COD confirmed or online awaiting payment) */
     USER_RIDER_ACCEPTED,
     /** User: order ended as cancelled or expired (includes no rider, payment timeout, user cancel) */
-    USER_ORDER_CLOSED
+    USER_ORDER_CLOSED,
+
+    /** User: rider verified delivery OTP (customer can complete handover flow). */
+    USER_OTP_VERIFIED_BY_RIDER,
+    /** Rider: customer verified delivery OTP (rider can proceed to complete). */
+    RIDER_OTP_VERIFIED_BY_USER,
+    /** Rider: online payment captured; job is confirmed — open active order. */
+    RIDER_ORDER_PAYMENT_CONFIRMED,
+    /** User: coupon saved on order at creation. */
+    USER_COUPON_APPLIED,
+    /** User: manual pricing request submitted. */
+    USER_MANUAL_REQUEST_SUBMITTED,
+    /** Admin devices: new manual order request for review. */
+    ADMIN_MANUAL_REQUEST_NEW,
+    /** Rider: withdrawal approved by admin. */
+    RIDER_WITHDRAWAL_APPROVED,
+    /** Rider: withdrawal rejected; reservation released. */
+    RIDER_WITHDRAWAL_REJECTED,
+    /** Rider: admin settled COD collected line for an order. */
+    RIDER_COD_SETTLED_ADMIN,
+    /** Rider: earning credited to wallet after delivery settlement. */
+    RIDER_WALLET_EARNING_CREDITED,
+    /** Admin devices: rider requested a wallet withdrawal. */
+    ADMIN_RIDER_WITHDRAWAL_REQUESTED
 }
