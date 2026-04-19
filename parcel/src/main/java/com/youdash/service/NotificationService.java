@@ -6,6 +6,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -29,22 +30,16 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class NotificationService {
 
-    private static final AtomicBoolean LOGGED_FCM_SKIP = new AtomicBoolean(false);
+    private static final AtomicBoolean LOGGED_RIDER_FCM_SKIP = new AtomicBoolean(false);
+    private static final AtomicBoolean LOGGED_USER_FCM_SKIP = new AtomicBoolean(false);
 
     @Autowired(required = false)
-    private FirebaseMessaging firebaseMessaging;
+    @Qualifier("riderFirebaseMessaging")
+    private FirebaseMessaging riderFirebaseMessaging;
 
-    @PostConstruct
-    void logPushConfiguration() {
-        if (firebaseMessaging == null) {
-            log.warn(
-                    "FCM is not configured: firebase.service-account.path must point to a Firebase service account JSON "
-                            + "file on the server (Firebase Console → Project settings → Service accounts). "
-                            + "Client FCM tokens are still saved, but no pushes will be sent until this is set.");
-        } else {
-            log.info("Firebase Cloud Messaging (FCM) is enabled.");
-        }
-    }
+    @Autowired(required = false)
+    @Qualifier("userFirebaseMessaging")
+    private FirebaseMessaging userFirebaseMessaging;
 
     @Autowired
     private UserRepository userRepository;
@@ -55,69 +50,70 @@ public class NotificationService {
     @Value("${notification.admin.fcm.tokens:}")
     private String adminFcmTokensCsv;
 
-    /**
-     * Resolve user FCM token and send (async). {@code data} values must be non-null strings for FCM data map.
-     */
-    /**
-     * Push to rider device when {@link RiderEntity#getFcmToken()} is set.
-     */
-    public void sendToRider(Long riderId, String title, String body, Map<String, String> data, NotificationType type) {
-        if (riderId == null) {
-            return;
+    @PostConstruct
+    void logPushConfiguration() {
+        if (riderFirebaseMessaging == null) {
+            log.warn("FCM [rider] not configured — set firebase.rider.service-account.path to enable rider push notifications.");
+        } else {
+            log.info("FCM [rider] enabled.");
         }
+        if (userFirebaseMessaging == null) {
+            log.warn("FCM [user] not configured — set firebase.user.service-account.path to enable user push notifications.");
+        } else {
+            log.info("FCM [user] enabled.");
+        }
+    }
+
+    public void sendToRider(Long riderId, String title, String body, Map<String, String> data, NotificationType type) {
+        if (riderId == null) return;
         riderRepository.findById(riderId)
                 .map(RiderEntity::getFcmToken)
                 .filter(StringUtils::hasText)
-                .ifPresent(token -> sendToToken(token, title, body, data, type));
+                .ifPresent(token -> sendToToken(token, title, body, data, type, riderFirebaseMessaging, "rider", LOGGED_RIDER_FCM_SKIP));
     }
 
     public void sendToUser(Long userId, String title, String body, Map<String, String> data, NotificationType type) {
-        if (userId == null) {
-            return;
-        }
+        if (userId == null) return;
         userRepository.findById(userId)
                 .filter(u -> Boolean.TRUE.equals(u.getActive()))
                 .map(UserEntity::getFcmToken)
                 .filter(StringUtils::hasText)
-                .ifPresent(token -> sendToToken(token, title, body, data, type));
+                .ifPresent(token -> sendToToken(token, title, body, data, type, userFirebaseMessaging, "user", LOGGED_USER_FCM_SKIP));
     }
 
-    /**
-     * Send to each configured admin device token (comma-separated in {@code notification.admin.fcm.tokens}).
-     */
     public void sendToAdminDevices(String title, String body, Map<String, String> data, NotificationType type) {
-        if (!StringUtils.hasText(adminFcmTokensCsv)) {
-            return;
-        }
+        if (!StringUtils.hasText(adminFcmTokensCsv)) return;
         for (String raw : adminFcmTokensCsv.split(",")) {
             String token = raw == null ? "" : raw.trim();
             if (!token.isEmpty()) {
-                sendToToken(token, title, body, data, type);
+                // Admin devices use user FCM project
+                sendToToken(token, title, body, data, type, userFirebaseMessaging, "user", LOGGED_USER_FCM_SKIP);
             }
         }
     }
 
-    /** @deprecated Prefer {@link #sendToUser(Long, String, String, Map, NotificationType)} or {@link #sendToToken(String, String, String, Map, NotificationType)} */
+    /** @deprecated Prefer {@link #sendToUser} or {@link #sendToRider} */
     @Deprecated
     public void sendNotification(String token, String title, String body, Long orderId, NotificationType type) {
         Map<String, String> data = baseData(orderId, null, type);
-        sendToToken(token, title, body, data, type);
+        sendToToken(token, title, body, data, type, userFirebaseMessaging, "user", LOGGED_USER_FCM_SKIP);
     }
 
     public void sendToToken(String token, String title, String body, Map<String, String> data, NotificationType type) {
-        if (!StringUtils.hasText(token)) {
-            return;
-        }
+        sendToToken(token, title, body, data, type, userFirebaseMessaging, "user", LOGGED_USER_FCM_SKIP);
+    }
+
+    private void sendToToken(String token, String title, String body, Map<String, String> data,
+            NotificationType type, FirebaseMessaging fcm, String label, AtomicBoolean skipLogged) {
+        if (!StringUtils.hasText(token)) return;
 
         CompletableFuture.runAsync(() -> {
             try {
-                if (firebaseMessaging == null) {
-                    if (LOGGED_FCM_SKIP.compareAndSet(false, true)) {
-                        log.warn(
-                                "FCM send skipped — Firebase Admin SDK not loaded (see startup log). type={}",
-                                type);
+                if (fcm == null) {
+                    if (skipLogged.compareAndSet(false, true)) {
+                        log.warn("FCM [{}] send skipped — not configured. type={}", label, type);
                     } else {
-                        log.debug("FCM send skipped (not configured). type={}", type);
+                        log.debug("FCM [{}] send skipped (not configured). type={}", label, type);
                     }
                     return;
                 }
@@ -125,9 +121,7 @@ public class NotificationService {
                 Map<String, String> merged = new HashMap<>();
                 if (data != null) {
                     data.forEach((k, v) -> {
-                        if (k != null && v != null) {
-                            merged.put(k, v);
-                        }
+                        if (k != null && v != null) merged.put(k, v);
                     });
                 }
                 if (type != null && !merged.containsKey("type")) {
@@ -146,44 +140,33 @@ public class NotificationService {
 
                 merged.forEach(builder::putData);
 
-                String messageId = firebaseMessaging.send(builder.build());
-                log.debug("FCM sent messageId={} type={}", messageId, type);
+                String messageId = fcm.send(builder.build());
+                log.debug("FCM [{}] sent messageId={} type={}", label, messageId, type);
+
             } catch (FirebaseMessagingException e) {
                 if (isTokenNotRegistered(e)) {
                     clearToken(token.trim());
-                    log.warn("FCM token unregistered; cleared from DB. type={}", type);
+                    log.warn("FCM [{}] token unregistered — cleared from DB. type={}", label, type);
                 } else {
-                    log.error("FCM send failed type={} code={} msg={}",
-                            type, String.valueOf(e.getErrorCode()), e.getMessage(), e);
+                    log.error("FCM [{}] send failed type={} code={} msg={}",
+                            label, type, e.getErrorCode(), e.getMessage(), e);
                 }
             } catch (Exception e) {
-                log.error("Unexpected notification failure type={} msg={}", type, e.getMessage(), e);
+                log.error("FCM [{}] unexpected failure type={} msg={}", label, type, e.getMessage(), e);
             }
         });
     }
 
     public static Map<String, String> baseData(Long orderId, String orderStatus, NotificationType type) {
         Map<String, String> m = new HashMap<>();
-        if (orderId != null) {
-            m.put("orderId", String.valueOf(orderId));
-        }
-        if (orderStatus != null) {
-            m.put("orderStatus", orderStatus);
-        }
-        if (type != null) {
-            m.put("type", type.name());
-        }
+        if (orderId != null) m.put("orderId", String.valueOf(orderId));
+        if (orderStatus != null) m.put("orderStatus", orderStatus);
+        if (type != null) m.put("type", type.name());
         return m;
     }
 
     private boolean isTokenNotRegistered(FirebaseMessagingException e) {
-        try {
-            if (e.getMessagingErrorCode() == MessagingErrorCode.UNREGISTERED) {
-                return true;
-            }
-        } catch (Exception ignored) {
-            // ignore
-        }
+        if (e.getMessagingErrorCode() == MessagingErrorCode.UNREGISTERED) return true;
         String msg = e.getMessage();
         return msg != null && msg.contains("registration-token-not-registered");
     }
@@ -195,7 +178,7 @@ public class NotificationService {
                 userRepository.save(user);
             });
         } catch (Exception e) {
-            log.warn("Failed clearing user token: {}", e.getMessage());
+            log.warn("Failed clearing user FCM token: {}", e.getMessage());
         }
         try {
             riderRepository.findByFcmToken(token).ifPresent(rider -> {
@@ -203,7 +186,7 @@ public class NotificationService {
                 riderRepository.save(rider);
             });
         } catch (Exception e) {
-            log.warn("Failed clearing rider token: {}", e.getMessage());
+            log.warn("Failed clearing rider FCM token: {}", e.getMessage());
         }
     }
 }
