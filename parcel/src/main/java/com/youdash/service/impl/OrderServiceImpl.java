@@ -702,6 +702,13 @@ public class OrderServiceImpl implements OrderService {
                 actingRiderId,
                 "RIDER");
 
+        notificationService.sendToUser(
+                saved.getUserId(),
+                "Order update",
+                "Order #" + saved.getId() + " is now " + OrderStatus.DELIVERED.name().replace('_', ' '),
+                NotificationService.baseData(saved.getId(), OrderStatus.DELIVERED.name(), NotificationType.USER_ORDER_STATUS_UPDATE),
+                NotificationType.USER_ORDER_STATUS_UPDATE);
+
         markRiderAvailableAfterDelivery(saved.getRiderId());
 
         riderActiveOrderTopicPublisher.publish(actingRiderId, saved.getId(), OrderStatus.DELIVERED, "delivered");

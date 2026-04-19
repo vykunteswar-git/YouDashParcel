@@ -182,6 +182,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         order.setStatus(OrderStatus.PICKED_UP);
         OrderEntity saved = orderRepository.save(order);
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
+        sendUserOrderStatusPush(saved);
         riderActiveOrderTopicPublisher.publish(riderId, saved.getId(), saved.getStatus(), "status_updated");
         response.setData(orderServiceImpl.toOrderDtoForRider(saved));
         response.setMessage("Pickup recorded");
@@ -204,6 +205,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         order.setStatus(OrderStatus.IN_TRANSIT);
         OrderEntity saved = orderRepository.save(order);
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
+        sendUserOrderStatusPush(saved);
         riderActiveOrderTopicPublisher.publish(riderId, saved.getId(), saved.getStatus(), "status_updated");
         response.setData(orderServiceImpl.toOrderDtoForRider(saved));
         response.setMessage("Transit started");
@@ -296,6 +298,22 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         dto.setStatus(status == null ? null : status.name());
         dto.setRiderId(riderId);
         messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", dto);
+    }
+
+    private void sendUserOrderStatusPush(OrderEntity order) {
+        if (order == null || order.getUserId() == null || order.getId() == null || order.getStatus() == null) {
+            return;
+        }
+        String readableStatus = order.getStatus().name().replace('_', ' ');
+        notificationService.sendToUser(
+                order.getUserId(),
+                "Order update",
+                "Order #" + order.getId() + " is now " + readableStatus,
+                NotificationService.baseData(
+                        order.getId(),
+                        order.getStatus().name(),
+                        NotificationType.USER_ORDER_STATUS_UPDATE),
+                NotificationType.USER_ORDER_STATUS_UPDATE);
     }
 
     private static void requireAssignedIncityRider(OrderEntity order, Long riderId) {
