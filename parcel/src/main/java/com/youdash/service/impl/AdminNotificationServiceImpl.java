@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.notification.AdminNotificationBroadcastRequestDTO;
 import com.youdash.dto.notification.AdminNotificationCampaignDTO;
+import com.youdash.dto.notification.AdminNotificationTargetOptionDTO;
+import com.youdash.dto.notification.AdminNotificationTargetsDTO;
+import com.youdash.dto.notification.AdminNotificationZoneOptionDTO;
 import com.youdash.entity.OrderEntity;
 import com.youdash.entity.RiderEntity;
 import com.youdash.entity.UserEntity;
@@ -16,6 +19,7 @@ import com.youdash.notification.NotificationType;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.repository.UserRepository;
+import com.youdash.repository.ZoneRepository;
 import com.youdash.repository.notification.AdminNotificationCampaignRepository;
 import com.youdash.service.AdminNotificationService;
 import com.youdash.service.NotificationService;
@@ -35,6 +39,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class AdminNotificationServiceImpl implements AdminNotificationService {
@@ -47,6 +52,9 @@ public class AdminNotificationServiceImpl implements AdminNotificationService {
 
     @Autowired
     private OrderRepository orderRepository;
+
+    @Autowired
+    private ZoneRepository zoneRepository;
 
     @Autowired
     private ZoneService zoneService;
@@ -167,6 +175,72 @@ public class AdminNotificationServiceImpl implements AdminNotificationService {
                     .toList();
             response.setData(list);
             response.setTotalCount(list.size());
+            response.setMessage("OK");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setSuccess(false);
+            response.setStatus(500);
+        }
+        return response;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ApiResponse<AdminNotificationTargetsDTO> getTargets(String q, int limit) {
+        ApiResponse<AdminNotificationTargetsDTO> response = new ApiResponse<>();
+        try {
+            int max = Math.min(Math.max(limit, 1), 100);
+            String query = q == null ? "" : q.trim().toLowerCase(Locale.ROOT);
+
+            List<ZoneEntity> zones = zoneRepository.findByIsActiveTrueOrderByIdAsc();
+            List<String> cities = zones.stream()
+                    .map(ZoneEntity::getCity)
+                    .filter(StringUtils::hasText)
+                    .map(String::trim)
+                    .distinct()
+                    .sorted(String.CASE_INSENSITIVE_ORDER)
+                    .collect(Collectors.toList());
+            if (!query.isBlank()) {
+                cities = cities.stream()
+                        .filter(c -> c.toLowerCase(Locale.ROOT).contains(query))
+                        .limit(max)
+                        .collect(Collectors.toList());
+            }
+
+            List<AdminNotificationZoneOptionDTO> zoneOptions = zones.stream()
+                    .filter(z -> query.isBlank()
+                            || containsIgnoreCase(z.getName(), query)
+                            || containsIgnoreCase(z.getCity(), query)
+                            || String.valueOf(z.getId()).contains(query))
+                    .limit(max)
+                    .map(this::toZoneOption)
+                    .collect(Collectors.toList());
+
+            List<AdminNotificationTargetOptionDTO> users = userRepository.findByActiveTrue().stream()
+                    .filter(u -> matchesUser(u, query))
+                    .limit(max)
+                    .map(this::toUserOption)
+                    .collect(Collectors.toList());
+
+            List<AdminNotificationTargetOptionDTO> riders = riderRepository
+                    .findByApprovalStatusOrderByCreatedAtDesc(RiderApprovalStatus.APPROVED).stream()
+                    .filter(r -> !Boolean.TRUE.equals(r.getIsBlocked()))
+                    .filter(r -> matchesRider(r, query))
+                    .limit(max)
+                    .map(this::toRiderOption)
+                    .collect(Collectors.toList());
+
+            AdminNotificationTargetsDTO data = new AdminNotificationTargetsDTO();
+            data.setCities(cities);
+            data.setZones(zoneOptions);
+            data.setUsers(users);
+            data.setRiders(riders);
+
+            response.setData(data);
             response.setMessage("OK");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
@@ -405,6 +479,72 @@ public class AdminNotificationServiceImpl implements AdminNotificationService {
 
     private static String nz(String s) {
         return s == null ? "" : s;
+    }
+
+    private AdminNotificationZoneOptionDTO toZoneOption(ZoneEntity z) {
+        AdminNotificationZoneOptionDTO d = new AdminNotificationZoneOptionDTO();
+        d.setId(z.getId());
+        d.setName(z.getName());
+        d.setCity(z.getCity());
+        return d;
+    }
+
+    private AdminNotificationTargetOptionDTO toUserOption(UserEntity u) {
+        AdminNotificationTargetOptionDTO d = new AdminNotificationTargetOptionDTO();
+        d.setId(u.getId());
+        d.setType("USER");
+        d.setLabel(buildUserLabel(u));
+        d.setSubLabel(nz(u.getPhoneNumber()));
+        d.setHasFcmToken(StringUtils.hasText(u.getFcmToken()));
+        return d;
+    }
+
+    private AdminNotificationTargetOptionDTO toRiderOption(RiderEntity r) {
+        AdminNotificationTargetOptionDTO d = new AdminNotificationTargetOptionDTO();
+        d.setId(r.getId());
+        d.setType("RIDER");
+        d.setLabel(nz(r.getName()));
+        d.setSubLabel(nz(r.getPhone()));
+        d.setHasFcmToken(StringUtils.hasText(r.getFcmToken()));
+        return d;
+    }
+
+    private static boolean matchesUser(UserEntity u, String query) {
+        if (query == null || query.isBlank()) {
+            return true;
+        }
+        return containsIgnoreCase(buildUserLabel(u), query)
+                || containsIgnoreCase(u.getPhoneNumber(), query)
+                || containsIgnoreCase(u.getEmail(), query)
+                || String.valueOf(u.getId()).contains(query);
+    }
+
+    private static boolean matchesRider(RiderEntity r, String query) {
+        if (query == null || query.isBlank()) {
+            return true;
+        }
+        return containsIgnoreCase(r.getName(), query)
+                || containsIgnoreCase(r.getPhone(), query)
+                || containsIgnoreCase(r.getEmail(), query)
+                || containsIgnoreCase(r.getPublicId(), query)
+                || String.valueOf(r.getId()).contains(query);
+    }
+
+    private static String buildUserLabel(UserEntity u) {
+        String first = nz(u.getFirstName()).trim();
+        String last = nz(u.getLastName()).trim();
+        String full = (first + " " + last).trim();
+        if (!full.isBlank()) {
+            return full;
+        }
+        return nz(u.getPhoneNumber());
+    }
+
+    private static boolean containsIgnoreCase(String value, String query) {
+        if (value == null || query == null || query.isBlank()) {
+            return false;
+        }
+        return value.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT));
     }
 
     private record ResolvedRecipients(LinkedHashSet<String> tokens) {

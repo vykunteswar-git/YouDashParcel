@@ -3,6 +3,7 @@ package com.youdash.controller;
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.notification.AdminNotificationBroadcastRequestDTO;
 import com.youdash.dto.notification.AdminNotificationCampaignDTO;
+import com.youdash.dto.notification.AdminNotificationTargetsDTO;
 import com.youdash.service.AdminNotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,6 +35,13 @@ public class AdminNotificationController {
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "20") int size) {
         return adminNotificationService.listCampaigns(page, size);
+    }
+
+    @GetMapping("/targets")
+    public ApiResponse<AdminNotificationTargetsDTO> targets(
+            @RequestParam(name = "q", required = false) String q,
+            @RequestParam(name = "limit", defaultValue = "20") int limit) {
+        return adminNotificationService.getTargets(q, limit);
     }
 }
 
