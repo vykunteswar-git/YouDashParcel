@@ -57,5 +57,11 @@ public enum NotificationType {
     /** Rider: earning credited to wallet after delivery settlement. */
     RIDER_WALLET_EARNING_CREDITED,
     /** Admin devices: rider requested a wallet withdrawal. */
-    ADMIN_RIDER_WITHDRAWAL_REQUESTED
+    ADMIN_RIDER_WITHDRAWAL_REQUESTED,
+
+    /** User: rider is within 300m of drop location. */
+    USER_RIDER_NEAR_DESTINATION,
+
+    /** User: rider is within 50m of drop location (show OTP prompt). */
+    USER_RIDER_AT_DESTINATION
 }

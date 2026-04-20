@@ -23,6 +23,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(r);
     }
 
+    @ExceptionHandler(RateLimitException.class)
+    public ResponseEntity<ApiResponse<Void>> handleRateLimit(RateLimitException ex) {
+        ApiResponse<Void> r = new ApiResponse<>();
+        r.setSuccess(false);
+        r.setMessage(ex.getMessage());
+        r.setMessageKey("RATE_LIMITED");
+        r.setStatus(429);
+        return ResponseEntity.status(429).body(r);
+    }
+
     @ExceptionHandler(BadRequestException.class)
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(BadRequestException ex) {
         ApiResponse<Void> r = new ApiResponse<>();

@@ -1,11 +1,15 @@
 package com.youdash.service.impl;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.security.SecureRandom;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +22,7 @@ import com.youdash.dto.wallet.RiderWalletTransactionDTO;
 import com.youdash.dto.wallet.RiderWithdrawalDTO;
 import com.youdash.entity.OrderEntity;
 import com.youdash.entity.RiderEntity;
+import com.youdash.entity.RiderLocationHistoryEntity;
 import com.youdash.entity.VehicleEntity;
 import com.youdash.entity.wallet.RiderWalletEntity;
 import com.youdash.entity.wallet.RiderWalletTransactionEntity;
@@ -25,13 +30,19 @@ import com.youdash.entity.wallet.RiderWithdrawalEntity;
 import com.youdash.model.OrderStatus;
 import com.youdash.model.RiderApprovalStatus;
 import com.youdash.model.ServiceMode;
+import com.youdash.notification.NotificationType;
 import com.youdash.repository.OrderRepository;
+import com.youdash.repository.RiderLocationHistoryRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.repository.VehicleRepository;
 import com.youdash.repository.wallet.RiderWalletRepository;
 import com.youdash.repository.wallet.RiderWalletTransactionRepository;
 import com.youdash.repository.wallet.RiderWithdrawalRepository;
+import com.youdash.service.DistanceService;
+import com.youdash.service.NotificationDedupService;
+import com.youdash.service.NotificationService;
 import com.youdash.service.RiderService;
+import com.youdash.util.GeoUtils;
 import com.youdash.util.JwtUtil;
 import com.youdash.dto.realtime.RiderLocationEventDTO;
 
@@ -65,6 +76,27 @@ public class RiderServiceImpl implements RiderService {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private RiderLocationHistoryRepository locationHistoryRepository;
+
+    @Autowired
+    private DistanceService distanceService;
+
+    @Autowired
+    private NotificationService notificationService;
+
+    @Autowired
+    private NotificationDedupService notificationDedupService;
+
+    @Value("${youdash.tracking.city-speed-kmh:20}")
+    private double citySpeedKmh;
+
+    @Value("${youdash.tracking.near-destination-radius-m:300}")
+    private double nearDestinationRadiusM;
+
+    @Value("${youdash.tracking.at-destination-radius-m:50}")
+    private double atDestinationRadiusM;
 
     @Override
     public ApiResponse<RiderResponseDTO> createRider(RiderRequestDTO dto) {
@@ -302,7 +334,7 @@ public class RiderServiceImpl implements RiderService {
             response.setStatus(200);
             response.setSuccess(true);
 
-            // INCITY only: broadcast rider live location to all active assigned orders.
+            // INCITY only: broadcast + history save + ETA + geofencing.
             try {
                 List<OrderEntity> activeIncityOrders = orderRepository.findByRiderIdAndServiceModeAndStatusIn(
                         riderId,
@@ -310,14 +342,55 @@ public class RiderServiceImpl implements RiderService {
                         List.of(OrderStatus.CONFIRMED, OrderStatus.PICKED_UP, OrderStatus.IN_TRANSIT));
 
                 long ts = System.currentTimeMillis();
+                Instant now = Instant.ofEpochMilli(ts);
+
                 for (OrderEntity o : activeIncityOrders) {
+                    // 1. Save location history asynchronously (non-blocking).
+                    final Long orderId = o.getId();
+                    CompletableFuture.runAsync(() -> {
+                        RiderLocationHistoryEntity hist = new RiderLocationHistoryEntity();
+                        hist.setRiderId(riderId);
+                        hist.setOrderId(orderId);
+                        hist.setLat(lat);
+                        hist.setLng(lng);
+                        hist.setTs(now);
+                        locationHistoryRepository.save(hist);
+                    });
+
+                    // 2. Compute distance and ETA to drop location.
+                    double distToDropKm = GeoUtils.haversineKm(lat, lng, o.getDropLat(), o.getDropLng());
+                    int etaSeconds = (int) ((distToDropKm / citySpeedKmh) * 3600);
+
+                    // 3. Geofence checks (deduplicated per order).
+                    double nearRadiusKm = nearDestinationRadiusM / 1000.0;
+                    double atRadiusKm = atDestinationRadiusM / 1000.0;
+                    boolean atDest = GeoUtils.isInsideCircle(lat, lng, o.getDropLat(), o.getDropLng(), atRadiusKm);
+                    boolean nearDest = atDest || GeoUtils.isInsideCircle(lat, lng, o.getDropLat(), o.getDropLng(), nearRadiusKm);
+
+                    if (atDest && notificationDedupService.tryAcquire("at_dest:" + orderId)) {
+                        Map<String, String> data = Map.of("orderId", String.valueOf(orderId), "type", NotificationType.USER_RIDER_AT_DESTINATION.name());
+                        notificationService.sendToUser(o.getUserId(), "Rider has arrived!", "Please show the OTP to complete delivery.", data, NotificationType.USER_RIDER_AT_DESTINATION);
+                        messagingTemplate.convertAndSend("/topic/users/" + o.getUserId() + "/order-events",
+                                Map.of("event", "at_destination", "orderId", orderId));
+                    } else if (nearDest && notificationDedupService.tryAcquire("near_dest:" + orderId)) {
+                        Map<String, String> data = Map.of("orderId", String.valueOf(orderId), "type", NotificationType.USER_RIDER_NEAR_DESTINATION.name());
+                        notificationService.sendToUser(o.getUserId(), "Rider is almost there!", "Your rider is less than 1 minute away.", data, NotificationType.USER_RIDER_NEAR_DESTINATION);
+                        messagingTemplate.convertAndSend("/topic/users/" + o.getUserId() + "/order-events",
+                                Map.of("event", "near_destination", "orderId", orderId));
+                    }
+
+                    // 4. Broadcast enhanced location event.
                     RiderLocationEventDTO evt = new RiderLocationEventDTO();
-                    evt.setOrderId(o.getId());
+                    evt.setOrderId(orderId);
                     evt.setRiderId(riderId);
                     evt.setLat(lat);
                     evt.setLng(lng);
                     evt.setTs(ts);
-                    messagingTemplate.convertAndSend("/topic/orders/" + o.getId() + "/rider-location", evt);
+                    evt.setEtaSeconds(etaSeconds);
+                    evt.setDistanceToDropKm(Math.round(distToDropKm * 100.0) / 100.0);
+                    evt.setNearDestination(nearDest);
+                    evt.setAtDestination(atDest);
+                    messagingTemplate.convertAndSend("/topic/orders/" + orderId + "/rider-location", evt);
                 }
             } catch (Exception ignored) {
                 // Never fail the REST update just because realtime publish failed.

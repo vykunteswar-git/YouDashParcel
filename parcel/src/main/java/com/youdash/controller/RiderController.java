@@ -13,8 +13,10 @@ import com.youdash.dto.RiderResponseDTO;
 import com.youdash.dto.OrderResponseDTO;
 import com.youdash.dto.RiderSelfUpdateDTO;
 import com.youdash.entity.RiderEntity;
+import com.youdash.exception.RateLimitException;
 import com.youdash.repository.RiderRepository;
 import com.youdash.security.RiderAccessVerifier;
+import com.youdash.service.LocationUpdateRateLimiter;
 import com.youdash.service.OrderService;
 import com.youdash.service.RiderService;
 import com.youdash.service.RiderOrderService;
@@ -42,6 +44,9 @@ public class RiderController {
 
     @Autowired
     private OrderService orderService;
+
+    @Autowired
+    private LocationUpdateRateLimiter locationRateLimiter;
 
     @PostMapping("/fcm-token")
     public ApiResponse<String> saveFcmToken(@RequestBody FcmTokenRequestDTO dto, HttpServletRequest request) {
@@ -126,11 +131,14 @@ public class RiderController {
     }
 
     @PutMapping("/me/location")
-    @Operation(summary = "Update my location (JWT)", description = "Also publishes live location to order subscribers for active INCITY orders.")
+    @Operation(summary = "Update my location (JWT)", description = "Also publishes live location to order subscribers for active INCITY orders. Rate limited to 1 update per 3s per rider.")
     public ApiResponse<RiderResponseDTO> updateMyLocation(
             @RequestBody Map<String, Double> locationMap,
             HttpServletRequest request) {
         Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        if (!locationRateLimiter.tryAcquire(riderId)) {
+            throw new RateLimitException("Location update rate limit exceeded. Max 1 update per 3 seconds.");
+        }
         Double lat = locationMap.get("lat");
         Double lng = locationMap.get("lng");
         if (lat == null || lng == null) {

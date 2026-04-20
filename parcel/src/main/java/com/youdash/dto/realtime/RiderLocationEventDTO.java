@@ -8,7 +8,18 @@ public class RiderLocationEventDTO {
     private Long riderId;
     private Double lat;
     private Double lng;
-    /** Epoch millis; client can ignore and use arrival time if needed. */
     private Long ts;
+
+    /** Estimated seconds until rider reaches drop location. */
+    private Integer etaSeconds;
+
+    /** Remaining driving distance to drop location in km. */
+    private Double distanceToDropKm;
+
+    /** True when rider is within 300m of drop location. */
+    private Boolean nearDestination;
+
+    /** True when rider is within 50m of drop location (OTP prompt). */
+    private Boolean atDestination;
 }
 
