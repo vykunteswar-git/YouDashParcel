@@ -27,6 +27,8 @@ public interface RiderRepository extends JpaRepository<RiderEntity, Long> {
 
     Optional<RiderEntity> findByFcmToken(String fcmToken);
 
+    long countByApprovalStatusAndIsAvailableTrue(String approvalStatus);
+
     @Modifying
     @Query("""
             update RiderEntity r

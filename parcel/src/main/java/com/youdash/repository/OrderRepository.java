@@ -185,4 +185,6 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     Optional<OrderEntity> findByDisplayOrderId(String displayOrderId);
 
     Optional<OrderEntity> findByRazorpayOrderId(String razorpayOrderId);
+
+    List<OrderEntity> findByCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtAsc(Instant from, Instant to);
 }

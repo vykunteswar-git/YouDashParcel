@@ -13,5 +13,7 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
   List<UserEntity> findByActiveTrue();
 
+  long countByActiveTrue();
+
   Optional<UserEntity> findByFcmToken(String fcmToken);
 }
