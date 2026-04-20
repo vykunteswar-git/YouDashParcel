@@ -1212,6 +1212,13 @@ public class OrderServiceImpl implements OrderService {
         dto.setCouponAmount(null);
         dto.setVehiclePricePerKm(null);
         dto.setRazorpayOrderId(null);
+        // Rider should primarily see earnings; keep totalAmount only for COD collection context.
+        if (dto.getPaymentType() != PaymentType.COD) {
+            dto.setTotalAmount(null);
+            dto.setCodCollectedAmount(null);
+            dto.setCodCollectionMode(null);
+            dto.setCodSettlementStatus(null);
+        }
         return dto;
     }
 

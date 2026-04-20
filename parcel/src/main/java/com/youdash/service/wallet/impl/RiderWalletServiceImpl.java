@@ -1,11 +1,15 @@
 package com.youdash.service.wallet.impl;
 
 import java.time.Instant;
+import java.time.DayOfWeek;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.time.temporal.TemporalAdjusters;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -119,6 +123,23 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             if (netAvailable < -0.0001) {
                 log.warn("NEGATIVE_NET_AVAILABLE -> riderId={}, net={}", riderId, round2(netAvailable));
             }
+            ZoneId zone = ZoneId.systemDefault();
+            ZonedDateTime now = ZonedDateTime.now(zone);
+            Instant nowTs = now.toInstant();
+            Instant startOfToday = now.toLocalDate().atStartOfDay(zone).toInstant();
+            Instant startOfWeek = now.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+                    .toLocalDate()
+                    .atStartOfDay(zone)
+                    .toInstant();
+            Instant startOfMonth = now.withDayOfMonth(1)
+                    .toLocalDate()
+                    .atStartOfDay(zone)
+                    .toInstant();
+
+            dto.setAvailableBalance(round2(netAvailable));
+            dto.setTodayEarnings(sumRiderEarningsBetween(riderId, startOfToday, nowTs));
+            dto.setThisWeekEarnings(sumRiderEarningsBetween(riderId, startOfWeek, nowTs));
+            dto.setThisMonthEarnings(sumRiderEarningsBetween(riderId, startOfMonth, nowTs));
             dto.setNetAvailable(round2(netAvailable));
             dto.setTotalOrdersDelivered(orderRepository.countByRiderIdAndStatus(riderId, OrderStatus.DELIVERED));
             response.setData(dto);
@@ -141,6 +162,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             List<RiderWalletTransactionDTO> list = riderWalletTransactionRepository
                     .findByRiderIdOrderByCreatedAtDesc(riderId, pageable)
                     .stream()
+                    .filter(this::isRiderVisibleTransaction)
                     .map(this::toTxnDto)
                     .collect(Collectors.toList());
             response.setData(list);
@@ -858,6 +880,24 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         d.setMetadataJson(e.getMetadataJson());
         d.setCreatedAt(e.getCreatedAt() != null ? e.getCreatedAt().toString() : null);
         return d;
+    }
+
+    private boolean isRiderVisibleTransaction(RiderWalletTransactionEntity e) {
+        if (e == null) {
+            return false;
+        }
+        String note = nzStr(e.getNote());
+        // This row records COD cash collection liability movement, not rider earning.
+        if ("COD collected by rider - pending settlement".equals(note)
+                || "COD collected by rider — pending settlement".equals(note)) {
+            return false;
+        }
+        return true;
+    }
+
+    private double sumRiderEarningsBetween(Long riderId, Instant fromTs, Instant toTs) {
+        Double sum = orderRiderFinancialRepository.sumRiderEarningsBetween(riderId, fromTs, toTs);
+        return round2(nz(sum));
     }
 
     private RiderWithdrawalDTO toWithdrawalDto(RiderWithdrawalEntity e) {
