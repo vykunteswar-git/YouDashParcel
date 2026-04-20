@@ -34,7 +34,7 @@ public interface RiderWalletService {
     ApiResponse<String> adminSettleCod(Long adminUserId, AdminCodSettleRequestDTO dto);
 
     /**
-     * Rider earning from current commission config (base + per-km × distance + surge),
+     * Rider earning from current commission config (percentage of order amount),
      * same formula as delivery settlement before wallet rows exist.
      */
     double estimateRiderEarningForOrder(OrderEntity order);

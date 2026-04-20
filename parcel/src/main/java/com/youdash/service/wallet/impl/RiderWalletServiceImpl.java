@@ -376,12 +376,15 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 return c;
             });
             if (dto.getOnlineCommissionPercent() != null) {
+                validateCommissionPercent("onlineCommissionPercent", dto.getOnlineCommissionPercent());
                 cfg.setOnlineCommissionPercent(dto.getOnlineCommissionPercent());
             }
             if (dto.getCodCashCommissionPercent() != null) {
+                validateCommissionPercent("codCashCommissionPercent", dto.getCodCashCommissionPercent());
                 cfg.setCodCashCommissionPercent(dto.getCodCashCommissionPercent());
             }
             if (dto.getCodQrCommissionPercent() != null) {
+                validateCommissionPercent("codQrCommissionPercent", dto.getCodQrCommissionPercent());
                 cfg.setCodQrCommissionPercent(dto.getCodQrCommissionPercent());
             }
             if (dto.getPeakSurgeBonusFlat() != null) {
@@ -455,38 +458,26 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         double orderAmount = nz(order.getTotalAmount());
         PaymentType payType = order.getPaymentType();
 
-        double baseFee = nz(cfg.getBaseFee());
-        double perKmRate = nz(cfg.getPerKmRate());
-        if (baseFee < 0 || perKmRate < 0) {
-            throw new RuntimeException("Rider fee config invalid: baseFee/perKmRate cannot be negative");
-        }
-        if (baseFee <= 0 && perKmRate <= 0) {
-            throw new RuntimeException("Invalid config: baseFee and perKmRate cannot both be zero");
-        }
-
-        if (order.getDistanceKm() == null) {
-            log.warn("EARNING_DISTANCE_MISSING -> riderId={}, orderId={} — defaulting to 0 km",
-                    order.getRiderId(), order.getId());
-        }
-        double distanceKm = nz(order.getDistanceKm());
-        if (distanceKm <= 0) {
-            log.warn("Invalid or zero distance for orderId={}, riderId={}", order.getId(), order.getRiderId());
-        }
-        double surge = nz(cfg.getPeakSurgeBonusFlat());
-        double riderEarning = computeRiderEarning(cfg, distanceKm);
-
-        log.info("EARNING_CALCULATION -> riderId={}, orderId={}, baseFee={}, perKmRate={}, distance={}, surge={}, earning={}",
-                order.getRiderId(),
-                order.getId(),
-                baseFee,
-                perKmRate,
-                distanceKm,
-                surge,
-                riderEarning);
-
         if (payType == PaymentType.COD && codMode == null) {
             throw new RuntimeException("codCollectionMode is required for COD orders");
         }
+        double commissionPercent = resolveCommissionPercent(cfg, payType, codMode);
+        double commissionAmount = round2(orderAmount * (commissionPercent / 100.0));
+        double riderEarning = round2(orderAmount - commissionAmount);
+        if (riderEarning < -0.0001) {
+            throw new RuntimeException("Invalid commission config: rider earning cannot be negative");
+        }
+        riderEarning = Math.max(0.0, riderEarning);
+
+        log.info("EARNING_CALCULATION -> riderId={}, orderId={}, paymentType={}, codMode={}, orderAmount={}, commissionPercent={}, commissionAmount={}, riderEarning={}",
+                order.getRiderId(),
+                order.getId(),
+                payType,
+                codMode,
+                orderAmount,
+                commissionPercent,
+                commissionAmount,
+                riderEarning);
 
         RiderWalletEntity wallet = riderWalletRepository.lockByRiderId(order.getRiderId())
                 .orElseGet(() -> riderWalletRepository.save(newWallet(order.getRiderId())));
@@ -497,9 +488,9 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         fin.setOrderId(order.getId());
         fin.setRiderId(order.getRiderId());
         fin.setOrderAmount(orderAmount);
-        fin.setCommissionPercentApplied(null);
-        fin.setCommissionAmount(0.0);
-        fin.setSurgeBonusAmount(surge);
+        fin.setCommissionPercentApplied(commissionPercent);
+        fin.setCommissionAmount(commissionAmount);
+        fin.setSurgeBonusAmount(0.0);
         fin.setRiderEarningAmount(riderEarning);
 
         if (payType == PaymentType.ONLINE) {
@@ -549,7 +540,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             earnTxn.setReferenceId(order.getId());
             earnTxn.setStatus(WalletTxnStatus.COMPLETED);
             earnTxn.setNote("Order delivered — rider earning credit");
-            earnTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(orderAmount, payType, baseFee, perKmRate, distanceKm, surge, riderEarning, null, null)));
+            earnTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(orderAmount, payType, commissionPercent, commissionAmount, riderEarning, null, null)));
             riderWalletTransactionRepository.save(earnTxn);
         } else {
             // COD: credit only rider earning to spendable balance; collected COD is liability in codPendingAmount.
@@ -572,7 +563,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             earnTxn.setReferenceId(order.getId());
             earnTxn.setStatus(WalletTxnStatus.COMPLETED);
             earnTxn.setNote("Order delivered — rider earning credit (COD)");
-            earnTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(orderAmount, payType, baseFee, perKmRate, distanceKm, surge, riderEarning, codMode, collected)));
+            earnTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(orderAmount, payType, commissionPercent, commissionAmount, riderEarning, codMode, collected)));
             riderWalletTransactionRepository.save(earnTxn);
 
             RiderWalletTransactionEntity codTxn = new RiderWalletTransactionEntity();
@@ -623,7 +614,15 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (cfg == null) {
             return 0.0;
         }
-        return computeRiderEarning(cfg, nz(order.getDistanceKm()));
+        PaymentType payType = order.getPaymentType();
+        if (payType == null) {
+            return 0.0;
+        }
+        double orderAmount = nz(order.getTotalAmount());
+        CodCollectionMode codMode = payType == PaymentType.COD ? order.getCodCollectionMode() : null;
+        double commissionPercent = resolveCommissionPercent(cfg, payType, codMode);
+        double commissionAmount = round2(orderAmount * (commissionPercent / 100.0));
+        return round2(Math.max(0.0, orderAmount - commissionAmount));
     }
 
     @Override
@@ -637,30 +636,53 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 .orElseGet(() -> estimateRiderEarningForOrder(order));
     }
 
-    private static double computeRiderEarning(RiderCommissionConfigEntity cfg, double distanceKm) {
-        double baseFee = nz(cfg.getBaseFee());
-        double perKmRate = nz(cfg.getPerKmRate());
-        double surge = nz(cfg.getPeakSurgeBonusFlat());
-        return round2(baseFee + (distanceKm * perKmRate) + surge);
+    private static double resolveCommissionPercent(RiderCommissionConfigEntity cfg, PaymentType payType, CodCollectionMode codMode) {
+        if (cfg == null) {
+            return 0.0;
+        }
+        if (payType == PaymentType.ONLINE) {
+            return validPercentOrZero(cfg.getOnlineCommissionPercent());
+        }
+        if (payType == PaymentType.COD) {
+            if (codMode == CodCollectionMode.QR) {
+                return validPercentOrZero(cfg.getCodQrCommissionPercent());
+            }
+            // COD mode is unknown at dispatch-time. Default to CASH config for estimation.
+            return validPercentOrZero(cfg.getCodCashCommissionPercent());
+        }
+        return 0.0;
+    }
+
+    private static double validPercentOrZero(Double raw) {
+        double v = nz(raw);
+        if (v < 0.0 || v > 100.0) {
+            throw new RuntimeException("Commission percent must be between 0 and 100");
+        }
+        return v;
+    }
+
+    private static void validateCommissionPercent(String field, Double value) {
+        if (value == null) {
+            return;
+        }
+        if (value < 0.0 || value > 100.0) {
+            throw new RuntimeException(field + " must be between 0 and 100");
+        }
     }
 
     private Map<String, Object> buildEarningTxnMetadata(
             double orderAmount,
             PaymentType payType,
-            double baseFee,
-            double perKmRate,
-            double distanceKm,
-            double surge,
+            double commissionPercent,
+            double commissionAmount,
             double riderEarning,
             CodCollectionMode codMode,
             Double codCollected) {
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("calculationType", "DISTANCE_BASED");
-        m.put("baseFee", baseFee);
-        m.put("perKmRate", perKmRate);
-        m.put("distanceKm", distanceKm);
-        m.put("surgeBonus", surge);
-        m.put("formula", "baseFee + (distanceKm * perKmRate) + surge");
+        m.put("calculationType", "PERCENTAGE_BASED");
+        m.put("commissionPercent", commissionPercent);
+        m.put("commissionAmount", commissionAmount);
+        m.put("formula", "riderEarning = orderAmount - (orderAmount * commissionPercent / 100)");
         m.put("calculatedEarning", riderEarning);
         m.put("riderEarning", riderEarning);
         m.put("orderAmount", orderAmount);
