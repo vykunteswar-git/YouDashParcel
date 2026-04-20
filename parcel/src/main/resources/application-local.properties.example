@@ -2,5 +2,5 @@
 # Copy this file to `application-local.properties` and set your values.
 
 # Google Maps Distance Matrix API key for local development.
-youdash.maps.distance.api-key=PASTE_YOUR_LOCAL_GOOGLE_MAPS_API_KEY_HERE
+youdash.maps.distance.api-key=AIzaSyDGb51JyBKrIfbAKBXwXkixWfpXqzE_Mtk
 
