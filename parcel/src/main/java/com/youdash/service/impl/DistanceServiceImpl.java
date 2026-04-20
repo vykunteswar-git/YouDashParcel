@@ -27,6 +27,7 @@ public class DistanceServiceImpl implements DistanceService {
     @Override
     public double distanceKm(double originLat, double originLng, double destLat, double destLng) {
         if (apiKey == null || apiKey.isBlank()) {
+            log.info("Distance Matrix disabled (missing API key). Using haversine fallback.");
             return GeoUtils.haversineKm(originLat, originLng, destLat, destLng);
         }
         try {
@@ -40,23 +41,24 @@ public class DistanceServiceImpl implements DistanceService {
                     .toUriString();
             String body = restTemplate.getForObject(url, String.class);
             if (body == null) {
+                log.warn("Distance Matrix returned empty body. Falling back to haversine.");
                 return GeoUtils.haversineKm(originLat, originLng, destLat, destLng);
             }
             JsonNode root = objectMapper.readTree(body);
             String status = root.path("status").asText();
             if (!"OK".equals(status)) {
-                log.warn("Distance Matrix status={} — falling back to haversine", status);
+                log.warn("Distance Matrix status={} - falling back to haversine", status);
                 return GeoUtils.haversineKm(originLat, originLng, destLat, destLng);
             }
             JsonNode el = root.path("rows").path(0).path("elements").path(0);
             if (!"OK".equals(el.path("status").asText())) {
-                log.warn("Distance Matrix element status={} — falling back to haversine", el.path("status").asText());
+                log.warn("Distance Matrix element status={} - falling back to haversine", el.path("status").asText());
                 return GeoUtils.haversineKm(originLat, originLng, destLat, destLng);
             }
             int meters = el.path("distance").path("value").asInt();
             return meters / 1000.0;
         } catch (Exception e) {
-            log.warn("Distance Matrix failed: {} — using haversine", e.getMessage());
+            log.warn("Distance Matrix call failed: {} - using haversine fallback", e.getMessage());
             return GeoUtils.haversineKm(originLat, originLng, destLat, destLng);
         }
     }

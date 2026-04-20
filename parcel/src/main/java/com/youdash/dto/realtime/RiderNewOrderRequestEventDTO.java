@@ -5,6 +5,10 @@ import lombok.Data;
 @Data
 public class RiderNewOrderRequestEventDTO {
     private Long orderId;
+    private String customerName;
+    private String packageImage;
+    private Double weight;
+    private String paymentMode;
     private Double pickupLat;
     private Double pickupLng;
     private Double dropLat;

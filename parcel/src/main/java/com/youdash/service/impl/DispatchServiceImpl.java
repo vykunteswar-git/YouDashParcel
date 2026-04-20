@@ -135,6 +135,10 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
 
         RiderNewOrderRequestEventDTO evt = new RiderNewOrderRequestEventDTO();
         evt.setOrderId(order.getId());
+        evt.setCustomerName(customerNameForRider(order));
+        evt.setPackageImage(order.getImageUrl());
+        evt.setWeight(order.getWeight());
+        evt.setPaymentMode(order.getPaymentType() != null ? order.getPaymentType().name() : null);
         evt.setPickupLat(order.getPickupLat());
         evt.setPickupLng(order.getPickupLng());
         evt.setDropLat(order.getDropLat());
@@ -161,6 +165,19 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
                         order.getStatus() != null ? order.getStatus().name() : null,
                         NotificationType.RIDER_NEW_ORDER_REQUEST));
         d.put("expiryTimeEpochMs", String.valueOf(expiryMs));
+        String customerName = customerNameForRider(order);
+        if (customerName != null && !customerName.isBlank()) {
+            d.put("customerName", customerName);
+        }
+        if (order.getImageUrl() != null && !order.getImageUrl().isBlank()) {
+            d.put("packageImage", order.getImageUrl());
+        }
+        if (order.getWeight() != null) {
+            d.put("weight", String.valueOf(order.getWeight()));
+        }
+        if (order.getPaymentType() != null) {
+            d.put("paymentMode", order.getPaymentType().name());
+        }
         if (order.getPickupLat() != null) {
             d.put("pickupLat", String.valueOf(order.getPickupLat()));
         }
@@ -178,6 +195,21 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
         }
         d.put("earningAmount", String.valueOf(riderEarning));
         return d;
+    }
+
+    private static String customerNameForRider(OrderEntity order) {
+        if (order == null) {
+            return null;
+        }
+        String sender = order.getSenderName();
+        if (sender != null && !sender.isBlank()) {
+            return sender;
+        }
+        String receiver = order.getReceiverName();
+        if (receiver != null && !receiver.isBlank()) {
+            return receiver;
+        }
+        return null;
     }
 
     private List<Long> pickNearestRiders(Double pickupLat, Double pickupLng, Long orderId, int limit) {

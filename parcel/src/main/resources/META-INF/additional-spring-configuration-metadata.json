@@ -74,6 +74,26 @@
       "name": "incity.payment-reminder.scheduler-delay-ms",
       "type": "java.lang.Long",
       "description": "Fixed delay between scheduler runs for payment reminders (IncityPaymentReminderScheduler)."
+    },
+    {
+      "name": "youdash.tracking.min-update-interval-ms",
+      "type": "java.lang.Long",
+      "description": "Minimum interval between rider location updates in ms; faster updates are rate-limited (TrackingService)."
+    },
+    {
+      "name": "youdash.tracking.city-speed-kmh",
+      "type": "java.lang.Double",
+      "description": "Average city speed used for fallback ETA estimation in km/h (TrackingService)."
+    },
+    {
+      "name": "youdash.tracking.near-destination-radius-m",
+      "type": "java.lang.Double",
+      "description": "Radius in meters that marks rider as near destination (TrackingService)."
+    },
+    {
+      "name": "youdash.tracking.at-destination-radius-m",
+      "type": "java.lang.Double",
+      "description": "Radius in meters that marks rider as arrived at destination (TrackingService)."
     }
   ]
 }
