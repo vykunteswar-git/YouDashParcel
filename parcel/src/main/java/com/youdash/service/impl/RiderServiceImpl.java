@@ -38,7 +38,6 @@ import com.youdash.repository.VehicleRepository;
 import com.youdash.repository.wallet.RiderWalletRepository;
 import com.youdash.repository.wallet.RiderWalletTransactionRepository;
 import com.youdash.repository.wallet.RiderWithdrawalRepository;
-import com.youdash.service.DistanceService;
 import com.youdash.service.NotificationDedupService;
 import com.youdash.service.NotificationService;
 import com.youdash.service.RiderService;
@@ -79,9 +78,6 @@ public class RiderServiceImpl implements RiderService {
 
     @Autowired
     private RiderLocationHistoryRepository locationHistoryRepository;
-
-    @Autowired
-    private DistanceService distanceService;
 
     @Autowired
     private NotificationService notificationService;
@@ -365,16 +361,23 @@ public class RiderServiceImpl implements RiderService {
                     double nearRadiusKm = nearDestinationRadiusM / 1000.0;
                     double atRadiusKm = atDestinationRadiusM / 1000.0;
                     boolean atDest = GeoUtils.isInsideCircle(lat, lng, o.getDropLat(), o.getDropLng(), atRadiusKm);
-                    boolean nearDest = atDest || GeoUtils.isInsideCircle(lat, lng, o.getDropLat(), o.getDropLng(), nearRadiusKm);
+                    boolean nearDest = atDest
+                            || GeoUtils.isInsideCircle(lat, lng, o.getDropLat(), o.getDropLng(), nearRadiusKm);
 
                     if (atDest && notificationDedupService.tryAcquire("at_dest:" + orderId)) {
-                        Map<String, String> data = Map.of("orderId", String.valueOf(orderId), "type", NotificationType.USER_RIDER_AT_DESTINATION.name());
-                        notificationService.sendToUser(o.getUserId(), "Rider has arrived!", "Please show the OTP to complete delivery.", data, NotificationType.USER_RIDER_AT_DESTINATION);
+                        Map<String, String> data = Map.of("orderId", String.valueOf(orderId), "type",
+                                NotificationType.USER_RIDER_AT_DESTINATION.name());
+                        notificationService.sendToUser(o.getUserId(), "Rider has arrived!",
+                                "Please show the OTP to complete delivery.", data,
+                                NotificationType.USER_RIDER_AT_DESTINATION);
                         messagingTemplate.convertAndSend("/topic/users/" + o.getUserId() + "/order-events",
                                 Map.of("event", "at_destination", "orderId", orderId));
                     } else if (nearDest && notificationDedupService.tryAcquire("near_dest:" + orderId)) {
-                        Map<String, String> data = Map.of("orderId", String.valueOf(orderId), "type", NotificationType.USER_RIDER_NEAR_DESTINATION.name());
-                        notificationService.sendToUser(o.getUserId(), "Rider is almost there!", "Your rider is less than 1 minute away.", data, NotificationType.USER_RIDER_NEAR_DESTINATION);
+                        Map<String, String> data = Map.of("orderId", String.valueOf(orderId), "type",
+                                NotificationType.USER_RIDER_NEAR_DESTINATION.name());
+                        notificationService.sendToUser(o.getUserId(), "Rider is almost there!",
+                                "Your rider is less than 1 minute away.", data,
+                                NotificationType.USER_RIDER_NEAR_DESTINATION);
                         messagingTemplate.convertAndSend("/topic/users/" + o.getUserId() + "/order-events",
                                 Map.of("event", "near_destination", "orderId", orderId));
                     }

@@ -5,7 +5,6 @@ import com.youdash.entity.OrderEntity;
 import com.youdash.entity.RiderLocationHistoryEntity;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderLocationHistoryRepository;
-import com.youdash.service.DistanceService;
 import com.youdash.util.GeoUtils;
 import com.youdash.util.JwtUtil;
 import io.swagger.v3.oas.annotations.Operation;
@@ -15,7 +14,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,9 +28,6 @@ public class TrackingController {
 
     @Autowired
     private OrderRepository orderRepository;
-
-    @Autowired
-    private DistanceService distanceService;
 
     @Autowired
     private JwtUtil jwtUtil;
@@ -66,7 +61,8 @@ public class TrackingController {
                     .findTopByOrderIdOrderByTsDesc(orderId)
                     .orElseThrow(() -> new RuntimeException("No location data yet for this order"));
 
-            double distToDropKm = GeoUtils.haversineKm(last.getLat(), last.getLng(), order.getDropLat(), order.getDropLng());
+            double distToDropKm = GeoUtils.haversineKm(last.getLat(), last.getLng(), order.getDropLat(),
+                    order.getDropLng());
             int etaSeconds = (int) ((distToDropKm / citySpeedKmh) * 3600);
 
             Map<String, Object> data = new HashMap<>();
@@ -130,14 +126,16 @@ public class TrackingController {
 
     private String resolveRole(HttpServletRequest request) {
         String token = extractToken(request);
-        if (token == null) return "ANONYMOUS";
+        if (token == null)
+            return "ANONYMOUS";
         String type = jwtUtil.extractType(token);
         return type != null ? type.toUpperCase() : "ANONYMOUS";
     }
 
     private Long resolveActorId(HttpServletRequest request) {
         String token = extractToken(request);
-        if (token == null) return null;
+        if (token == null)
+            return null;
         return jwtUtil.extractId(token);
     }
 

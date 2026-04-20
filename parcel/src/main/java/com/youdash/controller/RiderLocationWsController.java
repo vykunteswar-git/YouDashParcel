@@ -1,6 +1,5 @@
 package com.youdash.controller;
 
-import com.youdash.exception.RateLimitException;
 import com.youdash.service.LocationUpdateRateLimiter;
 import com.youdash.service.RiderService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,7 +10,8 @@ import org.springframework.stereotype.Controller;
 import java.util.Map;
 
 /**
- * Handles location updates sent by the rider app over the existing WebSocket connection.
+ * Handles location updates sent by the rider app over the existing WebSocket
+ * connection.
  * Reduces HTTP overhead vs repeated PUT /riders/me/location calls.
  *
  * Rider sends to: /app/rider/location
@@ -32,7 +32,8 @@ public class RiderLocationWsController {
     @MessageMapping("/rider/location")
     public void handleLocationUpdate(Map<String, Double> payload, SimpMessageHeaderAccessor headerAccessor) {
         Map<String, Object> session = headerAccessor.getSessionAttributes();
-        if (session == null) return;
+        if (session == null)
+            return;
 
         Object userIdObj = session.get(SESSION_ATTR_USER_ID);
         Object typeObj = session.get(SESSION_ATTR_TYPE);
@@ -43,7 +44,8 @@ public class RiderLocationWsController {
 
         Double lat = payload.get("lat");
         Double lng = payload.get("lng");
-        if (lat == null || lng == null) return;
+        if (lat == null || lng == null)
+            return;
 
         if (!locationRateLimiter.tryAcquire(riderId)) {
             return;
