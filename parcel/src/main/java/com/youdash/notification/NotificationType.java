@@ -63,5 +63,8 @@ public enum NotificationType {
     USER_RIDER_NEAR_DESTINATION,
 
     /** User: rider is within 50m of drop location (show OTP prompt). */
-    USER_RIDER_AT_DESTINATION
+    USER_RIDER_AT_DESTINATION,
+
+    /** Admin-composed broadcast/campaign push. */
+    ADMIN_BROADCAST
 }
