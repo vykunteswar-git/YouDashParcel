@@ -17,6 +17,8 @@ public interface RiderWalletService {
 
     ApiResponse<RiderWithdrawalDTO> adminApproveWithdrawal(Long adminUserId, AdminWithdrawalApproveDTO dto);
 
+    ApiResponse<java.util.List<RiderWithdrawalDTO>> adminListWithdrawals(String status, int page, int size);
+
     ApiResponse<RiderCommissionConfigDTO> upsertCommissionConfig(Long adminUserId, RiderCommissionConfigDTO dto);
 
     ApiResponse<RiderCommissionConfigDTO> getCommissionConfig();

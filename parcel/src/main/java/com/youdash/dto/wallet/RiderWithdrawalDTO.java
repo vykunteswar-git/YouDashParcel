@@ -5,6 +5,7 @@ import lombok.Data;
 @Data
 public class RiderWithdrawalDTO {
     private Long id;
+    private Long riderId;
     private Double amount;
     private String status;
     private String accountHolderName;

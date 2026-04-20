@@ -201,6 +201,39 @@ public class RiderWalletServiceImpl implements RiderWalletService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public ApiResponse<List<RiderWithdrawalDTO>> adminListWithdrawals(String status, int page, int size) {
+        ApiResponse<List<RiderWithdrawalDTO>> response = new ApiResponse<>();
+        try {
+            var pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 200));
+            List<RiderWithdrawalDTO> list;
+            if (status == null || status.isBlank()) {
+                list = riderWithdrawalRepository.findAllByOrderByCreatedAtDesc(pageable)
+                        .stream()
+                        .map(this::toWithdrawalDto)
+                        .collect(Collectors.toList());
+            } else {
+                WithdrawalStatus st = WithdrawalStatus.valueOf(status.trim().toUpperCase());
+                list = riderWithdrawalRepository.findByStatusOrderByCreatedAtDesc(st, pageable)
+                        .stream()
+                        .map(this::toWithdrawalDto)
+                        .collect(Collectors.toList());
+            }
+            response.setData(list);
+            response.setTotalCount(list.size());
+            response.setMessage("OK");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (IllegalArgumentException e) {
+            setErr(response, "Invalid status. Use PENDING, APPROVED, or REJECTED");
+        } catch (Exception e) {
+            setErr(response, e.getMessage());
+        }
+        return response;
+    }
+
+    @Override
     @Transactional
     public ApiResponse<RiderWithdrawalDTO> requestWithdrawal(Long riderId, RiderWithdrawalRequestDTO dto) {
         ApiResponse<RiderWithdrawalDTO> response = new ApiResponse<>();
@@ -903,6 +936,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
     private RiderWithdrawalDTO toWithdrawalDto(RiderWithdrawalEntity e) {
         RiderWithdrawalDTO d = new RiderWithdrawalDTO();
         d.setId(e.getId());
+        d.setRiderId(e.getRiderId());
         d.setAmount(e.getAmount());
         d.setStatus(e.getStatus() != null ? e.getStatus().name() : null);
         d.setAccountHolderName(e.getBankAccountName());
