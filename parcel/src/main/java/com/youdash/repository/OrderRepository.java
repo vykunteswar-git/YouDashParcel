@@ -202,4 +202,10 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
 
     List<OrderEntity> findByPaymentStatusIgnoreCaseAndPaymentTypeAndCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(
             String paymentStatus, PaymentType paymentType, Instant from, Instant to);
+
+    long countByRiderIdAndStatusAndUpdatedAtGreaterThanEqualAndUpdatedAtLessThanEqual(
+            Long riderId, OrderStatus status, Instant from, Instant to);
+
+    long countByRiderIdAndStatusAndServiceModeAndUpdatedAtGreaterThanEqualAndUpdatedAtLessThanEqual(
+            Long riderId, OrderStatus status, ServiceMode serviceMode, Instant from, Instant to);
 }

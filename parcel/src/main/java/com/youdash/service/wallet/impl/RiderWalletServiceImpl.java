@@ -54,6 +54,7 @@ import com.youdash.repository.wallet.RiderWalletTransactionRepository;
 import com.youdash.repository.wallet.RiderWithdrawalRepository;
 import com.youdash.service.NotificationDedupService;
 import com.youdash.service.NotificationService;
+import com.youdash.service.PeakIncentiveService;
 import com.youdash.service.wallet.RiderWalletService;
 
 @Service
@@ -92,6 +93,9 @@ public class RiderWalletServiceImpl implements RiderWalletService {
 
     @Autowired
     private NotificationDedupService notificationDedupService;
+
+    @Autowired
+    private PeakIncentiveService peakIncentiveService;
 
     @PostConstruct
     void initDefaults() {
@@ -518,7 +522,9 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         }
         double commissionPercent = resolveCommissionPercent(cfg, payType, codMode);
         double commissionAmount = round2(orderAmount * (commissionPercent / 100.0));
-        double riderEarning = round2(orderAmount - commissionAmount);
+        double baseRiderEarning = round2(orderAmount - commissionAmount);
+        double peakBonus = peakIncentiveService.resolveBonusForDeliveredOrder(order, Instant.now());
+        double riderEarning = round2(baseRiderEarning + peakBonus);
         if (riderEarning < -0.0001) {
             throw new RuntimeException("Invalid commission config: rider earning cannot be negative");
         }
@@ -545,7 +551,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         fin.setOrderAmount(orderAmount);
         fin.setCommissionPercentApplied(commissionPercent);
         fin.setCommissionAmount(commissionAmount);
-        fin.setSurgeBonusAmount(0.0);
+        fin.setSurgeBonusAmount(peakBonus);
         fin.setRiderEarningAmount(riderEarning);
 
         if (payType == PaymentType.ONLINE) {
@@ -595,7 +601,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             earnTxn.setReferenceId(order.getId());
             earnTxn.setStatus(WalletTxnStatus.COMPLETED);
             earnTxn.setNote("Order delivered — rider earning credit");
-            earnTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(orderAmount, payType, commissionPercent, commissionAmount, riderEarning, null, null)));
+            earnTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(
+                    orderAmount, payType, commissionPercent, commissionAmount, baseRiderEarning, peakBonus, riderEarning, null, null)));
             riderWalletTransactionRepository.save(earnTxn);
         } else {
             // COD: credit only rider earning to spendable balance; collected COD is liability in codPendingAmount.
@@ -618,7 +625,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             earnTxn.setReferenceId(order.getId());
             earnTxn.setStatus(WalletTxnStatus.COMPLETED);
             earnTxn.setNote("Order delivered — rider earning credit (COD)");
-            earnTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(orderAmount, payType, commissionPercent, commissionAmount, riderEarning, codMode, collected)));
+            earnTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(
+                    orderAmount, payType, commissionPercent, commissionAmount, baseRiderEarning, peakBonus, riderEarning, codMode, collected)));
             riderWalletTransactionRepository.save(earnTxn);
 
             RiderWalletTransactionEntity codTxn = new RiderWalletTransactionEntity();
@@ -730,6 +738,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             PaymentType payType,
             double commissionPercent,
             double commissionAmount,
+            double baseRiderEarning,
+            double peakBonus,
             double riderEarning,
             CodCollectionMode codMode,
             Double codCollected) {
@@ -738,6 +748,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         m.put("commissionPercent", commissionPercent);
         m.put("commissionAmount", commissionAmount);
         m.put("formula", "riderEarning = orderAmount - (orderAmount * commissionPercent / 100)");
+        m.put("baseRiderEarning", baseRiderEarning);
+        m.put("peakBonus", peakBonus);
         m.put("calculatedEarning", riderEarning);
         m.put("riderEarning", riderEarning);
         m.put("orderAmount", orderAmount);

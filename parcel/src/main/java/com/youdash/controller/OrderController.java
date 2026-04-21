@@ -2,8 +2,10 @@ package com.youdash.controller;
 
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.*;
+import com.youdash.dto.rating.RiderRatingRequestDTO;
 import com.youdash.service.OrderService;
 import com.youdash.service.QuoteService;
+import com.youdash.service.RiderRatingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +23,9 @@ public class OrderController {
 
     @Autowired
     private OrderService orderService;
+
+    @Autowired
+    private RiderRatingService riderRatingService;
 
     @PostMapping("/quote")
     @Operation(summary = "Get price quote (INCITY/OUTSTATION)")
@@ -106,6 +111,24 @@ public class OrderController {
             @RequestAttribute("userId") Long tokenUserId,
             @RequestAttribute(value = "type", required = false) String type) {
         return orderService.verifyDeliveryOtp(id, dto, tokenUserId, type);
+    }
+
+    @PostMapping("/{id}/rate-rider")
+    @Operation(summary = "Rate rider for delivered order", description = "USER only. One rating per order.")
+    public ApiResponse<String> rateRider(
+            @PathVariable Long id,
+            @RequestBody RiderRatingRequestDTO dto,
+            @RequestAttribute("userId") Long userId,
+            @RequestAttribute(value = "type", required = false) String type) {
+        if (!"USER".equals(type)) {
+            ApiResponse<String> denied = new ApiResponse<>();
+            denied.setMessage("User token required");
+            denied.setMessageKey("ERROR");
+            denied.setSuccess(false);
+            denied.setStatus(403);
+            return denied;
+        }
+        return riderRatingService.submitUserRating(id, userId, dto);
     }
 
     @PostMapping("/manual-request")

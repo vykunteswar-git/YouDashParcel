@@ -12,6 +12,7 @@ import com.youdash.dto.RiderRequestDTO;
 import com.youdash.dto.RiderResponseDTO;
 import com.youdash.dto.OrderResponseDTO;
 import com.youdash.dto.RiderSelfUpdateDTO;
+import com.youdash.dto.rating.RiderRatingSummaryDTO;
 import com.youdash.entity.RiderEntity;
 import com.youdash.exception.RateLimitException;
 import com.youdash.repository.RiderRepository;
@@ -20,6 +21,7 @@ import com.youdash.service.LocationUpdateRateLimiter;
 import com.youdash.service.OrderService;
 import com.youdash.service.RiderService;
 import com.youdash.service.RiderOrderService;
+import com.youdash.service.RiderRatingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
@@ -47,6 +49,9 @@ public class RiderController {
 
     @Autowired
     private LocationUpdateRateLimiter locationRateLimiter;
+
+    @Autowired
+    private RiderRatingService riderRatingService;
 
     @PostMapping("/fcm-token")
     public ApiResponse<String> saveFcmToken(@RequestBody FcmTokenRequestDTO dto, HttpServletRequest request) {
@@ -108,6 +113,13 @@ public class RiderController {
         RiderEntity rider = riderRepository.findById(riderId)
                 .orElseThrow(() -> new RuntimeException("Rider not found"));
         return riderService.getRiderProfile(rider);
+    }
+
+    @GetMapping("/me/ratings")
+    @Operation(summary = "Get my rating summary (JWT)")
+    public ApiResponse<RiderRatingSummaryDTO> myRatings(HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return riderRatingService.getRiderRatingSummary(riderId);
     }
 
     @PatchMapping("/me")

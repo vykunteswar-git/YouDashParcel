@@ -257,7 +257,7 @@ public class OrderServiceImpl implements OrderService {
 
                 if (clientPricing) {
                     if (StringUtils.hasText(dto.getCouponCode())) {
-                        double preCoupon = dto.getTotalAmount();
+                        double preCoupon = resolvePreCouponTotalForClientPricing(dto);
                         CouponApplication cap = couponService.resolveApplication(
                                 userId, dto.getCouponCode(), preCoupon, ServiceMode.INCITY);
                         promo = cap;
@@ -333,7 +333,7 @@ public class OrderServiceImpl implements OrderService {
 
                 if (clientPricing) {
                     if (StringUtils.hasText(dto.getCouponCode())) {
-                        double preCoupon = dto.getTotalAmount();
+                        double preCoupon = resolvePreCouponTotalForClientPricing(dto);
                         CouponApplication cap = couponService.resolveApplication(
                                 userId, dto.getCouponCode(), preCoupon, ServiceMode.OUTSTATION);
                         promo = cap;
@@ -1378,6 +1378,18 @@ public class OrderServiceImpl implements OrderService {
         order.setPlatformFee(round2(dto.getPlatformFee()));
         order.setCouponAmount(round2(couponDisc));
         order.setTotalAmount(round2(preCoupon - couponDisc));
+    }
+
+    /**
+     * Prevent double discount when client sends payable total from preview screen.
+     * For coupon-code flow, trust subtotal+gst+platform as pre-coupon total.
+     */
+    private static double resolvePreCouponTotalForClientPricing(CreateOrderRequestDTO dto) {
+        double computed = round2(nz(dto.getSubtotal()) + nz(dto.getGstAmount()) + nz(dto.getPlatformFee()));
+        if (computed > 0) {
+            return computed;
+        }
+        return round2(nz(dto.getTotalAmount()));
     }
 
     private record LegKm(double pickupKm, double hubKm, double dropKm) {}
