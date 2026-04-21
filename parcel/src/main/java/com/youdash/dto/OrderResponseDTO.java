@@ -74,5 +74,11 @@ public class OrderResponseDTO {
     private Double codCollectedAmount;
     private CodCollectionMode codCollectionMode;
     private CodSettlementStatus codSettlementStatus;
+    /** True when user can rate rider for this delivered order. */
+    private Boolean canRateRider;
+    /** True when rider rating already exists for this order. */
+    private Boolean riderRatingSubmitted;
+    /** User-provided rider stars for this order (1..5), when rated. */
+    private Integer riderRating;
     private String createdAt;
 }

@@ -116,6 +116,9 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     private UserActiveOrderTopicPublisher userActiveOrderTopicPublisher;
 
+    @Autowired
+    private RiderRatingRepository riderRatingRepository;
+
     @Override
     public ApiResponse<FinalPriceResponseDTO> calculateFinal(Long userId, FinalPriceRequestDTO dto) {
         ApiResponse<FinalPriceResponseDTO> response = new ApiResponse<>();
@@ -499,8 +502,10 @@ public class OrderServiceImpl implements OrderService {
                     : riderRepository.findAllById(riderIds).stream()
                             .collect(Collectors.toMap(RiderEntity::getId, Function.identity()));
             Map<Long, VehicleEntity> vehicleMap = buildVehicleBatchForOrders(orders, riderMap);
+            Map<Long, Integer> riderRatingByOrderId = buildRiderRatingByOrderId(orders);
             List<OrderResponseDTO> list = orders.stream()
                     .map(o -> toOrderDto(o, riderMap, vehicleMap, false))
+                    .peek(d -> applyRiderRatingFlags(d, riderRatingByOrderId.get(d.getId())))
                     .collect(Collectors.toList());
             response.setData(list);
             response.setMessage("OK");
@@ -825,6 +830,9 @@ public class OrderServiceImpl implements OrderService {
         deliveredEvt.setEventType("status_updated");
         deliveredEvt.setStatus(OrderStatus.DELIVERED.name());
         deliveredEvt.setRiderId(saved.getRiderId());
+        deliveredEvt.setCanRateRider(Boolean.TRUE);
+        deliveredEvt.setRiderRatingSubmitted(Boolean.FALSE);
+        deliveredEvt.setRiderRating(null);
         messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", deliveredEvt);
         userActiveOrderTopicPublisher.publishStatusUpdated(
                 saved.getUserId(), saved.getId(), OrderStatus.DELIVERED.name(), saved.getRiderId());
@@ -894,6 +902,9 @@ public class OrderServiceImpl implements OrderService {
         evt.setEventType("otp_verified");
         evt.setStatus(OrderStatus.IN_TRANSIT.name());
         evt.setRiderId(saved.getRiderId());
+        evt.setCanRateRider(Boolean.FALSE);
+        evt.setRiderRatingSubmitted(Boolean.FALSE);
+        evt.setRiderRating(null);
         messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", evt);
         userActiveOrderTopicPublisher.publishStatusUpdated(
                 saved.getUserId(), saved.getId(), OrderStatus.IN_TRANSIT.name(), saved.getRiderId());
@@ -1282,8 +1293,36 @@ public class OrderServiceImpl implements OrderService {
                 .codCollectedAmount(o.getCodCollectedAmount())
                 .codCollectionMode(o.getCodCollectionMode())
                 .codSettlementStatus(o.getCodSettlementStatus())
+                .canRateRider(Boolean.FALSE)
+                .riderRatingSubmitted(Boolean.FALSE)
+                .riderRating(null)
                 .createdAt(o.getCreatedAt() != null ? o.getCreatedAt().toString() : null)
                 .build();
+    }
+
+    private Map<Long, Integer> buildRiderRatingByOrderId(List<OrderEntity> orders) {
+        if (orders == null || orders.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> ids = orders.stream().map(OrderEntity::getId).filter(Objects::nonNull).toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return riderRatingRepository.findByOrderIdIn(ids).stream()
+                .collect(Collectors.toMap(RiderRatingEntity::getOrderId, RiderRatingEntity::getStars, (a, b) -> a));
+    }
+
+    private static void applyRiderRatingFlags(OrderResponseDTO dto, Integer riderStars) {
+        if (dto == null) {
+            return;
+        }
+        boolean submitted = riderStars != null;
+        dto.setRiderRatingSubmitted(submitted);
+        dto.setRiderRating(riderStars);
+        boolean canRate = !submitted
+                && dto.getRiderId() != null
+                && dto.getStatus() == OrderStatus.DELIVERED;
+        dto.setCanRateRider(canRate);
     }
 
     /**

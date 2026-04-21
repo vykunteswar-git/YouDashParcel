@@ -9,6 +9,10 @@ import java.util.Optional;
 public interface RiderRatingRepository extends JpaRepository<RiderRatingEntity, Long> {
     Optional<RiderRatingEntity> findByOrderId(Long orderId);
 
+    boolean existsByOrderId(Long orderId);
+
+    List<RiderRatingEntity> findByOrderIdIn(List<Long> orderIds);
+
     List<RiderRatingEntity> findByRiderIdOrderByCreatedAtDesc(Long riderId);
 
     long countByRiderId(Long riderId);

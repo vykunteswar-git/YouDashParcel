@@ -11,5 +11,11 @@ public class UserOrderEventDTO {
     private String status;
     private Long paymentDueAtEpochMs;
     private Long riderId;
+    /** When true, app can show rate-rider UI for this order. */
+    private Boolean canRateRider;
+    /** True when rating already exists for this order. */
+    private Boolean riderRatingSubmitted;
+    /** Existing rider stars for this order, when submitted. */
+    private Integer riderRating;
 }
 
