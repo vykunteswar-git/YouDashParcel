@@ -430,6 +430,10 @@ public class OrderServiceImpl implements OrderService {
             }
             boolean riderOrderApi = "RIDER".equals(tokenType);
             OrderResponseDTO data = toOrderDto(o, null, null, riderOrderApi);
+            Integer riderStars = riderRatingRepository.findByOrderId(o.getId())
+                    .map(RiderRatingEntity::getStars)
+                    .orElse(null);
+            applyRiderRatingFlags(data, riderStars);
             if (riderOrderApi) {
                 data = stripCommercialDetailsForRider(data);
                 data.setEarnedAmount(riderWalletService.resolveRiderEarningForOrder(o));
