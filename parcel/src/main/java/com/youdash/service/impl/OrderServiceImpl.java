@@ -33,11 +33,14 @@ import org.springframework.util.StringUtils;
 
 import com.youdash.dto.realtime.UserOrderEventDTO;
 import com.youdash.realtime.RiderActiveOrderTopicPublisher;
+import com.youdash.realtime.UserActiveOrderTopicPublisher;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -48,6 +51,10 @@ import java.time.Instant;
 
 @Service
 public class OrderServiceImpl implements OrderService {
+
+    private static final int ADDRESS_SUGGESTION_DEFAULT_LIMIT = 7;
+    private static final int ADDRESS_SUGGESTION_MAX_LIMIT = 7;
+    private static final int ADDRESS_SUGGESTION_MAX_ORDERS_SCAN = 250;
 
     @Autowired
     private AppConfigRepository appConfigRepository;
@@ -105,6 +112,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private RiderActiveOrderTopicPublisher riderActiveOrderTopicPublisher;
+
+    @Autowired
+    private UserActiveOrderTopicPublisher userActiveOrderTopicPublisher;
 
     @Override
     public ApiResponse<FinalPriceResponseDTO> calculateFinal(Long userId, FinalPriceRequestDTO dto) {
@@ -189,6 +199,8 @@ public class OrderServiceImpl implements OrderService {
                 throw new RuntimeException("paymentType is required (COD or ONLINE)");
             }
             PaymentType paymentType = PaymentType.valueOf(dto.getPaymentType().trim().toUpperCase());
+            AppConfigEntity checkoutConfig = requireConfig();
+            validatePaymentModeEnabled(paymentType, checkoutConfig);
 
             Optional<com.youdash.entity.ZoneEntity> pz = zoneService.findZoneContaining(dto.getPickupLat(), dto.getPickupLng());
             Optional<com.youdash.entity.ZoneEntity> dz = zoneService.findZoneContaining(dto.getDropLat(), dto.getDropLng());
@@ -259,7 +271,7 @@ public class OrderServiceImpl implements OrderService {
                         applyClientPricing(order, dto);
                     }
                 } else {
-                    AppConfigEntity cfg = requireConfig();
+                    AppConfigEntity cfg = checkoutConfig;
                     double sub = pricingService.incityVehicleTotal(dist, dto.getWeight(), vehicle);
                     double gst = sub * (nz(cfg.getGstPercent()) / 100.0);
                     double platform = nz(cfg.getPlatformFee());
@@ -335,7 +347,7 @@ public class OrderServiceImpl implements OrderService {
                         applyClientPricing(order, dto);
                     }
                 } else {
-                    AppConfigEntity cfg = requireConfig();
+                    AppConfigEntity cfg = checkoutConfig;
                     double routeRate = resolveRouteRate(dto.getOriginHubId(), dto.getDestinationHubId(), cfg);
                     PricingService.OutstationBreakdown b = pricingService.outstationBreakdown(
                             pickupDist, hubDist, dropDist, routeRate, dto.getWeight(), dtype, cfg);
@@ -498,6 +510,78 @@ public class OrderServiceImpl implements OrderService {
             setError(response, e.getMessage());
         }
         return response;
+    }
+
+    @Override
+    public ApiResponse<List<OrderAddressSuggestionDTO>> listUserOrderAddressSuggestions(
+            Long userId, Long tokenUserId, boolean admin, Integer limit) {
+        ApiResponse<List<OrderAddressSuggestionDTO>> response = new ApiResponse<>();
+        try {
+            if (!admin && !Objects.equals(userId, tokenUserId)) {
+                throw new RuntimeException("Access denied");
+            }
+            int cap = ADDRESS_SUGGESTION_DEFAULT_LIMIT;
+            if (limit != null) {
+                cap = Math.min(ADDRESS_SUGGESTION_MAX_LIMIT, Math.max(1, limit));
+            }
+            var page = PageRequest.of(0, ADDRESS_SUGGESTION_MAX_ORDERS_SCAN, Sort.by(Sort.Direction.DESC, "createdAt"));
+            List<OrderEntity> orders = orderRepository.findByUserIdOrderByCreatedAtDesc(userId, page);
+            List<OrderAddressSuggestionDTO> suggestions = buildAddressSuggestions(orders, cap);
+            response.setData(suggestions);
+            response.setMessage("OK");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+            response.setTotalCount(suggestions.size());
+        } catch (Exception e) {
+            setError(response, e.getMessage());
+        }
+        return response;
+    }
+
+    private static List<OrderAddressSuggestionDTO> buildAddressSuggestions(List<OrderEntity> orders, int maxSuggestions) {
+        Set<String> seen = new HashSet<>();
+        List<OrderAddressSuggestionDTO> out = new ArrayList<>();
+        for (OrderEntity o : orders) {
+            if (out.size() >= maxSuggestions) {
+                break;
+            }
+            tryAddSuggestion(out, seen, o, OrderAddressRole.PICKUP, o.getPickupLat(), o.getPickupLng(), o.getSenderName(), o.getSenderPhone(), o.getCreatedAt());
+            if (out.size() >= maxSuggestions) {
+                break;
+            }
+            tryAddSuggestion(out, seen, o, OrderAddressRole.DROP, o.getDropLat(), o.getDropLng(), o.getReceiverName(), o.getReceiverPhone(), o.getCreatedAt());
+        }
+        out.sort(Comparator.comparing(OrderAddressSuggestionDTO::getLastUsedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                .reversed());
+        return out;
+    }
+
+    private static void tryAddSuggestion(
+            List<OrderAddressSuggestionDTO> out,
+            Set<String> seen,
+            OrderEntity o,
+            OrderAddressRole role,
+            Double lat,
+            Double lng,
+            String contactName,
+            String contactPhone,
+            Instant createdAt) {
+        if (lat == null || lng == null) {
+            return;
+        }
+        String key = role.name() + '|' + String.format(Locale.ROOT, "%.5f,%.5f", lat, lng);
+        if (!seen.add(key)) {
+            return;
+        }
+        out.add(OrderAddressSuggestionDTO.builder()
+                .role(role)
+                .lat(lat)
+                .lng(lng)
+                .contactName(contactName)
+                .contactPhone(contactPhone)
+                .lastUsedAt(createdAt != null ? createdAt.toString() : null)
+                .build());
     }
 
     @Override
@@ -798,6 +882,8 @@ public class OrderServiceImpl implements OrderService {
         evt.setStatus(OrderStatus.IN_TRANSIT.name());
         evt.setRiderId(saved.getRiderId());
         messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", evt);
+        userActiveOrderTopicPublisher.publishStatusUpdated(
+                saved.getUserId(), saved.getId(), OrderStatus.IN_TRANSIT.name(), saved.getRiderId());
 
         if (saved.getRiderId() != null) {
             riderActiveOrderTopicPublisher.publish(
@@ -894,6 +980,7 @@ public class OrderServiceImpl implements OrderService {
                         o.getRiderId(), o.getId(), OrderStatus.CANCELLED, "released", "USER_CANCELLED");
             }
             dispatchService.closeRequest(o.getId(), "cancelled", null);
+            userActiveOrderTopicPublisher.publishReleased(o.getUserId());
             OrderEntity refreshedForPush = orderRepository.findById(o.getId()).orElse(o);
             Map<String, String> closedData = new HashMap<>(
                     NotificationService.baseData(
@@ -1046,6 +1133,15 @@ public class OrderServiceImpl implements OrderService {
         }
         String t = s.trim();
         return t.isEmpty() ? null : t;
+    }
+
+    private static void validatePaymentModeEnabled(PaymentType paymentType, AppConfigEntity config) {
+        if (paymentType == PaymentType.COD && !Boolean.TRUE.equals(config.getCodEnabled())) {
+            throw new RuntimeException("COD is currently disabled");
+        }
+        if (paymentType == PaymentType.ONLINE && !Boolean.TRUE.equals(config.getOnlineEnabled())) {
+            throw new RuntimeException("Online payment is currently disabled");
+        }
     }
 
     /**

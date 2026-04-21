@@ -1,6 +1,7 @@
 package com.youdash.config;
 
 import com.youdash.entity.AppConfigEntity;
+import com.youdash.model.PaymentType;
 import com.youdash.entity.PackageCategoryEntity;
 import com.youdash.repository.AppConfigRepository;
 import com.youdash.repository.PackageCategoryRepository;
@@ -28,6 +29,9 @@ public class AppDataInitializer {
             c.setDropRatePerKm(12.0);
             c.setPerKgRate(8.0);
             c.setDefaultRouteRatePerKm(10.0);
+            c.setCodEnabled(true);
+            c.setOnlineEnabled(true);
+            c.setDefaultPaymentType(PaymentType.ONLINE);
             appConfigRepository.save(c);
         }
         if (packageCategoryRepository.count() == 0) {

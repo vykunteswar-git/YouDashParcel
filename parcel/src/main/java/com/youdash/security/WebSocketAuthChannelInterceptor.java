@@ -23,6 +23,7 @@ import com.youdash.util.JwtUtil;
  * Expected destinations:
  * - /topic/orders/{orderId}/rider-location
  * - /topic/riders/{riderId}/active-order (INCITY assignment lifecycle; rider-only)
+ * - /topic/users/{userId}/active-order (user active-order status + ETA)
  */
 @Component
 public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
@@ -38,6 +39,9 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
     private static final Pattern USER_EVENTS_TOPIC =
             Pattern.compile("^/topic/users/(\\d+)/order-events$");
+
+    private static final Pattern USER_ACTIVE_ORDER_TOPIC =
+            Pattern.compile("^/topic/users/(\\d+)/active-order$");
 
     @Autowired
     private JwtUtil jwtUtil;
@@ -100,6 +104,18 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             Matcher userEvents = USER_EVENTS_TOPIC.matcher(destination);
             if (userEvents.matches()) {
                 Long userId = Long.valueOf(userEvents.group(1));
+                if ("ADMIN".equals(p.tokenType)) {
+                    return message;
+                }
+                if ("USER".equals(p.tokenType) && p.userId.equals(userId)) {
+                    return message;
+                }
+                throw new RuntimeException("Access denied");
+            }
+
+            Matcher userActive = USER_ACTIVE_ORDER_TOPIC.matcher(destination);
+            if (userActive.matches()) {
+                Long userId = Long.valueOf(userActive.group(1));
                 if ("ADMIN".equals(p.tokenType)) {
                     return message;
                 }

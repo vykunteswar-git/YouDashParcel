@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.youdash.dto.realtime.UserOrderEventDTO;
 import com.youdash.entity.OrderEntity;
 import com.youdash.realtime.RiderActiveOrderTopicPublisher;
+import com.youdash.realtime.UserActiveOrderTopicPublisher;
 import com.youdash.notification.NotificationType;
 import com.youdash.model.OrderStatus;
 import com.youdash.model.PaymentType;
@@ -44,6 +45,9 @@ public class IncityOrderTimeoutScheduler {
     @Autowired
     private RiderActiveOrderTopicPublisher riderActiveOrderTopicPublisher;
 
+    @Autowired
+    private UserActiveOrderTopicPublisher userActiveOrderTopicPublisher;
+
     @Scheduled(fixedDelayString = "${incity.scheduler.delay-ms:3000}")
     @Transactional(rollbackFor = Exception.class)
     public void expireSearchingOrders() {
@@ -61,6 +65,7 @@ public class IncityOrderTimeoutScheduler {
             if (updated == 1) {
                 dispatchService.closeRequest(o.getId(), "expired", null);
                 sendUserCancelled(o.getUserId(), o.getId(), "NO_RIDER_FOUND", OrderStatus.EXPIRED);
+                userActiveOrderTopicPublisher.publishReleased(o.getUserId());
                 pushUserOrderClosed(
                         o.getUserId(),
                         o.getId(),
@@ -106,6 +111,7 @@ public class IncityOrderTimeoutScheduler {
                 }
                 dispatchService.closeRequest(o.getId(), "cancelled", null);
                 sendUserCancelled(o.getUserId(), o.getId(), "PAYMENT_TIMEOUT", OrderStatus.CANCELLED);
+                userActiveOrderTopicPublisher.publishReleased(o.getUserId());
                 pushUserOrderClosed(
                         o.getUserId(),
                         o.getId(),

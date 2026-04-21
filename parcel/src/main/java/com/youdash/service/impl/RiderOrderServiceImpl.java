@@ -22,6 +22,7 @@ import com.youdash.notification.NotificationType;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.realtime.RiderActiveOrderTopicPublisher;
+import com.youdash.realtime.UserActiveOrderTopicPublisher;
 import com.youdash.util.DeliveryOtpGenerator;
 import com.youdash.util.TransactionAfterCommit;
 import com.youdash.service.DispatchService;
@@ -51,6 +52,9 @@ public class RiderOrderServiceImpl implements RiderOrderService {
 
     @Autowired
     private RiderActiveOrderTopicPublisher riderActiveOrderTopicPublisher;
+
+    @Autowired
+    private UserActiveOrderTopicPublisher userActiveOrderTopicPublisher;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -159,6 +163,11 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                         NotificationType.USER_RIDER_ACCEPTED);
             }
             riderActiveOrderTopicPublisher.publish(riderIdFinal, acceptedOrderId, statusAfterAccept, "assigned");
+            userActiveOrderTopicPublisher.publishStatusUpdated(
+                    userId,
+                    acceptedOrderId,
+                    statusAfterAccept.name(),
+                    riderIdFinal);
         });
 
         response.setData(orderServiceImpl.toOrderDtoForRider(refreshed));
@@ -182,6 +191,8 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         order.setStatus(OrderStatus.PICKED_UP);
         OrderEntity saved = orderRepository.save(order);
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
+        userActiveOrderTopicPublisher.publishStatusUpdated(
+                saved.getUserId(), saved.getId(), saved.getStatus().name(), riderId);
         sendUserOrderStatusPush(saved);
         riderActiveOrderTopicPublisher.publish(riderId, saved.getId(), saved.getStatus(), "status_updated");
         response.setData(orderServiceImpl.toOrderDtoForRider(saved));
@@ -205,6 +216,8 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         order.setStatus(OrderStatus.IN_TRANSIT);
         OrderEntity saved = orderRepository.save(order);
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
+        userActiveOrderTopicPublisher.publishStatusUpdated(
+                saved.getUserId(), saved.getId(), saved.getStatus().name(), riderId);
         sendUserOrderStatusPush(saved);
         riderActiveOrderTopicPublisher.publish(riderId, saved.getId(), saved.getStatus(), "status_updated");
         response.setData(orderServiceImpl.toOrderDtoForRider(saved));
@@ -226,6 +239,8 @@ public class RiderOrderServiceImpl implements RiderOrderService {
             throw new BadRequestException("Order must be IN_TRANSIT to record destination arrival");
         }
         sendTypedUserEvent(order.getUserId(), order.getId(), "reach_destination", order.getStatus(), riderId);
+        userActiveOrderTopicPublisher.publishStatusUpdated(
+                order.getUserId(), order.getId(), order.getStatus().name(), riderId);
         riderActiveOrderTopicPublisher.publish(riderId, order.getId(), order.getStatus(), "reach_destination");
         response.setData(orderServiceImpl.toOrderDtoForRider(order));
         response.setMessage("Destination reached");

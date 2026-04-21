@@ -15,6 +15,7 @@ import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.dto.realtime.UserOrderEventDTO;
 import com.youdash.realtime.RiderActiveOrderTopicPublisher;
+import com.youdash.realtime.UserActiveOrderTopicPublisher;
 import com.youdash.service.NotificationDedupService;
 import com.youdash.service.NotificationService;
 import com.youdash.service.OrderService;
@@ -71,6 +72,9 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Autowired
     private RiderActiveOrderTopicPublisher riderActiveOrderTopicPublisher;
+
+    @Autowired
+    private UserActiveOrderTopicPublisher userActiveOrderTopicPublisher;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -328,6 +332,8 @@ public class PaymentServiceImpl implements PaymentService {
         evt.setEventType("confirmed");
         evt.setStatus(OrderStatus.CONFIRMED.name());
         messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", evt);
+        userActiveOrderTopicPublisher.publishStatusUpdated(
+                userId, orderId, OrderStatus.CONFIRMED.name(), null);
     }
 
     @Override

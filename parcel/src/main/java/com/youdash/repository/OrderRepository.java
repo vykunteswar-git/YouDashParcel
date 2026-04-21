@@ -18,6 +18,9 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
 
     List<OrderEntity> findByUserIdOrderByCreatedAtDesc(Long userId);
 
+    /** Newest first; use with {@link Pageable} to cap scans for address suggestions. */
+    List<OrderEntity> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
+
     long countByRiderIdAndStatus(Long riderId, OrderStatus status);
 
     List<OrderEntity> findByRiderIdOrderByCreatedAtDesc(Long riderId);
@@ -29,6 +32,9 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     /** Latest INCITY order for this rider in one of the given statuses (e.g. active job). */
     Optional<OrderEntity> findFirstByRiderIdAndServiceModeAndStatusInOrderByIdDesc(
             Long riderId, ServiceMode serviceMode, List<OrderStatus> statuses);
+
+    /** Most recent order for this user in any of the provided statuses. */
+    Optional<OrderEntity> findFirstByUserIdAndStatusInOrderByCreatedAtDesc(Long userId, List<OrderStatus> statuses);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""

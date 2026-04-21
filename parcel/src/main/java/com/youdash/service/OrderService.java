@@ -17,6 +17,14 @@ public interface OrderService {
 
     ApiResponse<List<OrderResponseDTO>> listUserOrders(Long userId, Long tokenUserId, boolean admin);
 
+    /**
+     * Distinct recent pickup/drop coordinates from the user's orders (for create-order autofill).
+     *
+     * @param limit max suggestions to return (capped server-side)
+     */
+    ApiResponse<List<OrderAddressSuggestionDTO>> listUserOrderAddressSuggestions(
+            Long userId, Long tokenUserId, boolean admin, Integer limit);
+
     ApiResponse<List<OrderResponseDTO>> listRiderOrders(Long riderId);
 
     ApiResponse<ManualOrderRequestResponseDTO> manualRequest(Long userId, ManualOrderRequestDTO dto);

@@ -40,7 +40,7 @@ public class SwaggerConfig {
     public GroupedOpenApi groupUserOrders() {
         return GroupedOpenApi.builder()
                 .group("02 - User Orders")
-                .pathsToMatch("/orders/**")
+                .pathsToMatch("/orders/**", "/coupons/**")
                 .pathsToExclude("/admin/**")
                 .build();
     }

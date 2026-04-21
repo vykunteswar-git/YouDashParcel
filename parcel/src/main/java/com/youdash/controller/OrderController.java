@@ -62,6 +62,20 @@ public class OrderController {
         return orderService.listUserOrders(userId, tokenUserId, admin);
     }
 
+    @GetMapping("/user/{userId}/address-suggestions")
+    @Operation(
+            summary = "Recent pickup/drop locations for autofill",
+            description =
+                    "Deduped coordinates from past orders (newest first). Use role PICKUP → sender + pickupLat/Lng; DROP → receiver + dropLat/Lng on POST /orders.")
+    public ApiResponse<List<OrderAddressSuggestionDTO>> addressSuggestions(
+            @PathVariable Long userId,
+            @RequestParam(required = false) Integer limit,
+            @RequestAttribute("userId") Long tokenUserId,
+            @RequestAttribute(value = "type", required = false) String type) {
+        boolean admin = "ADMIN".equals(type);
+        return orderService.listUserOrderAddressSuggestions(userId, tokenUserId, admin, limit);
+    }
+
     @GetMapping("/{id}")
     @Operation(summary = "Get order by id")
     public ApiResponse<OrderResponseDTO> getOrder(

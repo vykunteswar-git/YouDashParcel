@@ -41,6 +41,7 @@ import com.youdash.repository.wallet.RiderWithdrawalRepository;
 import com.youdash.service.NotificationDedupService;
 import com.youdash.service.NotificationService;
 import com.youdash.service.RiderService;
+import com.youdash.realtime.UserActiveOrderTopicPublisher;
 import com.youdash.util.GeoUtils;
 import com.youdash.util.JwtUtil;
 import com.youdash.dto.realtime.RiderLocationEventDTO;
@@ -84,6 +85,9 @@ public class RiderServiceImpl implements RiderService {
 
     @Autowired
     private NotificationDedupService notificationDedupService;
+
+    @Autowired
+    private UserActiveOrderTopicPublisher userActiveOrderTopicPublisher;
 
     @Value("${youdash.tracking.city-speed-kmh:20}")
     private double citySpeedKmh;
@@ -394,6 +398,13 @@ public class RiderServiceImpl implements RiderService {
                     evt.setNearDestination(nearDest);
                     evt.setAtDestination(atDest);
                     messagingTemplate.convertAndSend("/topic/orders/" + orderId + "/rider-location", evt);
+                    userActiveOrderTopicPublisher.publishEtaUpdated(
+                            o.getUserId(),
+                            orderId,
+                            o.getStatus() == null ? null : o.getStatus().name(),
+                            riderId,
+                            etaSeconds,
+                            Math.round(distToDropKm * 100.0) / 100.0);
                 }
             } catch (Exception ignored) {
                 // Never fail the REST update just because realtime publish failed.

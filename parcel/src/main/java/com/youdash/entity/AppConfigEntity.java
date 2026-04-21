@@ -1,5 +1,6 @@
 package com.youdash.entity;
 
+import com.youdash.model.PaymentType;
 import jakarta.persistence.*;
 import lombok.Data;
 
@@ -30,4 +31,30 @@ public class AppConfigEntity {
     /** Used when no hub-route row exists for a hub pair */
     @Column(name = "default_route_rate_per_km")
     private Double defaultRouteRatePerKm;
+
+    /** Checkout: whether COD can be selected by user apps. */
+    @Column(name = "cod_enabled")
+    private Boolean codEnabled;
+
+    /** Checkout: whether ONLINE can be selected by user apps. */
+    @Column(name = "online_enabled")
+    private Boolean onlineEnabled;
+
+    /** Suggested default payment type for checkout UI. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "default_payment_type", length = 16)
+    private PaymentType defaultPaymentType;
+
+    @PrePersist
+    void prePersist() {
+        if (codEnabled == null) {
+            codEnabled = true;
+        }
+        if (onlineEnabled == null) {
+            onlineEnabled = true;
+        }
+        if (defaultPaymentType == null) {
+            defaultPaymentType = PaymentType.ONLINE;
+        }
+    }
 }
