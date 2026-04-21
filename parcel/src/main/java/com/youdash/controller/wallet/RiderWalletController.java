@@ -22,7 +22,10 @@ import com.youdash.dto.wallet.RiderWalletTransactionDTO;
 import com.youdash.dto.wallet.RiderWithdrawalDTO;
 import com.youdash.dto.wallet.RiderWithdrawalRequestDTO;
 import com.youdash.dto.incentive.RiderIncentiveProgressDTO;
+import com.youdash.dto.notification.NotificationInboxItemDTO;
+import com.youdash.dto.notification.NotificationUnreadCountDTO;
 import com.youdash.security.RiderAccessVerifier;
+import com.youdash.service.NotificationInboxService;
 import com.youdash.service.OrderService;
 import com.youdash.service.PeakIncentiveService;
 import com.youdash.service.wallet.RiderWalletService;
@@ -47,6 +50,9 @@ public class RiderWalletController {
 
     @Autowired
     private PeakIncentiveService peakIncentiveService;
+
+    @Autowired
+    private NotificationInboxService notificationInboxService;
 
     @GetMapping("/wallet")
     public ApiResponse<RiderWalletSummaryDTO> wallet(HttpServletRequest request) {
@@ -89,6 +95,37 @@ public class RiderWalletController {
     public ApiResponse<List<RiderIncentiveProgressDTO>> incentiveProgress(HttpServletRequest request) {
         Long riderId = riderAccessVerifier.resolveActingRiderId(request);
         return peakIncentiveService.riderProgress(riderId);
+    }
+
+    @GetMapping("/notifications")
+    @Operation(summary = "Get my notifications (JWT)")
+    public ApiResponse<List<NotificationInboxItemDTO>> notifications(
+            HttpServletRequest request,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "50") int size) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return notificationInboxService.listForRider(riderId, page, size);
+    }
+
+    @GetMapping("/notifications/unread-count")
+    @Operation(summary = "Get my unread notifications count (JWT)")
+    public ApiResponse<NotificationUnreadCountDTO> unreadNotificationCount(HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return notificationInboxService.unreadCountForRider(riderId);
+    }
+
+    @PostMapping("/notifications/{id}/read")
+    @Operation(summary = "Mark notification as read (JWT)")
+    public ApiResponse<String> markNotificationRead(@PathVariable Long id, HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return notificationInboxService.markReadForRider(riderId, id);
+    }
+
+    @PostMapping("/notifications/read-all")
+    @Operation(summary = "Mark all notifications as read (JWT)")
+    public ApiResponse<String> markNotificationsReadAll(HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return notificationInboxService.markAllReadForRider(riderId);
     }
 
     @GetMapping("/orders/{orderId}")

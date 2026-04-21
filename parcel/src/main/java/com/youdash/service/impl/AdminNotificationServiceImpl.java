@@ -130,9 +130,17 @@ public class AdminNotificationServiceImpl implements AdminNotificationService {
             }
             payload.put("targetType", targetType.name());
 
-            for (String token : recipients.tokens()) {
+            for (Long userId : recipients.userIds()) {
                 try {
-                    notificationService.sendToToken(token, dto.getTitle().trim(), dto.getBody().trim(), payload, NotificationType.ADMIN_BROADCAST);
+                    notificationService.sendToUser(userId, dto.getTitle().trim(), dto.getBody().trim(), payload, NotificationType.ADMIN_BROADCAST);
+                    success++;
+                } catch (Exception ignored) {
+                    failed++;
+                }
+            }
+            for (Long riderId : recipients.riderIds()) {
+                try {
+                    notificationService.sendToRider(riderId, dto.getTitle().trim(), dto.getBody().trim(), payload, NotificationType.ADMIN_BROADCAST);
                     success++;
                 } catch (Exception ignored) {
                     failed++;
@@ -268,26 +276,30 @@ public class AdminNotificationServiceImpl implements AdminNotificationService {
     }
 
     private ResolvedRecipients resolveAllUsers() {
+        LinkedHashSet<Long> userIds = new LinkedHashSet<>();
         LinkedHashSet<String> tokens = new LinkedHashSet<>();
         for (UserEntity u : userRepository.findByActiveTrue()) {
+            userIds.add(u.getId());
             if (StringUtils.hasText(u.getFcmToken())) {
                 tokens.add(u.getFcmToken().trim());
             }
         }
-        return new ResolvedRecipients(tokens);
+        return new ResolvedRecipients(tokens, userIds, new LinkedHashSet<>());
     }
 
     private ResolvedRecipients resolveAllRiders() {
+        LinkedHashSet<Long> riderIds = new LinkedHashSet<>();
         LinkedHashSet<String> tokens = new LinkedHashSet<>();
         for (RiderEntity r : riderRepository.findByApprovalStatusOrderByCreatedAtDesc(RiderApprovalStatus.APPROVED)) {
             if (Boolean.TRUE.equals(r.getIsBlocked())) {
                 continue;
             }
+            riderIds.add(r.getId());
             if (StringUtils.hasText(r.getFcmToken())) {
                 tokens.add(r.getFcmToken().trim());
             }
         }
-        return new ResolvedRecipients(tokens);
+        return new ResolvedRecipients(tokens, new LinkedHashSet<>(), riderIds);
     }
 
     private ResolvedRecipients resolveSpecificUsers(List<Long> userIds) {
@@ -295,16 +307,18 @@ public class AdminNotificationServiceImpl implements AdminNotificationService {
             throw new RuntimeException("userIds are required for SPECIFIC_USERS");
         }
         Set<Long> unique = new LinkedHashSet<>(userIds);
+        LinkedHashSet<Long> matchedUserIds = new LinkedHashSet<>();
         LinkedHashSet<String> tokens = new LinkedHashSet<>();
         for (UserEntity u : userRepository.findAllById(unique)) {
             if (!Boolean.TRUE.equals(u.getActive())) {
                 continue;
             }
+            matchedUserIds.add(u.getId());
             if (StringUtils.hasText(u.getFcmToken())) {
                 tokens.add(u.getFcmToken().trim());
             }
         }
-        return new ResolvedRecipients(tokens);
+        return new ResolvedRecipients(tokens, matchedUserIds, new LinkedHashSet<>());
     }
 
     private ResolvedRecipients resolveSpecificRiders(List<Long> riderIds) {
@@ -312,16 +326,18 @@ public class AdminNotificationServiceImpl implements AdminNotificationService {
             throw new RuntimeException("riderIds are required for SPECIFIC_RIDERS");
         }
         Set<Long> unique = new LinkedHashSet<>(riderIds);
+        LinkedHashSet<Long> matchedRiderIds = new LinkedHashSet<>();
         LinkedHashSet<String> tokens = new LinkedHashSet<>();
         for (RiderEntity r : riderRepository.findAllById(unique)) {
             if (!RiderApprovalStatus.APPROVED.equalsIgnoreCase(nz(r.getApprovalStatus())) || Boolean.TRUE.equals(r.getIsBlocked())) {
                 continue;
             }
+            matchedRiderIds.add(r.getId());
             if (StringUtils.hasText(r.getFcmToken())) {
                 tokens.add(r.getFcmToken().trim());
             }
         }
-        return new ResolvedRecipients(tokens);
+        return new ResolvedRecipients(tokens, new LinkedHashSet<>(), matchedRiderIds);
     }
 
     private ResolvedRecipients resolveCityRiders(String city) {
@@ -329,6 +345,7 @@ public class AdminNotificationServiceImpl implements AdminNotificationService {
             throw new RuntimeException("city is required for CITY_RIDERS");
         }
         String wanted = city.trim();
+        LinkedHashSet<Long> riderIds = new LinkedHashSet<>();
         LinkedHashSet<String> tokens = new LinkedHashSet<>();
         for (RiderEntity r : riderRepository.findByApprovalStatusOrderByCreatedAtDesc(RiderApprovalStatus.APPROVED)) {
             if (Boolean.TRUE.equals(r.getIsBlocked())) {
@@ -341,17 +358,19 @@ public class AdminNotificationServiceImpl implements AdminNotificationService {
             if (zone == null || !equalsIgnoreCase(zone.getCity(), wanted)) {
                 continue;
             }
+            riderIds.add(r.getId());
             if (StringUtils.hasText(r.getFcmToken())) {
                 tokens.add(r.getFcmToken().trim());
             }
         }
-        return new ResolvedRecipients(tokens);
+        return new ResolvedRecipients(tokens, new LinkedHashSet<>(), riderIds);
     }
 
     private ResolvedRecipients resolveZoneRiders(Long zoneId) {
         if (zoneId == null) {
             throw new RuntimeException("zoneId is required for ZONE_RIDERS");
         }
+        LinkedHashSet<Long> riderIds = new LinkedHashSet<>();
         LinkedHashSet<String> tokens = new LinkedHashSet<>();
         for (RiderEntity r : riderRepository.findByApprovalStatusOrderByCreatedAtDesc(RiderApprovalStatus.APPROVED)) {
             if (Boolean.TRUE.equals(r.getIsBlocked())) {
@@ -364,11 +383,12 @@ public class AdminNotificationServiceImpl implements AdminNotificationService {
             if (zone == null || !Objects.equals(zone.getId(), zoneId)) {
                 continue;
             }
+            riderIds.add(r.getId());
             if (StringUtils.hasText(r.getFcmToken())) {
                 tokens.add(r.getFcmToken().trim());
             }
         }
-        return new ResolvedRecipients(tokens);
+        return new ResolvedRecipients(tokens, new LinkedHashSet<>(), riderIds);
     }
 
     private ResolvedRecipients resolveCityUsers(String city) {
@@ -401,19 +421,21 @@ public class AdminNotificationServiceImpl implements AdminNotificationService {
     }
 
     private ResolvedRecipients resolveUsersByIds(Set<Long> userIds) {
+        LinkedHashSet<Long> matchedUserIds = new LinkedHashSet<>();
         LinkedHashSet<String> tokens = new LinkedHashSet<>();
         if (userIds == null || userIds.isEmpty()) {
-            return new ResolvedRecipients(tokens);
+            return new ResolvedRecipients(tokens, matchedUserIds, new LinkedHashSet<>());
         }
         for (UserEntity u : userRepository.findAllById(userIds)) {
             if (!Boolean.TRUE.equals(u.getActive())) {
                 continue;
             }
+            matchedUserIds.add(u.getId());
             if (StringUtils.hasText(u.getFcmToken())) {
                 tokens.add(u.getFcmToken().trim());
             }
         }
-        return new ResolvedRecipients(tokens);
+        return new ResolvedRecipients(tokens, matchedUserIds, new LinkedHashSet<>());
     }
 
     private Map<Long, LatLng> latestUserLocations() {
@@ -547,7 +569,10 @@ public class AdminNotificationServiceImpl implements AdminNotificationService {
         return value.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT));
     }
 
-    private record ResolvedRecipients(LinkedHashSet<String> tokens) {
+    private record ResolvedRecipients(
+            LinkedHashSet<String> tokens,
+            LinkedHashSet<Long> userIds,
+            LinkedHashSet<Long> riderIds) {
     }
 
     private record LatLng(double lat, double lng) {

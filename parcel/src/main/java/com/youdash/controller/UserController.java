@@ -7,6 +7,9 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.FcmTokenRequestDTO;
 import com.youdash.dto.UserRequestDTO;
 import com.youdash.dto.UserResponseDTO;
+import com.youdash.dto.notification.NotificationInboxItemDTO;
+import com.youdash.dto.notification.NotificationUnreadCountDTO;
+import com.youdash.service.NotificationInboxService;
 import com.youdash.service.UserService;
 
 @RestController
@@ -15,6 +18,9 @@ public class UserController {
 
   @Autowired
   private UserService userService;
+
+  @Autowired
+  private NotificationInboxService notificationInboxService;
 
   /** Customer app: refresh FCM token without re-running OTP (Bearer USER JWT). */
   @PostMapping("/me/fcm-token")
@@ -31,6 +37,69 @@ public class UserController {
       return denied;
     }
     return userService.saveFcmToken(userId, dto);
+  }
+
+  @GetMapping("/me/notifications")
+  public ApiResponse<java.util.List<NotificationInboxItemDTO>> myNotifications(
+      @RequestAttribute("userId") Long userId,
+      @RequestAttribute(value = "type", required = false) String type,
+      @RequestParam(name = "page", defaultValue = "0") int page,
+      @RequestParam(name = "size", defaultValue = "50") int size) {
+    if (!"USER".equals(type)) {
+      ApiResponse<java.util.List<NotificationInboxItemDTO>> denied = new ApiResponse<>();
+      denied.setSuccess(false);
+      denied.setMessage("User token required");
+      denied.setMessageKey("ERROR");
+      denied.setStatus(403);
+      return denied;
+    }
+    return notificationInboxService.listForUser(userId, page, size);
+  }
+
+  @GetMapping("/me/notifications/unread-count")
+  public ApiResponse<NotificationUnreadCountDTO> myUnreadCount(
+      @RequestAttribute("userId") Long userId,
+      @RequestAttribute(value = "type", required = false) String type) {
+    if (!"USER".equals(type)) {
+      ApiResponse<NotificationUnreadCountDTO> denied = new ApiResponse<>();
+      denied.setSuccess(false);
+      denied.setMessage("User token required");
+      denied.setMessageKey("ERROR");
+      denied.setStatus(403);
+      return denied;
+    }
+    return notificationInboxService.unreadCountForUser(userId);
+  }
+
+  @PostMapping("/me/notifications/{id}/read")
+  public ApiResponse<String> markMyNotificationRead(
+      @PathVariable("id") Long id,
+      @RequestAttribute("userId") Long userId,
+      @RequestAttribute(value = "type", required = false) String type) {
+    if (!"USER".equals(type)) {
+      ApiResponse<String> denied = new ApiResponse<>();
+      denied.setSuccess(false);
+      denied.setMessage("User token required");
+      denied.setMessageKey("ERROR");
+      denied.setStatus(403);
+      return denied;
+    }
+    return notificationInboxService.markReadForUser(userId, id);
+  }
+
+  @PostMapping("/me/notifications/read-all")
+  public ApiResponse<String> markMyNotificationsReadAll(
+      @RequestAttribute("userId") Long userId,
+      @RequestAttribute(value = "type", required = false) String type) {
+    if (!"USER".equals(type)) {
+      ApiResponse<String> denied = new ApiResponse<>();
+      denied.setSuccess(false);
+      denied.setMessage("User token required");
+      denied.setMessageKey("ERROR");
+      denied.setStatus(403);
+      return denied;
+    }
+    return notificationInboxService.markAllReadForUser(userId);
   }
 
   // CREATE

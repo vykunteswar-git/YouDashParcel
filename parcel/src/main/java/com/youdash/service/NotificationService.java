@@ -47,6 +47,9 @@ public class NotificationService {
     @Autowired
     private RiderRepository riderRepository;
 
+    @Autowired
+    private NotificationInboxService notificationInboxService;
+
     @Value("${notification.admin.fcm.tokens:}")
     private String adminFcmTokensCsv;
 
@@ -66,6 +69,7 @@ public class NotificationService {
 
     public void sendToRider(Long riderId, String title, String body, Map<String, String> data, NotificationType type) {
         if (riderId == null) return;
+        notificationInboxService.recordForRider(riderId, title, body, data, type);
         riderRepository.findById(riderId)
                 .map(RiderEntity::getFcmToken)
                 .filter(StringUtils::hasText)
@@ -74,6 +78,7 @@ public class NotificationService {
 
     public void sendToUser(Long userId, String title, String body, Map<String, String> data, NotificationType type) {
         if (userId == null) return;
+        notificationInboxService.recordForUser(userId, title, body, data, type);
         userRepository.findById(userId)
                 .filter(u -> Boolean.TRUE.equals(u.getActive()))
                 .map(UserEntity::getFcmToken)

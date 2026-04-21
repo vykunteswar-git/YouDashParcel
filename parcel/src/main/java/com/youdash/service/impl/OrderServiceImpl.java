@@ -819,6 +819,17 @@ public class OrderServiceImpl implements OrderService {
                 actingRiderId,
                 "RIDER");
 
+        UserOrderEventDTO deliveredEvt = new UserOrderEventDTO();
+        deliveredEvt.setOrderId(saved.getId());
+        deliveredEvt.setEvent("delivered");
+        deliveredEvt.setEventType("status_updated");
+        deliveredEvt.setStatus(OrderStatus.DELIVERED.name());
+        deliveredEvt.setRiderId(saved.getRiderId());
+        messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", deliveredEvt);
+        userActiveOrderTopicPublisher.publishStatusUpdated(
+                saved.getUserId(), saved.getId(), OrderStatus.DELIVERED.name(), saved.getRiderId());
+        userActiveOrderTopicPublisher.publishReleased(saved.getUserId());
+
         notificationService.sendToUser(
                 saved.getUserId(),
                 "Order update",
