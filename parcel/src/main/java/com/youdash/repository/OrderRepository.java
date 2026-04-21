@@ -196,4 +196,10 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     Optional<OrderEntity> findByRazorpayOrderId(String razorpayOrderId);
 
     List<OrderEntity> findByCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtAsc(Instant from, Instant to);
+
+    List<OrderEntity> findByPaymentStatusIgnoreCaseAndCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(
+            String paymentStatus, Instant from, Instant to);
+
+    List<OrderEntity> findByPaymentStatusIgnoreCaseAndPaymentTypeAndCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(
+            String paymentStatus, PaymentType paymentType, Instant from, Instant to);
 }

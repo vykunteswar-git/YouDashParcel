@@ -17,4 +17,10 @@ public interface RiderWithdrawalRepository extends JpaRepository<RiderWithdrawal
     List<RiderWithdrawalEntity> findByStatusOrderByCreatedAtDesc(WithdrawalStatus status, Pageable pageable);
 
     List<RiderWithdrawalEntity> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    List<RiderWithdrawalEntity> findByCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(
+            java.time.Instant from, java.time.Instant to);
+
+    List<RiderWithdrawalEntity> findByStatusAndCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(
+            WithdrawalStatus status, java.time.Instant from, java.time.Instant to);
 }

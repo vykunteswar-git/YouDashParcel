@@ -1,11 +1,13 @@
 package com.youdash.controller;
 
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.BannerDTO;
 import com.youdash.dto.CheckoutPaymentOptionsDTO;
 import com.youdash.dto.PackageCategoryDTO;
 import com.youdash.dto.VehicleDTO;
 import com.youdash.service.AdminService;
 import com.youdash.service.AppConfigService;
+import com.youdash.service.BannerService;
 import com.youdash.service.PackageCategoryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,6 +32,9 @@ public class PublicController {
     @Autowired
     private AppConfigService appConfigService;
 
+    @Autowired
+    private BannerService bannerService;
+
     @GetMapping("/vehicles")
     @Operation(summary = "List active vehicles")
     public ApiResponse<List<VehicleDTO>> getActiveVehicles() {
@@ -46,6 +51,12 @@ public class PublicController {
     @Operation(summary = "Get checkout payment options", description = "Used by user app to render COD/ONLINE selectors based on live admin config.")
     public ApiResponse<CheckoutPaymentOptionsDTO> checkoutPaymentOptions() {
         return appConfigService.getCheckoutPaymentOptions();
+    }
+
+    @GetMapping("/banners")
+    @Operation(summary = "Get active user banners", description = "Returns active banners sorted by sortOrder for user-home carousel.")
+    public ApiResponse<List<BannerDTO>> banners() {
+        return bannerService.listPublicActive();
     }
 }
 
