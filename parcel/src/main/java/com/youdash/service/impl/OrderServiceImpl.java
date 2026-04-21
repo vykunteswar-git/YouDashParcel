@@ -487,7 +487,9 @@ public class OrderServiceImpl implements OrderService {
             if (!admin && !Objects.equals(userId, tokenUserId)) {
                 throw new RuntimeException("Access denied");
             }
-            List<OrderEntity> orders = orderRepository.findByUserIdOrderByCreatedAtDesc(userId);
+            List<OrderEntity> orders = admin
+                    ? orderRepository.findByUserIdOrderByCreatedAtDesc(userId)
+                    : orderRepository.findByUserIdAndStatusNotOrderByCreatedAtDesc(userId, OrderStatus.EXPIRED);
             Set<Long> riderIds = orders.stream()
                     .map(OrderEntity::getRiderId)
                     .filter(Objects::nonNull)

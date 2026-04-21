@@ -18,6 +18,9 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
 
     List<OrderEntity> findByUserIdOrderByCreatedAtDesc(Long userId);
 
+    /** User history feed excluding transiently expired search attempts. */
+    List<OrderEntity> findByUserIdAndStatusNotOrderByCreatedAtDesc(Long userId, OrderStatus status);
+
     /** Newest first; use with {@link Pageable} to cap scans for address suggestions. */
     List<OrderEntity> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
