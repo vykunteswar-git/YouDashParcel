@@ -29,7 +29,7 @@ public class OrderCompletionController {
             description = "Requires RIDER token. Order must be IN_TRANSIT and delivery OTP must already be verified "
                     + "(POST /orders/{id}/verify-otp). "
                     + "ONLINE: send only orderId (numeric id or YP- reference). "
-                    + "COD: also send codCollectionMode (CASH or QR) and codCollectedAmount.")
+                    + "COD: send codCollectionMode (CASH or QR). Amount is auto-captured from order total.")
     public ApiResponse<OrderResponseDTO> complete(
             @RequestBody OrderCompleteRequestDTO dto,
             @RequestAttribute("userId") Long riderUserId,

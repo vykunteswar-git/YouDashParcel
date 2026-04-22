@@ -1,6 +1,9 @@
 package com.youdash.service.impl;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -15,6 +18,7 @@ import org.springframework.stereotype.Service;
 
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.OrderResponseDTO;
+import com.youdash.dto.RiderOnlineTimeDTO;
 import com.youdash.dto.RiderRequestDTO;
 import com.youdash.dto.RiderResponseDTO;
 import com.youdash.dto.RiderSelfUpdateDTO;
@@ -23,6 +27,7 @@ import com.youdash.dto.wallet.RiderWithdrawalDTO;
 import com.youdash.entity.OrderEntity;
 import com.youdash.entity.RiderEntity;
 import com.youdash.entity.RiderLocationHistoryEntity;
+import com.youdash.entity.RiderOnlineSessionEntity;
 import com.youdash.entity.VehicleEntity;
 import com.youdash.entity.wallet.RiderWalletEntity;
 import com.youdash.entity.wallet.RiderWalletTransactionEntity;
@@ -33,6 +38,7 @@ import com.youdash.model.ServiceMode;
 import com.youdash.notification.NotificationType;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderLocationHistoryRepository;
+import com.youdash.repository.RiderOnlineSessionRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.repository.VehicleRepository;
 import com.youdash.repository.wallet.RiderWalletRepository;
@@ -81,6 +87,9 @@ public class RiderServiceImpl implements RiderService {
     private RiderLocationHistoryRepository locationHistoryRepository;
 
     @Autowired
+    private RiderOnlineSessionRepository riderOnlineSessionRepository;
+
+    @Autowired
     private NotificationService notificationService;
 
     @Autowired
@@ -97,6 +106,9 @@ public class RiderServiceImpl implements RiderService {
 
     @Value("${youdash.tracking.at-destination-radius-m:50}")
     private double atDestinationRadiusM;
+
+    @Value("${youdash.reporting.zone:Asia/Kolkata}")
+    private String reportingZone;
 
     @Override
     public ApiResponse<RiderResponseDTO> createRider(RiderRequestDTO dto) {
@@ -295,6 +307,7 @@ public class RiderServiceImpl implements RiderService {
             }
             rider.setIsAvailable(status);
             RiderEntity updatedRider = riderRepository.save(rider);
+            syncOnlineSession(riderId, status);
 
             response.setData(mapToResponseDTO(updatedRider));
             response.setMessage("Availability updated successfully");
@@ -485,6 +498,9 @@ public class RiderServiceImpl implements RiderService {
             }
 
             RiderEntity updated = riderRepository.save(rider);
+            if (dto.getIsAvailable() != null) {
+                syncOnlineSession(riderId, dto.getIsAvailable());
+            }
             response.setData(mapToResponseDTO(updated));
             response.setMessage("Profile updated successfully");
             response.setMessageKey("SUCCESS");
@@ -613,6 +629,98 @@ public class RiderServiceImpl implements RiderService {
             response.setSuccess(false);
         }
         return response;
+    }
+
+    @Override
+    public ApiResponse<RiderOnlineTimeDTO> getOnlineTimeForDate(Long riderId, String dateIso) {
+        ApiResponse<RiderOnlineTimeDTO> response = new ApiResponse<>();
+        try {
+            if (riderId == null) {
+                throw new RuntimeException("Rider ID cannot be null");
+            }
+            ZoneId zone = resolveReportingZone();
+            LocalDate day = (dateIso == null || dateIso.isBlank())
+                    ? LocalDate.now(zone)
+                    : LocalDate.parse(dateIso.trim(), DateTimeFormatter.ISO_LOCAL_DATE);
+            Instant windowStart = day.atStartOfDay(zone).toInstant();
+            Instant windowEnd = day.plusDays(1).atStartOfDay(zone).toInstant();
+            List<RiderOnlineSessionEntity> sessions =
+                    riderOnlineSessionRepository.findSessionsOverlappingWindow(riderId, windowStart, windowEnd);
+            long totalSeconds = 0L;
+            for (RiderOnlineSessionEntity s : sessions) {
+                Instant start = s.getStartedAt();
+                Instant end = s.getEndedAt() == null ? Instant.now() : s.getEndedAt();
+                if (start == null || !end.isAfter(start)) {
+                    continue;
+                }
+                Instant overlapStart = start.isAfter(windowStart) ? start : windowStart;
+                Instant overlapEnd = end.isBefore(windowEnd) ? end : windowEnd;
+                if (overlapEnd.isAfter(overlapStart)) {
+                    totalSeconds += overlapEnd.getEpochSecond() - overlapStart.getEpochSecond();
+                }
+            }
+            String formatted = formatDuration(totalSeconds);
+            String activeStartedAt = riderOnlineSessionRepository
+                    .findFirstByRiderIdAndEndedAtIsNullOrderByStartedAtDesc(riderId)
+                    .map(RiderOnlineSessionEntity::getStartedAt)
+                    .map(Instant::toString)
+                    .orElse(null);
+            response.setData(RiderOnlineTimeDTO.builder()
+                    .date(day.toString())
+                    .totalOnlineSeconds(totalSeconds)
+                    .totalOnlineMinutes(totalSeconds / 60L)
+                    .formatted(formatted)
+                    .activeSessionStartedAt(activeStartedAt)
+                    .build());
+            response.setMessage("OK");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setSuccess(true);
+        } catch (Exception e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(500);
+            response.setSuccess(false);
+        }
+        return response;
+    }
+
+    private void syncOnlineSession(Long riderId, Boolean isAvailable) {
+        if (riderId == null || isAvailable == null) {
+            return;
+        }
+        Instant now = Instant.now();
+        RiderOnlineSessionEntity active = riderOnlineSessionRepository
+                .findFirstByRiderIdAndEndedAtIsNullOrderByStartedAtDesc(riderId)
+                .orElse(null);
+        if (Boolean.TRUE.equals(isAvailable)) {
+            if (active == null) {
+                RiderOnlineSessionEntity session = new RiderOnlineSessionEntity();
+                session.setRiderId(riderId);
+                session.setStartedAt(now);
+                riderOnlineSessionRepository.save(session);
+            }
+            return;
+        }
+        if (active != null) {
+            active.setEndedAt(now);
+            riderOnlineSessionRepository.save(active);
+        }
+    }
+
+    private ZoneId resolveReportingZone() {
+        try {
+            return ZoneId.of(reportingZone);
+        } catch (Exception ignored) {
+            return ZoneId.of("Asia/Kolkata");
+        }
+    }
+
+    private static String formatDuration(long totalSeconds) {
+        long h = totalSeconds / 3600L;
+        long m = (totalSeconds % 3600L) / 60L;
+        long s = totalSeconds % 60L;
+        return String.format(Locale.ROOT, "%02d:%02d:%02d", h, m, s);
     }
 
     private boolean isApprovedOrLegacy(RiderEntity rider) {

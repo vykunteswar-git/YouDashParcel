@@ -938,20 +938,14 @@ public class OrderServiceImpl implements OrderService {
             if (dto.getCodCollectionMode() == null || dto.getCodCollectionMode().isBlank()) {
                 throw new BadRequestException("codCollectionMode is required for COD (CASH or QR)");
             }
-            if (dto.getCodCollectedAmount() == null) {
-                throw new BadRequestException("codCollectedAmount is required for COD orders");
-            }
             CodCollectionMode mode = CodCollectionMode.valueOf(dto.getCodCollectionMode().trim().toUpperCase());
-            double collected = dto.getCodCollectedAmount();
+            // Rider should not type COD amount. Capture exact payable from the order.
+            double collected = round2(nz(o.getTotalAmount()));
             if (collected <= 0) {
-                throw new BadRequestException("codCollectedAmount must be > 0");
-            }
-            double orderTotal = nz(o.getTotalAmount());
-            if (collected > orderTotal * 1.2 + 0.0001) {
-                throw new BadRequestException("Invalid COD amount: exceeds expected range");
+                throw new BadRequestException("Invalid order total for COD settlement");
             }
             o.setCodCollectionMode(mode);
-            o.setCodCollectedAmount(round2(collected));
+            o.setCodCollectedAmount(collected);
             o.setCodSettlementStatus(CodSettlementStatus.PENDING);
         } else {
             throw new BadRequestException("Unsupported payment type: " + o.getPaymentType());

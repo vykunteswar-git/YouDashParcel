@@ -3,6 +3,7 @@ package com.youdash.service;
 import java.util.List;
 
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.RiderOnlineTimeDTO;
 import com.youdash.dto.RiderRequestDTO;
 import com.youdash.dto.RiderResponseDTO;
 import com.youdash.dto.RiderSelfUpdateDTO;
@@ -33,5 +34,7 @@ public interface RiderService {
     ApiResponse<RiderResponseDTO> rejectRider(Long id);
 
     ApiResponse<List<RiderResponseDTO>> listRidersEligibleForAssignment();
+
+    ApiResponse<RiderOnlineTimeDTO> getOnlineTimeForDate(Long riderId, String dateIso);
 
 }

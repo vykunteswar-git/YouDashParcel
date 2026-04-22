@@ -563,12 +563,10 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             fin.setCodSettlementStatus(CodSettlementStatus.SETTLED);
             fin.setSettledAt(Instant.now());
         } else if (payType == PaymentType.COD) {
-            collected = codCollectedAmount == null ? orderAmount : round2(codCollectedAmount);
+            // Source of truth: order total payable. Rider-entered amount should not affect settlement.
+            collected = round2(orderAmount);
             if (collected <= 0) {
-                throw new RuntimeException("codCollectedAmount is required for COD settlement");
-            }
-            if (collected > orderAmount * 1.2 + 0.0001) {
-                throw new RuntimeException("Invalid COD amount: exceeds expected range");
+                throw new RuntimeException("Invalid order total for COD settlement");
             }
             fin.setCodCollectedAmount(collected);
             fin.setCodCollectionMode(codMode);

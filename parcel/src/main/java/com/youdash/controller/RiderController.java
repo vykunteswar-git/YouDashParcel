@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.FcmTokenRequestDTO;
+import com.youdash.dto.RiderOnlineTimeDTO;
 import com.youdash.dto.RiderRequestDTO;
 import com.youdash.dto.RiderResponseDTO;
 import com.youdash.dto.OrderResponseDTO;
@@ -120,6 +121,15 @@ public class RiderController {
     public ApiResponse<RiderRatingSummaryDTO> myRatings(HttpServletRequest request) {
         Long riderId = riderAccessVerifier.resolveActingRiderId(request);
         return riderRatingService.getRiderRatingSummary(riderId);
+    }
+
+    @GetMapping("/me/online-time")
+    @Operation(summary = "Get my online duration for a date (JWT)", description = "Sums all online sessions for the day. Repeated online/offline toggles are handled.")
+    public ApiResponse<RiderOnlineTimeDTO> myOnlineTime(
+            @RequestParam(name = "date", required = false) String date,
+            HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return riderService.getOnlineTimeForDate(riderId, date);
     }
 
     @PatchMapping("/me")
