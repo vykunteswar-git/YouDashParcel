@@ -25,6 +25,12 @@ public interface OrderService {
     ApiResponse<List<OrderAddressSuggestionDTO>> listUserOrderAddressSuggestions(
             Long userId, Long tokenUserId, boolean admin, Integer limit);
 
+    ApiResponse<String> editUserOrderAddressSuggestion(
+            Long userId, Long tokenUserId, boolean admin, OrderAddressSuggestionEditRequestDTO dto);
+
+    ApiResponse<String> hideUserOrderAddressSuggestion(
+            Long userId, Long tokenUserId, boolean admin, OrderAddressSuggestionHideRequestDTO dto);
+
     ApiResponse<List<OrderResponseDTO>> listRiderOrders(Long riderId);
 
     ApiResponse<ManualOrderRequestResponseDTO> manualRequest(Long userId, ManualOrderRequestDTO dto);

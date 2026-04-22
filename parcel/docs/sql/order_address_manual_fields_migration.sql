@@ -1,0 +1,5 @@
+ALTER TABLE youdash_orders
+    ADD COLUMN IF NOT EXISTS pickup_door_no VARCHAR(64),
+    ADD COLUMN IF NOT EXISTS pickup_landmark VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS drop_door_no VARCHAR(64),
+    ADD COLUMN IF NOT EXISTS drop_landmark VARCHAR(255);

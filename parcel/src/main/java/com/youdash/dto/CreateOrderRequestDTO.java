@@ -30,6 +30,22 @@ public class CreateOrderRequestDTO {
     private String senderPhone;
     private String receiverName;
     private String receiverPhone;
+    /** Human-readable pickup address text from app map/search selection. */
+    private String pickupAddress;
+    /** Optional pickup label/tag (e.g. HOME, OFFICE, OTHER). */
+    private String pickupTag;
+    /** Optional pickup door/flat number from manual entry. */
+    private String pickupDoorNo;
+    /** Optional pickup landmark/building identifier from manual entry. */
+    private String pickupLandmark;
+    /** Human-readable drop address text from app map/search selection. */
+    private String dropAddress;
+    /** Optional drop label/tag (e.g. HOME, OFFICE, OTHER). */
+    private String dropTag;
+    /** Optional drop door/flat number from manual entry. */
+    private String dropDoorNo;
+    /** Optional drop landmark/building identifier from manual entry. */
+    private String dropLandmark;
     private String imageUrl;
 
     /**

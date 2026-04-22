@@ -81,6 +81,9 @@ public class OrderServiceImpl implements OrderService {
     private OrderRepository orderRepository;
 
     @Autowired
+    private OrderAddressPreferenceRepository orderAddressPreferenceRepository;
+
+    @Autowired
     private PackageCategoryRepository packageCategoryRepository;
 
     @Autowired
@@ -217,6 +220,14 @@ public class OrderServiceImpl implements OrderService {
             order.setSenderPhone(trimToNull(dto.getSenderPhone()));
             order.setReceiverName(trimToNull(dto.getReceiverName()));
             order.setReceiverPhone(trimToNull(dto.getReceiverPhone()));
+            order.setPickupAddress(trimToNull(dto.getPickupAddress()));
+            order.setPickupTag(trimToNull(dto.getPickupTag()));
+            order.setPickupDoorNo(trimToNull(dto.getPickupDoorNo()));
+            order.setPickupLandmark(trimToNull(dto.getPickupLandmark()));
+            order.setDropAddress(trimToNull(dto.getDropAddress()));
+            order.setDropTag(trimToNull(dto.getDropTag()));
+            order.setDropDoorNo(trimToNull(dto.getDropDoorNo()));
+            order.setDropLandmark(trimToNull(dto.getDropLandmark()));
             order.setImageUrl(trimToNull(dto.getImageUrl()));
             order.setPickupLat(dto.getPickupLat());
             order.setPickupLng(dto.getPickupLng());
@@ -537,7 +548,13 @@ public class OrderServiceImpl implements OrderService {
             }
             var page = PageRequest.of(0, ADDRESS_SUGGESTION_MAX_ORDERS_SCAN, Sort.by(Sort.Direction.DESC, "createdAt"));
             List<OrderEntity> orders = orderRepository.findByUserIdOrderByCreatedAtDesc(userId, page);
-            List<OrderAddressSuggestionDTO> suggestions = buildAddressSuggestions(orders, cap);
+            Map<String, OrderAddressPreferenceEntity> prefByKey = orderAddressPreferenceRepository.findByUserId(userId)
+                    .stream()
+                    .collect(Collectors.toMap(
+                            OrderAddressPreferenceEntity::getCoordinateKey,
+                            Function.identity(),
+                            (a, b) -> b));
+            List<OrderAddressSuggestionDTO> suggestions = buildAddressSuggestions(orders, prefByKey, cap);
             response.setData(suggestions);
             response.setMessage("OK");
             response.setMessageKey("SUCCESS");
@@ -550,18 +567,123 @@ public class OrderServiceImpl implements OrderService {
         return response;
     }
 
-    private static List<OrderAddressSuggestionDTO> buildAddressSuggestions(List<OrderEntity> orders, int maxSuggestions) {
+    @Override
+    @Transactional
+    public ApiResponse<String> editUserOrderAddressSuggestion(
+            Long userId, Long tokenUserId, boolean admin, OrderAddressSuggestionEditRequestDTO dto) {
+        ApiResponse<String> response = new ApiResponse<>();
+        try {
+            if (!admin && !Objects.equals(userId, tokenUserId)) {
+                throw new RuntimeException("Access denied");
+            }
+            if (dto == null || dto.getRole() == null || dto.getLat() == null || dto.getLng() == null) {
+                throw new RuntimeException("role, lat, lng are required");
+            }
+            String key = coordinateKey(dto.getRole(), dto.getLat(), dto.getLng());
+            OrderAddressPreferenceEntity pref = orderAddressPreferenceRepository
+                    .findByUserIdAndRoleAndCoordinateKey(userId, dto.getRole(), key)
+                    .orElseGet(OrderAddressPreferenceEntity::new);
+            pref.setUserId(userId);
+            pref.setRole(dto.getRole());
+            pref.setCoordinateKey(key);
+            pref.setLat(dto.getLat());
+            pref.setLng(dto.getLng());
+            pref.setAddress(trimToNull(dto.getAddress()));
+            pref.setTag(normalizeTag(dto.getTag()));
+            pref.setDoorNo(trimToNull(dto.getDoorNo()));
+            pref.setLandmark(trimToNull(dto.getLandmark()));
+            pref.setContactName(trimToNull(dto.getContactName()));
+            pref.setContactPhone(trimToNull(dto.getContactPhone()));
+            pref.setIsHidden(false);
+            orderAddressPreferenceRepository.save(pref);
+            response.setData("OK");
+            response.setMessage("Address suggestion updated");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            setError(response, e.getMessage());
+        }
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public ApiResponse<String> hideUserOrderAddressSuggestion(
+            Long userId, Long tokenUserId, boolean admin, OrderAddressSuggestionHideRequestDTO dto) {
+        ApiResponse<String> response = new ApiResponse<>();
+        try {
+            if (!admin && !Objects.equals(userId, tokenUserId)) {
+                throw new RuntimeException("Access denied");
+            }
+            if (dto == null || dto.getRole() == null || dto.getLat() == null || dto.getLng() == null) {
+                throw new RuntimeException("role, lat, lng are required");
+            }
+            String key = coordinateKey(dto.getRole(), dto.getLat(), dto.getLng());
+            OrderAddressPreferenceEntity pref = orderAddressPreferenceRepository
+                    .findByUserIdAndRoleAndCoordinateKey(userId, dto.getRole(), key)
+                    .orElseGet(OrderAddressPreferenceEntity::new);
+            pref.setUserId(userId);
+            pref.setRole(dto.getRole());
+            pref.setCoordinateKey(key);
+            pref.setLat(dto.getLat());
+            pref.setLng(dto.getLng());
+            pref.setIsHidden(true);
+            orderAddressPreferenceRepository.save(pref);
+            response.setData("OK");
+            response.setMessage("Address suggestion hidden");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            setError(response, e.getMessage());
+        }
+        return response;
+    }
+
+    private static List<OrderAddressSuggestionDTO> buildAddressSuggestions(
+            List<OrderEntity> orders,
+            Map<String, OrderAddressPreferenceEntity> prefByKey,
+            int maxSuggestions) {
         Set<String> seen = new HashSet<>();
         List<OrderAddressSuggestionDTO> out = new ArrayList<>();
         for (OrderEntity o : orders) {
             if (out.size() >= maxSuggestions) {
                 break;
             }
-            tryAddSuggestion(out, seen, o, OrderAddressRole.PICKUP, o.getPickupLat(), o.getPickupLng(), o.getSenderName(), o.getSenderPhone(), o.getCreatedAt());
+            tryAddSuggestion(
+                    out,
+                    seen,
+                    o,
+                    OrderAddressRole.PICKUP,
+                    o.getPickupLat(),
+                    o.getPickupLng(),
+                    o.getPickupAddress(),
+                    o.getPickupTag(),
+                    o.getPickupDoorNo(),
+                    o.getPickupLandmark(),
+                    o.getSenderName(),
+                    o.getSenderPhone(),
+                    prefByKey,
+                    o.getCreatedAt());
             if (out.size() >= maxSuggestions) {
                 break;
             }
-            tryAddSuggestion(out, seen, o, OrderAddressRole.DROP, o.getDropLat(), o.getDropLng(), o.getReceiverName(), o.getReceiverPhone(), o.getCreatedAt());
+            tryAddSuggestion(
+                    out,
+                    seen,
+                    o,
+                    OrderAddressRole.DROP,
+                    o.getDropLat(),
+                    o.getDropLng(),
+                    o.getDropAddress(),
+                    o.getDropTag(),
+                    o.getDropDoorNo(),
+                    o.getDropLandmark(),
+                    o.getReceiverName(),
+                    o.getReceiverPhone(),
+                    prefByKey,
+                    o.getCreatedAt());
         }
         out.sort(Comparator.comparing(OrderAddressSuggestionDTO::getLastUsedAt, Comparator.nullsLast(Comparator.naturalOrder()))
                 .reversed());
@@ -575,22 +697,41 @@ public class OrderServiceImpl implements OrderService {
             OrderAddressRole role,
             Double lat,
             Double lng,
+            String address,
+            String tag,
+            String doorNo,
+            String landmark,
             String contactName,
             String contactPhone,
+            Map<String, OrderAddressPreferenceEntity> prefByKey,
             Instant createdAt) {
         if (lat == null || lng == null) {
             return;
         }
-        String key = role.name() + '|' + String.format(Locale.ROOT, "%.5f,%.5f", lat, lng);
+        String key = coordinateKey(role, lat, lng);
+        OrderAddressPreferenceEntity pref = prefByKey == null ? null : prefByKey.get(key);
+        if (pref != null && Boolean.TRUE.equals(pref.getIsHidden())) {
+            return;
+        }
         if (!seen.add(key)) {
             return;
         }
+        String resolvedAddress = overlay(pref != null ? pref.getAddress() : null, address);
+        String resolvedTag = overlay(pref != null ? pref.getTag() : null, tag);
+        String resolvedDoorNo = overlay(pref != null ? pref.getDoorNo() : null, doorNo);
+        String resolvedLandmark = overlay(pref != null ? pref.getLandmark() : null, landmark);
+        String resolvedContactName = overlay(pref != null ? pref.getContactName() : null, contactName);
+        String resolvedContactPhone = overlay(pref != null ? pref.getContactPhone() : null, contactPhone);
         out.add(OrderAddressSuggestionDTO.builder()
                 .role(role)
                 .lat(lat)
                 .lng(lng)
-                .contactName(contactName)
-                .contactPhone(contactPhone)
+                .address(resolvedAddress)
+                .tag(resolvedTag)
+                .doorNo(resolvedDoorNo)
+                .landmark(resolvedLandmark)
+                .contactName(resolvedContactName)
+                .contactPhone(resolvedContactPhone)
                 .lastUsedAt(createdAt != null ? createdAt.toString() : null)
                 .build());
     }
@@ -1163,6 +1304,20 @@ public class OrderServiceImpl implements OrderService {
         return t.isEmpty() ? null : t;
     }
 
+    private static String normalizeTag(String tag) {
+        String t = trimToNull(tag);
+        return t == null ? null : t.toUpperCase(Locale.ROOT);
+    }
+
+    private static String overlay(String preferred, String fallback) {
+        String p = trimToNull(preferred);
+        return p != null ? p : trimToNull(fallback);
+    }
+
+    private static String coordinateKey(OrderAddressRole role, Double lat, Double lng) {
+        return role.name() + '|' + String.format(Locale.ROOT, "%.5f,%.5f", lat, lng);
+    }
+
     private static void validatePaymentModeEnabled(PaymentType paymentType, AppConfigEntity config) {
         if (paymentType == PaymentType.COD && !Boolean.TRUE.equals(config.getCodEnabled())) {
             throw new RuntimeException("COD is currently disabled");
@@ -1262,6 +1417,14 @@ public class OrderServiceImpl implements OrderService {
                 .senderPhone(o.getSenderPhone())
                 .receiverName(o.getReceiverName())
                 .receiverPhone(o.getReceiverPhone())
+                .pickupAddress(o.getPickupAddress())
+                .pickupTag(o.getPickupTag())
+                .pickupDoorNo(o.getPickupDoorNo())
+                .pickupLandmark(o.getPickupLandmark())
+                .dropAddress(o.getDropAddress())
+                .dropTag(o.getDropTag())
+                .dropDoorNo(o.getDropDoorNo())
+                .dropLandmark(o.getDropLandmark())
                 .imageUrl(o.getImageUrl())
                 .pickupLat(o.getPickupLat())
                 .pickupLng(o.getPickupLng())

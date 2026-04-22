@@ -43,6 +43,30 @@ public class OrderEntity {
     @Column(name = "receiver_phone", length = 32)
     private String receiverPhone;
 
+    @Column(name = "pickup_address", length = 512)
+    private String pickupAddress;
+
+    @Column(name = "pickup_tag", length = 32)
+    private String pickupTag;
+
+    @Column(name = "pickup_door_no", length = 64)
+    private String pickupDoorNo;
+
+    @Column(name = "pickup_landmark", length = 255)
+    private String pickupLandmark;
+
+    @Column(name = "drop_address", length = 512)
+    private String dropAddress;
+
+    @Column(name = "drop_tag", length = 32)
+    private String dropTag;
+
+    @Column(name = "drop_door_no", length = 64)
+    private String dropDoorNo;
+
+    @Column(name = "drop_landmark", length = 255)
+    private String dropLandmark;
+
     @Column(name = "image_url")
     private String imageUrl;
 

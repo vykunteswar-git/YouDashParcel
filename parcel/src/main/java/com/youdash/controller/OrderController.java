@@ -81,6 +81,28 @@ public class OrderController {
         return orderService.listUserOrderAddressSuggestions(userId, tokenUserId, admin, limit);
     }
 
+    @PostMapping("/user/{userId}/address-suggestions/edit")
+    @Operation(summary = "Edit address suggestion details", description = "Updates manual fields (address/tag/doorNo/landmark/contact) for a role+lat/lng suggestion.")
+    public ApiResponse<String> editAddressSuggestion(
+            @PathVariable Long userId,
+            @RequestBody OrderAddressSuggestionEditRequestDTO dto,
+            @RequestAttribute("userId") Long tokenUserId,
+            @RequestAttribute(value = "type", required = false) String type) {
+        boolean admin = "ADMIN".equals(type);
+        return orderService.editUserOrderAddressSuggestion(userId, tokenUserId, admin, dto);
+    }
+
+    @PostMapping("/user/{userId}/address-suggestions/hide")
+    @Operation(summary = "Hide address suggestion", description = "Hides a role+lat/lng suggestion from the recent list without changing order history.")
+    public ApiResponse<String> hideAddressSuggestion(
+            @PathVariable Long userId,
+            @RequestBody OrderAddressSuggestionHideRequestDTO dto,
+            @RequestAttribute("userId") Long tokenUserId,
+            @RequestAttribute(value = "type", required = false) String type) {
+        boolean admin = "ADMIN".equals(type);
+        return orderService.hideUserOrderAddressSuggestion(userId, tokenUserId, admin, dto);
+    }
+
     @GetMapping("/{id}")
     @Operation(summary = "Get order by id")
     public ApiResponse<OrderResponseDTO> getOrder(
