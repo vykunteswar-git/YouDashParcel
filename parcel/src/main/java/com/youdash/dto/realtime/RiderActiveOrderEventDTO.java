@@ -14,10 +14,13 @@ public class RiderActiveOrderEventDTO {
      */
     private Boolean hasActiveOrder;
     private Integer eventVersion;
+    private Long tsEpochMs;
+    private String source;
 
     private Long orderId;
     /** Current {@link com.youdash.model.OrderStatus} name */
     private String status;
+    private String serviceMode;
     private String stage;
     /**
      * Suggested next {@link com.youdash.model.OrderStatus} name in the INCITY rider flow (e.g. after PICKED_UP → IN_TRANSIT).

@@ -9,9 +9,12 @@ import lombok.Data;
 public class UserActiveOrderEventDTO {
     private String event; // snapshot | status_updated | eta_updated | released
     private Integer eventVersion;
+    private Long tsEpochMs;
+    private String source;
     private Boolean hasActiveOrder;
     private Long orderId;
     private String status;
+    private String serviceMode;
     private String stage;
     private Integer etaSeconds;
     private Double distanceToDropKm;

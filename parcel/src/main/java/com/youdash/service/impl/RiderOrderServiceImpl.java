@@ -23,6 +23,7 @@ import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.realtime.RiderActiveOrderTopicPublisher;
 import com.youdash.realtime.UserActiveOrderTopicPublisher;
+import com.youdash.realtime.AdminOrderTopicPublisher;
 import com.youdash.util.DeliveryOtpGenerator;
 import com.youdash.util.TransactionAfterCommit;
 import com.youdash.service.DispatchService;
@@ -57,6 +58,9 @@ public class RiderOrderServiceImpl implements RiderOrderService {
 
     @Autowired
     private UserActiveOrderTopicPublisher userActiveOrderTopicPublisher;
+
+    @Autowired
+    private AdminOrderTopicPublisher adminOrderTopicPublisher;
 
     @Autowired
     private OrderTimelineService orderTimelineService;
@@ -157,6 +161,8 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         final Instant paymentDueFinal = paymentDue;
         final boolean codFinal = cod;
         final Long riderIdFinal = riderId;
+        final String serviceModeFinal =
+                refreshed.getServiceMode() == null ? null : refreshed.getServiceMode().name();
         TransactionAfterCommit.run(() -> {
             if (codFinal) {
                 sendUserEvent(userId, acceptedOrderId, "rider_found", OrderStatus.CONFIRMED, null, riderIdFinal);
@@ -182,7 +188,10 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                     userId,
                     acceptedOrderId,
                     statusAfterAccept.name(),
+                    serviceModeFinal,
                     riderIdFinal);
+            adminOrderTopicPublisher.publishStatusUpdated(
+                    orderRepository.findById(acceptedOrderId).orElse(null));
         });
 
         response.setData(orderServiceImpl.toOrderDtoForRider(refreshed));
@@ -207,8 +216,13 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         OrderEntity saved = orderRepository.save(order);
         appendTimeline(saved, saved.getStatus(), "picked_up", saved.getOriginHubId(), riderId, "Parcel picked by rider");
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
+        adminOrderTopicPublisher.publishStatusUpdated(saved);
         userActiveOrderTopicPublisher.publishStatusUpdated(
-                saved.getUserId(), saved.getId(), saved.getStatus().name(), riderId);
+                saved.getUserId(),
+                saved.getId(),
+                saved.getStatus().name(),
+                saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
+                riderId);
         sendUserOrderStatusPush(saved);
         riderActiveOrderTopicPublisher.publish(
                 riderId,
@@ -248,8 +262,13 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         OrderEntity saved = orderRepository.save(order);
         appendTimeline(saved, saved.getStatus(), "in_transit", saved.getOriginHubId(), riderId, "Rider started transit");
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
+        adminOrderTopicPublisher.publishStatusUpdated(saved);
         userActiveOrderTopicPublisher.publishStatusUpdated(
-                saved.getUserId(), saved.getId(), saved.getStatus().name(), riderId);
+                saved.getUserId(),
+                saved.getId(),
+                saved.getStatus().name(),
+                saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
+                riderId);
         sendUserOrderStatusPush(saved);
         riderActiveOrderTopicPublisher.publish(
                 riderId,
@@ -282,9 +301,14 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         }
         OrderEntity saved = orderRepository.save(order);
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "reach_destination", saved.getStatus(), riderId);
+        adminOrderTopicPublisher.publish("reach_destination", saved);
         appendTimeline(saved, saved.getStatus(), "reach_destination", saved.getDestinationHubId(), riderId, "Rider reached destination");
         userActiveOrderTopicPublisher.publishStatusUpdated(
-                saved.getUserId(), saved.getId(), saved.getStatus().name(), riderId);
+                saved.getUserId(),
+                saved.getId(),
+                saved.getStatus().name(),
+                saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
+                riderId);
         riderActiveOrderTopicPublisher.publish(
                 riderId,
                 saved.getId(),
@@ -346,6 +370,8 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         dto.setEvent(event);
         dto.setEventType(event);
         dto.setEventVersion(1);
+        dto.setTsEpochMs(Instant.now().toEpochMilli());
+        dto.setSource("backend");
         dto.setStatus(status == null ? null : status.name());
         dto.setStage(status == null ? null : status.name());
         dto.setPaymentDueAtEpochMs(paymentDueAt == null ? null : paymentDueAt.toEpochMilli());
@@ -362,6 +388,8 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         dto.setEvent(eventType);
         dto.setEventType(eventType);
         dto.setEventVersion(1);
+        dto.setTsEpochMs(Instant.now().toEpochMilli());
+        dto.setSource("backend");
         dto.setStatus(status == null ? null : status.name());
         dto.setStage(status == null ? null : status.name());
         dto.setRiderId(riderId);

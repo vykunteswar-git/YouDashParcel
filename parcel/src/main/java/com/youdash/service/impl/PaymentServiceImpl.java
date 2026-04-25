@@ -16,6 +16,7 @@ import com.youdash.repository.RiderRepository;
 import com.youdash.dto.realtime.UserOrderEventDTO;
 import com.youdash.realtime.RiderActiveOrderTopicPublisher;
 import com.youdash.realtime.UserActiveOrderTopicPublisher;
+import com.youdash.realtime.AdminOrderTopicPublisher;
 import com.youdash.service.NotificationDedupService;
 import com.youdash.service.NotificationService;
 import com.youdash.service.OrderTimelineService;
@@ -76,6 +77,9 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Autowired
     private UserActiveOrderTopicPublisher userActiveOrderTopicPublisher;
+
+    @Autowired
+    private AdminOrderTopicPublisher adminOrderTopicPublisher;
 
     @Autowired
     private OrderTimelineService orderTimelineService;
@@ -351,11 +355,17 @@ public class PaymentServiceImpl implements PaymentService {
         evt.setEvent("confirmed");
         evt.setEventType("confirmed");
         evt.setEventVersion(1);
+        evt.setTsEpochMs(Instant.now().toEpochMilli());
+        evt.setSource("backend");
         evt.setStatus(OrderStatus.CONFIRMED.name());
         evt.setStage(OrderStatus.CONFIRMED.name());
         messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", evt);
+        orderRepository.findById(orderId).ifPresent(adminOrderTopicPublisher::publishStatusUpdated);
+        final String serviceMode = orderRepository.findById(orderId)
+                .map(o -> o.getServiceMode() == null ? null : o.getServiceMode().name())
+                .orElse(null);
         userActiveOrderTopicPublisher.publishStatusUpdated(
-                userId, orderId, OrderStatus.CONFIRMED.name(), null);
+                userId, orderId, OrderStatus.CONFIRMED.name(), serviceMode, null);
     }
 
     @Override

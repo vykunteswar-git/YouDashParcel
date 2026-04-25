@@ -9,7 +9,10 @@ public class UserOrderEventDTO {
     /** e.g. status_updated | otp_verified | reach_destination */
     private String eventType;
     private Integer eventVersion;
+    private Long tsEpochMs;
+    private String source;
     private String status;
+    private String serviceMode;
     private Long paymentDueAtEpochMs;
     private Long riderId;
     private Long hubId;

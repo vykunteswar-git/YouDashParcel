@@ -15,6 +15,7 @@ import com.youdash.dto.realtime.UserOrderEventDTO;
 import com.youdash.entity.OrderEntity;
 import com.youdash.realtime.RiderActiveOrderTopicPublisher;
 import com.youdash.realtime.UserActiveOrderTopicPublisher;
+import com.youdash.realtime.AdminOrderTopicPublisher;
 import com.youdash.notification.NotificationType;
 import com.youdash.model.OrderStatus;
 import com.youdash.model.PaymentType;
@@ -48,6 +49,9 @@ public class IncityOrderTimeoutScheduler {
     @Autowired
     private UserActiveOrderTopicPublisher userActiveOrderTopicPublisher;
 
+    @Autowired
+    private AdminOrderTopicPublisher adminOrderTopicPublisher;
+
     @Scheduled(fixedDelayString = "${incity.scheduler.delay-ms:3000}")
     @Transactional(rollbackFor = Exception.class)
     public void expireSearchingOrders() {
@@ -63,9 +67,11 @@ public class IncityOrderTimeoutScheduler {
                     "NO_RIDER_FOUND",
                     o.getPaymentStatus());
             if (updated == 1) {
+                o.setStatus(OrderStatus.EXPIRED);
                 dispatchService.closeRequest(o.getId(), "expired", null);
                 sendUserCancelled(o.getUserId(), o.getId(), "NO_RIDER_FOUND", OrderStatus.EXPIRED);
-                userActiveOrderTopicPublisher.publishReleased(o.getUserId());
+                userActiveOrderTopicPublisher.publishReleased(o.getUserId(), o.getId());
+                adminOrderTopicPublisher.publishStatusUpdated(o);
                 pushUserOrderClosed(
                         o.getUserId(),
                         o.getId(),
@@ -104,6 +110,7 @@ public class IncityOrderTimeoutScheduler {
                     "PAYMENT_TIMEOUT",
                     "FAILED");
             if (updated == 1) {
+                o.setStatus(OrderStatus.CANCELLED);
                 if (o.getRiderId() != null) {
                     riderRepository.release(o.getRiderId());
                     riderActiveOrderTopicPublisher.publish(
@@ -111,7 +118,8 @@ public class IncityOrderTimeoutScheduler {
                 }
                 dispatchService.closeRequest(o.getId(), "cancelled", null);
                 sendUserCancelled(o.getUserId(), o.getId(), "PAYMENT_TIMEOUT", OrderStatus.CANCELLED);
-                userActiveOrderTopicPublisher.publishReleased(o.getUserId());
+                userActiveOrderTopicPublisher.publishReleased(o.getUserId(), o.getId());
+                adminOrderTopicPublisher.publishStatusUpdated(o);
                 pushUserOrderClosed(
                         o.getUserId(),
                         o.getId(),
@@ -156,7 +164,12 @@ public class IncityOrderTimeoutScheduler {
         UserOrderEventDTO evt = new UserOrderEventDTO();
         evt.setOrderId(orderId);
         evt.setEvent("cancelled");
+        evt.setEventType("cancelled");
+        evt.setEventVersion(1);
+        evt.setTsEpochMs(Instant.now().toEpochMilli());
+        evt.setSource("backend");
         evt.setStatus(status == null ? null : status.name());
+        evt.setServiceMode(ServiceMode.INCITY.name());
         evt.setPaymentDueAtEpochMs(null);
         evt.setRiderId(null);
         messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", evt);

@@ -1,5 +1,7 @@
 package com.youdash.realtime;
 
+import java.time.Instant;
+
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 
@@ -42,6 +44,9 @@ public class RiderActiveOrderTopicPublisher {
         dto.setStage(status == null ? null : status.name());
         dto.setEvent(event);
         dto.setEventVersion(1);
+        dto.setTsEpochMs(Instant.now().toEpochMilli());
+        dto.setSource("backend");
+        dto.setServiceMode("INCITY");
         dto.setReason(reason);
         dto.setCollectAmount(collectAmount);
         dto.setHasActiveOrder(hasActiveOrderForLifecycleEvent(event));

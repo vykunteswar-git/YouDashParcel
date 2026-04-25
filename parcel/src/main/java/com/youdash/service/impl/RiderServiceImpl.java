@@ -423,6 +423,7 @@ public class RiderServiceImpl implements RiderService {
                             o.getUserId(),
                             orderId,
                             o.getStatus() == null ? null : o.getStatus().name(),
+                            o.getServiceMode() == null ? null : o.getServiceMode().name(),
                             riderId,
                             etaSeconds,
                             Math.round(distToDropKm * 100.0) / 100.0);

@@ -43,6 +43,9 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
     private static final Pattern USER_ACTIVE_ORDER_TOPIC =
             Pattern.compile("^/topic/users/(\\d+)/active-order$");
 
+    private static final Pattern ADMIN_ORDERS_TOPIC =
+            Pattern.compile("^/topic/admin/orders$");
+
     @Autowired
     private JwtUtil jwtUtil;
 
@@ -126,6 +129,13 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             }
 
             Matcher m = ORDER_RIDER_LOCATION_TOPIC.matcher(destination);
+            Matcher adminOrders = ADMIN_ORDERS_TOPIC.matcher(destination);
+            if (adminOrders.matches()) {
+                if ("ADMIN".equals(p.tokenType)) {
+                    return message;
+                }
+                throw new RuntimeException("Access denied");
+            }
             if (!m.matches()) {
                 return message; // other topics are not handled here
             }

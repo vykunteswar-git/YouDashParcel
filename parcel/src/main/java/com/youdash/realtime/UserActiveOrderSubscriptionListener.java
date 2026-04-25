@@ -65,9 +65,14 @@ public class UserActiveOrderSubscriptionListener {
             return;
         }
         Long userId = Long.valueOf(m.group(1));
-        orderRepository
-                .findFirstByUserIdAndStatusInOrderByCreatedAtDesc(userId, USER_ACTIVE_STATUSES)
-                .ifPresentOrElse(this::publishSnapshotFromOrder, () -> userActiveOrderTopicPublisher.publishReleased(userId));
+        var activeOrders = orderRepository.findByUserIdAndStatusInOrderByCreatedAtDesc(userId, USER_ACTIVE_STATUSES);
+        if (activeOrders.isEmpty()) {
+            userActiveOrderTopicPublisher.publishReleased(userId);
+            return;
+        }
+        for (OrderEntity activeOrder : activeOrders) {
+            publishSnapshotFromOrder(activeOrder);
+        }
     }
 
     private void publishSnapshotFromOrder(OrderEntity order) {
@@ -86,6 +91,7 @@ public class UserActiveOrderSubscriptionListener {
                 order.getUserId(),
                 order.getId(),
                 order.getStatus() == null ? null : order.getStatus().name(),
+                order.getServiceMode() == null ? null : order.getServiceMode().name(),
                 order.getRiderId(),
                 etaSeconds,
                 distanceToDropKm);

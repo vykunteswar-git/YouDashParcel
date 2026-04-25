@@ -34,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.youdash.dto.realtime.UserOrderEventDTO;
+import com.youdash.realtime.AdminOrderTopicPublisher;
 import com.youdash.realtime.RiderActiveOrderTopicPublisher;
 import com.youdash.realtime.UserActiveOrderTopicPublisher;
 
@@ -120,6 +121,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private UserActiveOrderTopicPublisher userActiveOrderTopicPublisher;
+
+    @Autowired
+    private AdminOrderTopicPublisher adminOrderTopicPublisher;
 
     @Autowired
     private RiderRatingRepository riderRatingRepository;
@@ -418,6 +422,7 @@ public class OrderServiceImpl implements OrderService {
                         NotificationType.USER_COUPON_APPLIED);
             }
             notifyAfterOrderCreated(saved);
+            adminOrderTopicPublisher.publishOrderCreated(saved);
             if (saved.getServiceMode() == ServiceMode.INCITY && saved.getStatus() == OrderStatus.SEARCHING_RIDER) {
                 dispatchService.dispatchNewIncityOrder(saved);
             }
@@ -906,17 +911,23 @@ public class OrderServiceImpl implements OrderService {
                 userEvt.setOrderId(saved.getId());
                 userEvt.setEvent("rider_found");
                 userEvt.setEventType("rider_assigned");
+                userEvt.setEventVersion(1);
+                userEvt.setTsEpochMs(Instant.now().toEpochMilli());
+                userEvt.setSource("backend");
                 userEvt.setStatus(OrderStatus.CONFIRMED.name());
+                userEvt.setServiceMode(saved.getServiceMode() == null ? null : saved.getServiceMode().name());
                 userEvt.setRiderId(primaryRiderId);
                 messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", userEvt);
             } catch (Exception ignored) {
                 // Keep assignment successful even if one notification channel fails.
             }
+            adminOrderTopicPublisher.publishRiderAssigned(saved);
             try {
                 userActiveOrderTopicPublisher.publishStatusUpdated(
                         saved.getUserId(),
                         saved.getId(),
                         OrderStatus.CONFIRMED.name(),
+                        saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
                         primaryRiderId);
                 // Also push a snapshot immediately so connected clients update even if
                 // they missed a transient incremental event.
@@ -924,6 +935,7 @@ public class OrderServiceImpl implements OrderService {
                         saved.getUserId(),
                         saved.getId(),
                         OrderStatus.CONFIRMED.name(),
+                        saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
                         primaryRiderId,
                         null,
                         null);
@@ -994,22 +1006,27 @@ public class OrderServiceImpl implements OrderService {
         evt.setEvent("status_updated");
         evt.setEventType("status_updated");
         evt.setEventVersion(1);
+        evt.setTsEpochMs(Instant.now().toEpochMilli());
+        evt.setSource("backend");
         evt.setStatus(saved.getStatus().name());
+        evt.setServiceMode(saved.getServiceMode() == null ? null : saved.getServiceMode().name());
         evt.setStage(saved.getStatus().name());
         evt.setRiderId(saved.getRiderId());
         messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", evt);
+        adminOrderTopicPublisher.publishStatusUpdated(saved);
 
         if (saved.getStatus() == OrderStatus.DELIVERED
                 || saved.getStatus() == OrderStatus.CANCELLED
                 || saved.getStatus() == OrderStatus.RETURNED
                 || saved.getStatus() == OrderStatus.EXPIRED
                 || saved.getStatus() == OrderStatus.FAILED) {
-            userActiveOrderTopicPublisher.publishReleased(saved.getUserId());
+            userActiveOrderTopicPublisher.publishReleased(saved.getUserId(), saved.getId());
         } else {
             userActiveOrderTopicPublisher.publishStatusUpdated(
                     saved.getUserId(),
                     saved.getId(),
                     saved.getStatus().name(),
+                    saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
                     saved.getRiderId());
         }
         if (status == OrderStatus.DELIVERED && saved.getRiderId() != null) {
@@ -1120,15 +1137,24 @@ public class OrderServiceImpl implements OrderService {
         deliveredEvt.setOrderId(saved.getId());
         deliveredEvt.setEvent("delivered");
         deliveredEvt.setEventType("status_updated");
+        deliveredEvt.setEventVersion(1);
+        deliveredEvt.setTsEpochMs(Instant.now().toEpochMilli());
+        deliveredEvt.setSource("backend");
         deliveredEvt.setStatus(OrderStatus.DELIVERED.name());
+        deliveredEvt.setServiceMode(saved.getServiceMode() == null ? null : saved.getServiceMode().name());
         deliveredEvt.setRiderId(saved.getRiderId());
         deliveredEvt.setCanRateRider(Boolean.TRUE);
         deliveredEvt.setRiderRatingSubmitted(Boolean.FALSE);
         deliveredEvt.setRiderRating(null);
         messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", deliveredEvt);
+        adminOrderTopicPublisher.publishStatusUpdated(saved);
         userActiveOrderTopicPublisher.publishStatusUpdated(
-                saved.getUserId(), saved.getId(), OrderStatus.DELIVERED.name(), saved.getRiderId());
-        userActiveOrderTopicPublisher.publishReleased(saved.getUserId());
+                saved.getUserId(),
+                saved.getId(),
+                OrderStatus.DELIVERED.name(),
+                saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
+                saved.getRiderId());
+        userActiveOrderTopicPublisher.publishReleased(saved.getUserId(), saved.getId());
 
         notificationService.sendToUser(
                 saved.getUserId(),
@@ -1196,14 +1222,23 @@ public class OrderServiceImpl implements OrderService {
         evt.setOrderId(saved.getId());
         evt.setEvent("otp_verified");
         evt.setEventType("otp_verified");
+        evt.setEventVersion(1);
+        evt.setTsEpochMs(Instant.now().toEpochMilli());
+        evt.setSource("backend");
         evt.setStatus(OrderStatus.IN_TRANSIT.name());
+        evt.setServiceMode(saved.getServiceMode() == null ? null : saved.getServiceMode().name());
         evt.setRiderId(saved.getRiderId());
         evt.setCanRateRider(Boolean.FALSE);
         evt.setRiderRatingSubmitted(Boolean.FALSE);
         evt.setRiderRating(null);
         messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", evt);
+        adminOrderTopicPublisher.publish("otp_verified", saved);
         userActiveOrderTopicPublisher.publishStatusUpdated(
-                saved.getUserId(), saved.getId(), OrderStatus.IN_TRANSIT.name(), saved.getRiderId());
+                saved.getUserId(),
+                saved.getId(),
+                OrderStatus.IN_TRANSIT.name(),
+                saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
+                saved.getRiderId());
 
         if (saved.getRiderId() != null) {
             riderActiveOrderTopicPublisher.publish(
@@ -1340,7 +1375,7 @@ public class OrderServiceImpl implements OrderService {
                         o.getRiderId(), o.getId(), OrderStatus.CANCELLED, "released", "USER_CANCELLED");
             }
             dispatchService.closeRequest(o.getId(), "cancelled", null);
-            userActiveOrderTopicPublisher.publishReleased(o.getUserId());
+            userActiveOrderTopicPublisher.publishReleased(o.getUserId(), o.getId());
             OrderEntity refreshedForPush = orderRepository.findById(o.getId()).orElse(o);
             Map<String, String> closedData = new HashMap<>(
                     NotificationService.baseData(
