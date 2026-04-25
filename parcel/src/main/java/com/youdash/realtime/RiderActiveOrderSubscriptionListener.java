@@ -13,12 +13,11 @@ import org.springframework.web.socket.messaging.SessionSubscribeEvent;
 import com.youdash.dto.realtime.RiderActiveOrderEventDTO;
 import com.youdash.entity.OrderEntity;
 import com.youdash.model.OrderStatus;
-import com.youdash.model.ServiceMode;
 import com.youdash.repository.OrderRepository;
 
 /**
  * When a rider subscribes to {@code /topic/riders/{riderId}/active-order}, publishes an immediate
- * {@code snapshot} so the app knows whether there is an active INCITY order (e.g. after reconnect)
+ * {@code snapshot} so the app knows whether there is an active order (e.g. after reconnect)
  * without waiting for the next lifecycle event.
  */
 @Component
@@ -27,7 +26,7 @@ public class RiderActiveOrderSubscriptionListener {
     private static final Pattern ACTIVE_ORDER_TOPIC =
             Pattern.compile("^/topic/riders/(\\d+)/active-order$");
 
-    private static final List<OrderStatus> INCITY_ACTIVE_STATUSES = List.of(
+    private static final List<OrderStatus> ACTIVE_STATUSES = List.of(
             OrderStatus.RIDER_ACCEPTED,
             OrderStatus.PAYMENT_PENDING,
             OrderStatus.CONFIRMED,
@@ -58,8 +57,8 @@ public class RiderActiveOrderSubscriptionListener {
         Long riderId = Long.valueOf(m.group(1));
 
         RiderActiveOrderEventDTO payload = orderRepository
-                .findFirstByRiderIdAndServiceModeAndStatusInOrderByIdDesc(
-                        riderId, ServiceMode.INCITY, INCITY_ACTIVE_STATUSES)
+                .findFirstByRiderIdAndStatusInOrderByIdDesc(
+                        riderId, ACTIVE_STATUSES)
                 .map(this::snapshotFromOrder)
                 .orElseGet(this::snapshotIdle);
 

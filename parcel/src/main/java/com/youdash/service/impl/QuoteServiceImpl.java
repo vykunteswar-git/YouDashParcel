@@ -284,6 +284,7 @@ public class QuoteServiceImpl implements QuoteService {
             }
             DeliveryPromiseDTO promise = deliveryPromiseService.getDeliveryPromise(hubRouteId, type);
             row.setDeliveryPromise(promise);
+            applyPromiseCopy(row, promise, type);
 
             OutstationDeliveryType dtype = OutstationDeliveryType.valueOf(type);
             PricingService.OutstationBreakdown b = pricingService.outstationBreakdown(
@@ -292,6 +293,39 @@ public class QuoteServiceImpl implements QuoteService {
             out.add(row);
         }
         return out;
+    }
+
+    private static void applyPromiseCopy(
+            DeliveryTypeDetailsDTO row, DeliveryPromiseDTO promise, String type) {
+        if (promise == null) {
+            return;
+        }
+        String cutoff = safe(promise.getCutoffInfo());
+        String deliveredBy = safe(promise.getDeliveredBy());
+        String slotMessage = safe(promise.getMessage());
+
+        if (!cutoff.isEmpty() && !deliveredBy.isEmpty()) {
+            row.setHandoverMessage(cutoff);
+            row.setDescription(cutoff + " " + deliveredBy);
+            return;
+        }
+        if (!cutoff.isEmpty()) {
+            row.setHandoverMessage(cutoff);
+            row.setDescription(cutoff);
+            return;
+        }
+        if (!deliveredBy.isEmpty()) {
+            row.setDescription(deliveredBy);
+            return;
+        }
+        if (!slotMessage.isEmpty()) {
+            row.setDescription(slotMessage);
+            if ("HUB_TO_DOOR".equalsIgnoreCase(type)) {
+                row.setHandoverMessage("Please hand over the parcel at the origin hub.");
+            } else {
+                row.setHandoverMessage("Rider pickup will be scheduled as per slot availability.");
+            }
+        }
     }
 
     private double resolveRouteRate(Long originHubId, Long destHubId, AppConfigEntity cfg) {
@@ -381,6 +415,10 @@ public class QuoteServiceImpl implements QuoteService {
 
     private static double round4(double v) {
         return Math.round(v * 10000.0) / 10000.0;
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private void setError(ApiResponse<?> response, String message) {

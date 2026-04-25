@@ -2,7 +2,6 @@ package com.youdash.service;
 
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.incentive.PeakIncentiveCampaignDTO;
-import com.youdash.dto.incentive.RiderIncentiveProgressDTO;
 import com.youdash.entity.OrderEntity;
 
 import java.time.Instant;
@@ -15,7 +14,9 @@ public interface PeakIncentiveService {
 
     ApiResponse<PeakIncentiveCampaignDTO> adminUpdate(Long id, PeakIncentiveCampaignDTO dto);
 
-    ApiResponse<List<RiderIncentiveProgressDTO>> riderProgress(Long riderId);
+    ApiResponse<String> adminDelete(Long id);
+
+    ApiResponse<List<PeakIncentiveCampaignDTO>> riderProgress(Long riderId);
 
     double resolveBonusForDeliveredOrder(OrderEntity order, Instant deliveredAt);
 }

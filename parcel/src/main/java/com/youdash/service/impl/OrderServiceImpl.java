@@ -830,12 +830,55 @@ public class OrderServiceImpl implements OrderService {
                 o.setDeliveryOtp(DeliveryOtpGenerator.generate());
             }
             OrderEntity saved = orderRepository.save(o);
-            notificationService.sendToRider(
-                    riderId,
-                    "New delivery assigned",
-                    "Order #" + saved.getId() + " — open the app for details.",
-                    NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(), NotificationType.RIDER_JOB_ASSIGNED),
-                    NotificationType.RIDER_JOB_ASSIGNED);
+            try {
+                notificationService.sendToRider(
+                        riderId,
+                        "New delivery assigned",
+                        "Order #" + saved.getId() + " — open the app for details.",
+                        NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(), NotificationType.RIDER_JOB_ASSIGNED),
+                        NotificationType.RIDER_JOB_ASSIGNED);
+            } catch (Exception ignored) {
+                // Keep assignment successful even if one notification channel fails.
+            }
+            try {
+                notificationService.sendToUser(
+                        saved.getUserId(),
+                        "Rider assigned",
+                        "A rider has been assigned to order #" + saved.getId() + ".",
+                        NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(), NotificationType.RIDER_ASSIGNED),
+                        NotificationType.RIDER_ASSIGNED);
+            } catch (Exception ignored) {
+                // Keep assignment successful even if one notification channel fails.
+            }
+            try {
+                UserOrderEventDTO userEvt = new UserOrderEventDTO();
+                userEvt.setOrderId(saved.getId());
+                userEvt.setEvent("rider_found");
+                userEvt.setEventType("rider_assigned");
+                userEvt.setStatus(OrderStatus.CONFIRMED.name());
+                userEvt.setRiderId(riderId);
+                messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", userEvt);
+            } catch (Exception ignored) {
+                // Keep assignment successful even if one notification channel fails.
+            }
+            try {
+                userActiveOrderTopicPublisher.publishStatusUpdated(
+                        saved.getUserId(),
+                        saved.getId(),
+                        OrderStatus.CONFIRMED.name(),
+                        riderId);
+            } catch (Exception ignored) {
+                // Keep assignment successful even if one notification channel fails.
+            }
+            try {
+                riderActiveOrderTopicPublisher.publish(
+                        riderId,
+                        saved.getId(),
+                        OrderStatus.CONFIRMED,
+                        "assigned");
+            } catch (Exception ignored) {
+                // Keep assignment successful even if one notification channel fails.
+            }
             response.setData(toOrderDto(saved, null, null, false));
             response.setMessage("Rider assigned");
             response.setMessageKey("SUCCESS");

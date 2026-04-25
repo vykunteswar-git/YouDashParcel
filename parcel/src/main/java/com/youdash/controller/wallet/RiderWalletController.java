@@ -21,7 +21,7 @@ import com.youdash.dto.wallet.RiderWalletSummaryDTO;
 import com.youdash.dto.wallet.RiderWalletTransactionDTO;
 import com.youdash.dto.wallet.RiderWithdrawalDTO;
 import com.youdash.dto.wallet.RiderWithdrawalRequestDTO;
-import com.youdash.dto.incentive.RiderIncentiveProgressDTO;
+import com.youdash.dto.incentive.PeakIncentiveCampaignDTO;
 import com.youdash.dto.notification.NotificationInboxItemDTO;
 import com.youdash.dto.notification.NotificationUnreadCountDTO;
 import com.youdash.security.RiderAccessVerifier;
@@ -92,7 +92,7 @@ public class RiderWalletController {
 
     @GetMapping("/incentives/progress")
     @Operation(summary = "Get active incentive progress (JWT)")
-    public ApiResponse<List<RiderIncentiveProgressDTO>> incentiveProgress(HttpServletRequest request) {
+    public ApiResponse<List<PeakIncentiveCampaignDTO>> incentiveProgress(HttpServletRequest request) {
         Long riderId = riderAccessVerifier.resolveActingRiderId(request);
         return peakIncentiveService.riderProgress(riderId);
     }

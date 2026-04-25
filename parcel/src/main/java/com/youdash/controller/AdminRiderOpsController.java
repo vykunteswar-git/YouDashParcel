@@ -58,4 +58,10 @@ public class AdminRiderOpsController {
     public ApiResponse<List<RiderResponseDTO>> available() {
         return riderService.listRidersEligibleForAssignment();
     }
+
+    @GetMapping("/eligible-for-order/{orderId}")
+    @Operation(summary = "Nearby approved, online, and unassigned riders for order")
+    public ApiResponse<List<RiderResponseDTO>> eligibleForOrder(@PathVariable Long orderId) {
+        return riderService.listRidersEligibleForOrder(orderId);
+    }
 }

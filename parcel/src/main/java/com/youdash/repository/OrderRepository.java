@@ -39,6 +39,10 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     /** Most recent order for this user in any of the provided statuses. */
     Optional<OrderEntity> findFirstByUserIdAndStatusInOrderByCreatedAtDesc(Long userId, List<OrderStatus> statuses);
 
+    /** Latest active order for this rider across service modes. */
+    Optional<OrderEntity> findFirstByRiderIdAndStatusInOrderByIdDesc(
+            Long riderId, List<OrderStatus> statuses);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             update OrderEntity o

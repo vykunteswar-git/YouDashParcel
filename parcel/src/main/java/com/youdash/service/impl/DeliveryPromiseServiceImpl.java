@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
@@ -18,8 +19,11 @@ public class DeliveryPromiseServiceImpl implements DeliveryPromiseService {
 
     private static final String NEXT_DAY = "NEXT_DAY";
     private static final String HOURS = "HOURS";
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
 
     private static final DateTimeFormatter DISPLAY_TIME = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH);
+    private static final DateTimeFormatter DISPLAY_DATE = DateTimeFormatter.ofPattern("d-M-yyyy", Locale.ENGLISH);
+    private static final DateTimeFormatter DISPLAY_DATE_TIME_NUMERIC = DateTimeFormatter.ofPattern("d-M-yyyy h:mm a", Locale.ENGLISH);
 
     @Autowired
     private HubRouteSlaRepository slaRepository;
@@ -28,19 +32,21 @@ public class DeliveryPromiseServiceImpl implements DeliveryPromiseService {
     public DeliveryPromiseDTO getDeliveryPromise(Long hubRouteId, String deliveryTypeUI) {
         if (hubRouteId == null) {
             return new DeliveryPromiseDTO(
-                    "Delivery time confirmed after hub selection",
-                    "Select origin and destination hubs with a configured route",
+                    "Delivery timeline will be confirmed after hub selection.",
+                    "Please select origin and destination hubs on an active route.",
+                    null,
                     false);
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(BUSINESS_ZONE);
         LocalTime currentTime = now.toLocalTime();
 
         List<HubRouteSlaEntity> slaList =
                 slaRepository.findByHubRouteIdAndIsActiveTrueOrderByPriorityAsc(hubRouteId);
         if (slaList.isEmpty()) {
             return new DeliveryPromiseDTO(
-                    "Delivery schedule on confirmation",
+                    "Delivery schedule will be confirmed at booking.",
+                    null,
                     null,
                     false);
         }
@@ -82,49 +88,72 @@ public class DeliveryPromiseServiceImpl implements DeliveryPromiseService {
             return buildHoursPromise(fallback);
         }
 
-        return new DeliveryPromiseDTO("No delivery promise configured", null, false);
+        return new DeliveryPromiseDTO("No delivery commitment is configured for this route.", null, null, false);
     }
 
     private DeliveryPromiseDTO buildNextDayPromise(
             HubRouteSlaEntity sla, String deliveryTypeUI, boolean shifted) {
 
-        String deliveryPart = sla.getDeliveryTime() != null
-                ? formatTime(sla.getDeliveryTime())
-                : "next day";
-
-        String message = "Delivery by Tomorrow " + deliveryPart;
-
-        String action = getActionWord(deliveryTypeUI);
-        String cutoffInfo;
+        LocalDateTime now = LocalDateTime.now(BUSINESS_ZONE);
+        LocalDateTime handoverDateTime = now.toLocalDate().atStartOfDay();
         if (shifted) {
-            cutoffInfo = "Next available slot";
-        } else if (sla.getCutoffTime() != null) {
-            cutoffInfo = action + " before " + formatTime(sla.getCutoffTime());
-        } else {
-            cutoffInfo = null;
+            handoverDateTime = handoverDateTime.plusDays(1);
         }
 
-        return new DeliveryPromiseDTO(message, cutoffInfo, shifted);
+        String cutoffText = sla.getCutoffTime() != null
+                ? formatTime(sla.getCutoffTime())
+                : "scheduled cutoff";
+
+        LocalDateTime deliveryDateTime = null;
+        if (sla.getDeliveryTime() != null) {
+            // For a selected slot, promise is "next day" from that slot's day.
+            deliveryDateTime = handoverDateTime.plusDays(1).with(sla.getDeliveryTime());
+        }
+
+        String deliveredBy = deliveryDateTime != null
+                ? ("Delivered by " + (shifted
+                    ? formatDateTimeNumeric(deliveryDateTime)
+                    : ("next day " + formatTime(deliveryDateTime.toLocalTime()))))
+                : "Delivery schedule will be confirmed at booking.";
+
+        String handoverDateText = shifted ? formatDate(handoverDateTime) : "";
+        String cutoffInfo = buildCutoffInfo(deliveryTypeUI, cutoffText, deliveredBy, shifted, handoverDateText);
+        String message = shifted
+                ? ("Today's delivery slot is missed. Next available slot is on " + handoverDateText + " before " + cutoffText + ".")
+                : "Slot is available.";
+
+        return new DeliveryPromiseDTO(message, cutoffInfo, deliveredBy, shifted);
     }
 
     private DeliveryPromiseDTO buildHoursPromise(HubRouteSlaEntity sla) {
         int h = sla.getDeliveredWithinHours() != null ? sla.getDeliveredWithinHours() : 0;
-        String message = h > 0 ? "Delivered within " + h + " hours" : "Delivery window on confirmation";
-        return new DeliveryPromiseDTO(message, null, false);
+        String message = h > 0 ? "Delivered within " + h + " hours." : "Delivery window will be confirmed at booking.";
+        return new DeliveryPromiseDTO(message, null, message, false);
     }
 
-    private static String getActionWord(String deliveryTypeUI) {
+    private static String buildCutoffInfo(
+            String deliveryTypeUI, String cutoffText, String deliveredBy, boolean shifted, String handoverDateText) {
+        String type = normalizeUiType(deliveryTypeUI);
+        if ("HUB_TO_DOOR".equals(type)) {
+            if (shifted) {
+                return "Today's delivery slot is missed. Please hand over the parcel at the hub on "
+                        + handoverDateText + " before " + cutoffText + ". " + deliveredBy + ".";
+            }
+            return "Please hand over the parcel at the hub before " + cutoffText + ". " + deliveredBy + ".";
+        }
+
+        if (shifted) {
+            return "Today's delivery slot is missed. Pickup will be initiated on "
+                    + handoverDateText + " before " + cutoffText + ". " + deliveredBy + ".";
+        }
+        return "Our rider will pick up the parcel before " + cutoffText + ". " + deliveredBy + ".";
+    }
+
+    private static String normalizeUiType(String deliveryTypeUI) {
         if (deliveryTypeUI == null) {
-            return "Pickup";
+            return "";
         }
-        switch (deliveryTypeUI.trim().toUpperCase(Locale.ROOT)) {
-            case "HUB_TO_DOOR":
-                return "Drop";
-            case "DOOR_TO_HUB":
-            case "DOOR_TO_DOOR":
-            default:
-                return "Pickup";
-        }
+        return deliveryTypeUI.trim().toUpperCase(Locale.ROOT);
     }
 
     private static String formatTime(LocalTime time) {
@@ -132,6 +161,20 @@ public class DeliveryPromiseServiceImpl implements DeliveryPromiseService {
             return "";
         }
         return time.format(DISPLAY_TIME);
+    }
+
+    private static String formatDateTimeNumeric(LocalDateTime dateTime) {
+        if (dateTime == null) {
+            return "";
+        }
+        return dateTime.format(DISPLAY_DATE_TIME_NUMERIC);
+    }
+
+    private static String formatDate(LocalDateTime dateTime) {
+        if (dateTime == null) {
+            return "";
+        }
+        return dateTime.toLocalDate().format(DISPLAY_DATE);
     }
 
     private static String normalizeType(String raw) {

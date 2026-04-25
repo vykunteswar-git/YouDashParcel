@@ -35,4 +35,10 @@ public class AdminIncentiveController {
     public ApiResponse<PeakIncentiveCampaignDTO> update(@PathVariable Long id, @RequestBody PeakIncentiveCampaignDTO dto) {
         return peakIncentiveService.adminUpdate(id, dto);
     }
+
+    @DeleteMapping("/peak-campaigns/{id}")
+    @Operation(summary = "Delete peak incentive campaign")
+    public ApiResponse<String> delete(@PathVariable Long id) {
+        return peakIncentiveService.adminDelete(id);
+    }
 }

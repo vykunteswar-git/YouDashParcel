@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -58,6 +59,13 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 public class RiderServiceImpl implements RiderService {
 
     private static final SecureRandom RIDER_ID_RANDOM = new SecureRandom();
+    private static final List<OrderStatus> ACTIVE_ASSIGNMENT_STATUSES = List.of(
+            OrderStatus.RIDER_ACCEPTED,
+            OrderStatus.PAYMENT_PENDING,
+            OrderStatus.CONFIRMED,
+            OrderStatus.PICKED_UP,
+            OrderStatus.IN_TRANSIT);
+    private static final double ASSIGNMENT_NEARBY_RADIUS_KM = 12.0;
 
     @Autowired
     private RiderRepository riderRepository;
@@ -632,6 +640,48 @@ public class RiderServiceImpl implements RiderService {
     }
 
     @Override
+    public ApiResponse<List<RiderResponseDTO>> listRidersEligibleForOrder(Long orderId) {
+        ApiResponse<List<RiderResponseDTO>> response = new ApiResponse<>();
+        try {
+            if (orderId == null) {
+                throw new RuntimeException("orderId is required");
+            }
+            OrderEntity order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new RuntimeException("Order not found"));
+            if (order.getPickupLat() == null || order.getPickupLng() == null) {
+                throw new RuntimeException("Order pickup coordinates are missing");
+            }
+
+            List<RiderResponseDTO> dtos = riderRepository.findByIsAvailableTrue().stream()
+                    .filter(this::isApprovedOrLegacy)
+                    .filter(r -> "ONLINE".equalsIgnoreCase(computeRiderStatus(r)))
+                    .filter(r -> r.getCurrentLat() != null && r.getCurrentLng() != null)
+                    .filter(r -> !orderRepository.existsByRiderIdAndStatusIn(r.getId(), ACTIVE_ASSIGNMENT_STATUSES))
+                    .filter(r -> GeoUtils.haversineKm(
+                            order.getPickupLat(), order.getPickupLng(), r.getCurrentLat(), r.getCurrentLng())
+                            <= ASSIGNMENT_NEARBY_RADIUS_KM)
+                    .sorted(Comparator.comparingDouble(r -> GeoUtils.haversineKm(
+                            order.getPickupLat(), order.getPickupLng(), r.getCurrentLat(), r.getCurrentLng())))
+                    .limit(25)
+                    .map(this::mapToResponseDTO)
+                    .collect(Collectors.toList());
+
+            response.setData(dtos);
+            response.setMessage("Eligible riders fetched successfully");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setTotalCount(dtos.size());
+            response.setSuccess(true);
+        } catch (Exception e) {
+            response.setMessage("Failed to fetch eligible riders: " + e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(500);
+            response.setSuccess(false);
+        }
+        return response;
+    }
+
+    @Override
     public ApiResponse<RiderOnlineTimeDTO> getOnlineTimeForDate(Long riderId, String dateIso) {
         ApiResponse<RiderOnlineTimeDTO> response = new ApiResponse<>();
         try {
@@ -769,13 +819,7 @@ public class RiderServiceImpl implements RiderService {
         }
         Long id = rider.getId();
         if (id != null) {
-            List<OrderStatus> activeAssignment = List.of(
-                    OrderStatus.RIDER_ACCEPTED,
-                    OrderStatus.PAYMENT_PENDING,
-                    OrderStatus.CONFIRMED,
-                    OrderStatus.PICKED_UP,
-                    OrderStatus.IN_TRANSIT);
-            if (orderRepository.existsByRiderIdAndStatusIn(id, activeAssignment)) {
+            if (orderRepository.existsByRiderIdAndStatusIn(id, ACTIVE_ASSIGNMENT_STATUSES)) {
                 return "ORDER_ASSIGNED";
             }
         }

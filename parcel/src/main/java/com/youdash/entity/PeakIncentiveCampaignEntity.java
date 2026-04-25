@@ -1,10 +1,12 @@
 package com.youdash.entity;
 
 import com.youdash.model.ServiceMode;
+import com.youdash.model.IncentiveType;
 import jakarta.persistence.*;
 import lombok.Data;
 
 import java.time.Instant;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "youdash_peak_incentive_campaigns")
@@ -15,6 +17,10 @@ public class PeakIncentiveCampaignEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "incentive_type", nullable = false, length = 32)
+    private IncentiveType incentiveType;
+
     @Column(name = "name", nullable = false, length = 128)
     private String name;
 
@@ -24,6 +30,12 @@ public class PeakIncentiveCampaignEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "service_mode", length = 16)
     private ServiceMode serviceMode;
+
+    @Column(name = "incentive_date")
+    private LocalDate incentiveDate;
+
+    @Column(name = "target_online_minutes")
+    private Integer targetOnlineMinutes;
 
     @Column(name = "bonus_amount", nullable = false)
     private Double bonusAmount;
@@ -52,6 +64,10 @@ public class PeakIncentiveCampaignEntity {
     @Column(name = "end_time_hhmm", nullable = false, length = 5)
     private String endTimeHhmm;
 
+    @Lob
+    @Column(name = "slabs_json", columnDefinition = "TEXT")
+    private String slabsJson;
+
     @Column(name = "created_at")
     private Instant createdAt;
 
@@ -67,6 +83,9 @@ public class PeakIncentiveCampaignEntity {
         updatedAt = now;
         if (isActive == null) {
             isActive = true;
+        }
+        if (incentiveType == null) {
+            incentiveType = IncentiveType.DAILY_DELIVERIES_SLOT;
         }
         if (minCompletedOrders == null || minCompletedOrders <= 0) {
             minCompletedOrders = 1;
