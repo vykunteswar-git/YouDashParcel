@@ -1,10 +1,12 @@
 package com.youdash.controller;
 
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.OrderTimelineEventDTO;
 import com.youdash.entity.OrderEntity;
 import com.youdash.entity.RiderLocationHistoryEntity;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderLocationHistoryRepository;
+import com.youdash.service.OrderTimelineService;
 import com.youdash.util.GeoUtils;
 import com.youdash.util.JwtUtil;
 import io.swagger.v3.oas.annotations.Operation;
@@ -31,6 +33,9 @@ public class TrackingController {
 
     @Autowired
     private JwtUtil jwtUtil;
+
+    @Autowired
+    private OrderTimelineService orderTimelineService;
 
     @Value("${youdash.tracking.city-speed-kmh:20}")
     private double citySpeedKmh;
@@ -115,6 +120,42 @@ public class TrackingController {
             response.setStatus(200);
             response.setSuccess(true);
 
+        } catch (Exception e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(500);
+            response.setSuccess(false);
+        }
+        return response;
+    }
+
+    @GetMapping("/{orderId}/timeline")
+    @Operation(summary = "Get order timeline events", description = "Returns timeline events persisted for this order in chronological order.")
+    public ApiResponse<List<OrderTimelineEventDTO>> getOrderTimeline(
+            @PathVariable Long orderId,
+            HttpServletRequest request) {
+        ApiResponse<List<OrderTimelineEventDTO>> response = new ApiResponse<>();
+        try {
+            OrderEntity order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new RuntimeException("Order not found"));
+
+            String role = resolveRole(request);
+            Long actorId = resolveActorId(request);
+            boolean allowed = "ADMIN".equals(role)
+                    || ("USER".equals(role) && order.getUserId().equals(actorId))
+                    || ("RIDER".equals(role) &&
+                    ((order.getRiderId() != null && order.getRiderId().equals(actorId))
+                            || (order.getPickupRiderId() != null && order.getPickupRiderId().equals(actorId))
+                            || (order.getDeliveryRiderId() != null && order.getDeliveryRiderId().equals(actorId))));
+            if (!allowed) {
+                throw new RuntimeException("Access denied");
+            }
+
+            response.setData(orderTimelineService.timelineForOrder(orderId));
+            response.setMessage("Timeline retrieved");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setSuccess(true);
         } catch (Exception e) {
             response.setMessage(e.getMessage());
             response.setMessageKey("ERROR");

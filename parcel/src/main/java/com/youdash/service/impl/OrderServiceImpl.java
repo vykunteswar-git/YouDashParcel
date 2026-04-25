@@ -13,6 +13,8 @@ import com.youdash.service.DistanceService;
 import com.youdash.service.DispatchService;
 import com.youdash.service.NotificationService;
 import com.youdash.service.OrderService;
+import com.youdash.service.OrderStatusTransitionGuard;
+import com.youdash.service.OrderTimelineService;
 import com.youdash.service.PricingService;
 import com.youdash.service.ZoneService;
 import com.youdash.service.CouponService;
@@ -121,6 +123,12 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private RiderRatingRepository riderRatingRepository;
+
+    @Autowired
+    private OrderTimelineService orderTimelineService;
+
+    @Autowired
+    private OrderStatusTransitionGuard orderStatusTransitionGuard;
 
     @Override
     public ApiResponse<FinalPriceResponseDTO> calculateFinal(Long userId, FinalPriceRequestDTO dto) {
@@ -392,6 +400,7 @@ public class OrderServiceImpl implements OrderService {
                 saved.setPaymentStatus("UNPAID");
             }
             saved = orderRepository.save(saved);
+            appendTimeline(saved, saved.getStatus(), "order_created", null, saved.getRiderId(), "Order created");
             if (promo != null) {
                 couponService.recordRedemption(promo.couponId(), userId, saved.getId());
                 Map<String, String> couponData = new HashMap<>(
@@ -814,29 +823,71 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public ApiResponse<OrderResponseDTO> adminAssignRider(Long orderId, Long riderId) {
+        return adminAssignRiders(orderId, riderId, riderId);
+    }
+
+    @Override
+    public ApiResponse<OrderResponseDTO> adminAssignRiders(
+            Long orderId,
+            Long pickupRiderId,
+            Long deliveryRiderId) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         try {
             OrderEntity o = orderRepository.findById(orderId)
                     .orElseThrow(() -> new RuntimeException("Order not found"));
-            RiderEntity rider = riderRepository.findById(riderId)
-                    .orElseThrow(() -> new RuntimeException("Rider not found"));
-            if (!RiderApprovalStatus.APPROVED.equals(rider.getApprovalStatus())) {
-                throw new RuntimeException("Rider is not approved");
+            if (pickupRiderId == null && deliveryRiderId == null) {
+                throw new RuntimeException("pickupRiderId or deliveryRiderId is required");
             }
-            o.setRiderId(riderId);
+
+            Long primaryRiderId = deliveryRiderId != null ? deliveryRiderId : pickupRiderId;
+            if (pickupRiderId != null) {
+                RiderEntity pickupRider = riderRepository.findById(pickupRiderId)
+                        .orElseThrow(() -> new RuntimeException("Pickup rider not found"));
+                if (!RiderApprovalStatus.APPROVED.equals(pickupRider.getApprovalStatus())) {
+                    throw new RuntimeException("Pickup rider is not approved");
+                }
+                o.setPickupRiderId(pickupRiderId);
+            }
+            if (deliveryRiderId != null) {
+                RiderEntity deliveryRider = riderRepository.findById(deliveryRiderId)
+                        .orElseThrow(() -> new RuntimeException("Delivery rider not found"));
+                if (!RiderApprovalStatus.APPROVED.equals(deliveryRider.getApprovalStatus())) {
+                    throw new RuntimeException("Delivery rider is not approved");
+                }
+                o.setDeliveryRiderId(deliveryRiderId);
+            }
+            o.setRiderId(primaryRiderId);
+            transitionStatus(o, OrderStatus.CONFIRMED);
             // OUTSTATION assignment or manual assignment: treat as confirmed (ready to proceed).
-            o.setStatus(OrderStatus.CONFIRMED);
             if (o.getDeliveryOtp() == null || o.getDeliveryOtp().isBlank()) {
                 o.setDeliveryOtp(DeliveryOtpGenerator.generate());
+                o.setDeliveryOtpGeneratedAt(Instant.now());
             }
             OrderEntity saved = orderRepository.save(o);
+            appendTimeline(
+                    saved,
+                    saved.getStatus(),
+                    "rider_assigned",
+                    saved.getOriginHubId(),
+                    primaryRiderId,
+                    "Rider assignment updated by admin");
             try {
-                notificationService.sendToRider(
-                        riderId,
-                        "New delivery assigned",
-                        "Order #" + saved.getId() + " — open the app for details.",
-                        NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(), NotificationType.RIDER_JOB_ASSIGNED),
-                        NotificationType.RIDER_JOB_ASSIGNED);
+                if (pickupRiderId != null) {
+                    notificationService.sendToRider(
+                            pickupRiderId,
+                            "New pickup assigned",
+                            "Order #" + saved.getId() + " assigned for pickup stage.",
+                            NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(), NotificationType.RIDER_JOB_ASSIGNED),
+                            NotificationType.RIDER_JOB_ASSIGNED);
+                }
+                if (deliveryRiderId != null && !Objects.equals(deliveryRiderId, pickupRiderId)) {
+                    notificationService.sendToRider(
+                            deliveryRiderId,
+                            "New delivery assigned",
+                            "Order #" + saved.getId() + " assigned for delivery stage.",
+                            NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(), NotificationType.RIDER_JOB_ASSIGNED),
+                            NotificationType.RIDER_JOB_ASSIGNED);
+                }
             } catch (Exception ignored) {
                 // Keep assignment successful even if one notification channel fails.
             }
@@ -856,7 +907,7 @@ public class OrderServiceImpl implements OrderService {
                 userEvt.setEvent("rider_found");
                 userEvt.setEventType("rider_assigned");
                 userEvt.setStatus(OrderStatus.CONFIRMED.name());
-                userEvt.setRiderId(riderId);
+                userEvt.setRiderId(primaryRiderId);
                 messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", userEvt);
             } catch (Exception ignored) {
                 // Keep assignment successful even if one notification channel fails.
@@ -866,16 +917,44 @@ public class OrderServiceImpl implements OrderService {
                         saved.getUserId(),
                         saved.getId(),
                         OrderStatus.CONFIRMED.name(),
-                        riderId);
+                        primaryRiderId);
+                // Also push a snapshot immediately so connected clients update even if
+                // they missed a transient incremental event.
+                userActiveOrderTopicPublisher.publishSnapshot(
+                        saved.getUserId(),
+                        saved.getId(),
+                        OrderStatus.CONFIRMED.name(),
+                        primaryRiderId,
+                        null,
+                        null);
             } catch (Exception ignored) {
                 // Keep assignment successful even if one notification channel fails.
             }
             try {
-                riderActiveOrderTopicPublisher.publish(
-                        riderId,
-                        saved.getId(),
-                        OrderStatus.CONFIRMED,
-                        "assigned");
+                if (pickupRiderId != null) {
+                    riderActiveOrderTopicPublisher.publish(
+                            pickupRiderId,
+                            saved.getId(),
+                            OrderStatus.CONFIRMED,
+                            "assigned",
+                            saved.getPaymentType() == PaymentType.COD ? saved.getTotalAmount() : null);
+                    riderActiveOrderTopicPublisher.publishSnapshot(
+                            pickupRiderId,
+                            saved.getId(),
+                            OrderStatus.CONFIRMED);
+                }
+                if (deliveryRiderId != null && !Objects.equals(deliveryRiderId, pickupRiderId)) {
+                    riderActiveOrderTopicPublisher.publish(
+                            deliveryRiderId,
+                            saved.getId(),
+                            OrderStatus.CONFIRMED,
+                            "assigned",
+                            saved.getPaymentType() == PaymentType.COD ? saved.getTotalAmount() : null);
+                    riderActiveOrderTopicPublisher.publishSnapshot(
+                            deliveryRiderId,
+                            saved.getId(),
+                            OrderStatus.CONFIRMED);
+                }
             } catch (Exception ignored) {
                 // Keep assignment successful even if one notification channel fails.
             }
@@ -901,8 +980,38 @@ public class OrderServiceImpl implements OrderService {
                 throw new RuntimeException("COD details missing. Use /order/complete");
             }
         }
-        o.setStatus(status);
+        transitionStatus(o, status);
+        if (status == OrderStatus.OUT_FOR_DELIVERY) {
+            o.setDeliveryOtp(DeliveryOtpGenerator.generate());
+            o.setDeliveryOtpGeneratedAt(Instant.now());
+            o.setIsOtpVerified(false);
+            o.setDeliveryOtpAttempts(0);
+        }
         OrderEntity saved = orderRepository.save(o);
+        appendTimeline(saved, status, "status_updated", saved.getDestinationHubId(), saved.getRiderId(), "Admin status update");
+        UserOrderEventDTO evt = new UserOrderEventDTO();
+        evt.setOrderId(saved.getId());
+        evt.setEvent("status_updated");
+        evt.setEventType("status_updated");
+        evt.setEventVersion(1);
+        evt.setStatus(saved.getStatus().name());
+        evt.setStage(saved.getStatus().name());
+        evt.setRiderId(saved.getRiderId());
+        messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", evt);
+
+        if (saved.getStatus() == OrderStatus.DELIVERED
+                || saved.getStatus() == OrderStatus.CANCELLED
+                || saved.getStatus() == OrderStatus.RETURNED
+                || saved.getStatus() == OrderStatus.EXPIRED
+                || saved.getStatus() == OrderStatus.FAILED) {
+            userActiveOrderTopicPublisher.publishReleased(saved.getUserId());
+        } else {
+            userActiveOrderTopicPublisher.publishStatusUpdated(
+                    saved.getUserId(),
+                    saved.getId(),
+                    saved.getStatus().name(),
+                    saved.getRiderId());
+        }
         if (status == OrderStatus.DELIVERED && saved.getRiderId() != null) {
             riderWalletService.settleOrderDelivered(
                     saved,
@@ -960,7 +1069,7 @@ public class OrderServiceImpl implements OrderService {
             if (o.getStatus() != OrderStatus.IN_TRANSIT) {
                 throw new BadRequestException("Order cannot be completed from status: " + o.getStatus());
             }
-            if (!Boolean.TRUE.equals(o.getIsOtpVerified())) {
+            if (o.getServiceMode() != ServiceMode.OUTSTATION && !Boolean.TRUE.equals(o.getIsOtpVerified())) {
                 throw new BadRequestException("OTP not verified");
             }
         }
@@ -995,9 +1104,10 @@ public class OrderServiceImpl implements OrderService {
         }
 
         if (!alreadyDelivered) {
-            o.setStatus(OrderStatus.DELIVERED);
+            transitionStatus(o, OrderStatus.DELIVERED);
         }
         OrderEntity saved = orderRepository.save(o);
+        appendTimeline(saved, OrderStatus.DELIVERED, "order_completed", saved.getDestinationHubId(), actingRiderId, "Delivery completed");
 
         riderWalletService.settleOrderDelivered(
                 saved,
@@ -1066,7 +1176,9 @@ public class OrderServiceImpl implements OrderService {
         }
 
         if (o.getStatus() != OrderStatus.IN_TRANSIT) {
-            throw new BadRequestException("OTP can only be verified while order is IN_TRANSIT");
+            if (o.getStatus() != OrderStatus.OUT_FOR_DELIVERY) {
+                throw new BadRequestException("OTP can only be verified while order is IN_TRANSIT or OUT_FOR_DELIVERY");
+            }
         }
         if (o.getDeliveryOtp() == null) {
             throw new BadRequestException("No delivery OTP on this order");
@@ -1076,7 +1188,9 @@ public class OrderServiceImpl implements OrderService {
             throw new BadRequestException("Invalid OTP");
         }
         o.setIsOtpVerified(true);
+        o.setDeliveryOtpAttempts((o.getDeliveryOtpAttempts() == null ? 0 : o.getDeliveryOtpAttempts()) + 1);
         OrderEntity saved = orderRepository.save(o);
+        appendTimeline(saved, saved.getStatus(), "otp_verified", saved.getDestinationHubId(), saved.getRiderId(), "Delivery OTP verified");
 
         UserOrderEventDTO evt = new UserOrderEventDTO();
         evt.setOrderId(saved.getId());
@@ -1132,6 +1246,46 @@ public class OrderServiceImpl implements OrderService {
         }
         response.setData(data);
         response.setMessage("OTP verified");
+        response.setMessageKey("SUCCESS");
+        response.setSuccess(true);
+        response.setStatus(200);
+        return response;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ApiResponse<OrderResponseDTO> resendDeliveryOtp(Long orderId, Long tokenUserId, String tokenType) {
+        ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
+        if (orderId == null) {
+            throw new BadRequestException("orderId is required");
+        }
+        OrderEntity order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new BadRequestException("Order not found"));
+        boolean allowed = false;
+        if ("USER".equals(tokenType) && Objects.equals(order.getUserId(), tokenUserId)) {
+            allowed = true;
+        } else if ("RIDER".equals(tokenType)) {
+            Long actingRiderId = riderAccessVerifier.resolveActingRiderIdFromToken(tokenUserId, tokenType);
+            Long assigned = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
+            allowed = Objects.equals(assigned, actingRiderId);
+        } else if ("ADMIN".equals(tokenType)) {
+            allowed = true;
+        }
+        if (!allowed) {
+            throw new BadRequestException("Access denied");
+        }
+        if (order.getStatus() != OrderStatus.OUT_FOR_DELIVERY && order.getStatus() != OrderStatus.IN_TRANSIT) {
+            throw new BadRequestException("OTP resend is only allowed while delivery is in progress");
+        }
+
+        order.setDeliveryOtp(DeliveryOtpGenerator.generate());
+        order.setDeliveryOtpGeneratedAt(Instant.now());
+        order.setIsOtpVerified(false);
+        order = orderRepository.save(order);
+        appendTimeline(order, order.getStatus(), "otp_resent", order.getDestinationHubId(), order.getRiderId(), "Delivery OTP regenerated");
+
+        response.setData(toOrderDto(order, null, null, "RIDER".equals(tokenType)));
+        response.setMessage("Delivery OTP resent");
         response.setMessageKey("SUCCESS");
         response.setSuccess(true);
         response.setStatus(200);
@@ -1431,6 +1585,8 @@ public class OrderServiceImpl implements OrderService {
         String riderName = rider != null ? rider.getName() : null;
         String riderPhone = rider != null ? rider.getPhone() : null;
         String deliveryOtp = resolveDeliveryOtpForResponse(o, riderOrderApi);
+        HubEntity originHub = resolveHubById(o.getOriginHubId());
+        HubEntity destinationHub = resolveHubById(o.getDestinationHubId());
 
         Long effectiveVehicleId = resolveEffectiveVehicleId(o, rider);
         VehicleEntity vehicleRow = null;
@@ -1475,15 +1631,28 @@ public class OrderServiceImpl implements OrderService {
                 .deliveryType(o.getDeliveryType())
                 .originHubId(o.getOriginHubId())
                 .destinationHubId(o.getDestinationHubId())
+                .originHubName(originHub != null ? originHub.getName() : null)
+                .originHubCity(originHub != null ? originHub.getCity() : null)
+                .originHubLat(originHub != null ? originHub.getLat() : null)
+                .originHubLng(originHub != null ? originHub.getLng() : null)
+                .destinationHubName(destinationHub != null ? destinationHub.getName() : null)
+                .destinationHubCity(destinationHub != null ? destinationHub.getCity() : null)
+                .destinationHubLat(destinationHub != null ? destinationHub.getLat() : null)
+                .destinationHubLng(destinationHub != null ? destinationHub.getLng() : null)
                 .weight(o.getWeight())
                 .distanceKm(o.getDistanceKm())
                 .paymentType(o.getPaymentType())
                 .status(o.getStatus())
                 .riderId(o.getRiderId())
+                .pickupRiderId(o.getPickupRiderId())
+                .deliveryRiderId(o.getDeliveryRiderId())
                 .riderName(riderName)
                 .riderPhone(riderPhone)
                 .deliveryOtp(deliveryOtp)
+                .pickupOtp(o.getPickupOtp())
                 .isOtpVerified(o.getIsOtpVerified())
+                .deliveryOtpGeneratedAt(o.getDeliveryOtpGeneratedAt() != null ? o.getDeliveryOtpGeneratedAt().toString() : null)
+                .deliveryOtpAttempts(o.getDeliveryOtpAttempts())
                 .subtotal(o.getSubtotal())
                 .gstAmount(o.getGstAmount())
                 .platformFee(o.getPlatformFee())
@@ -1500,6 +1669,9 @@ public class OrderServiceImpl implements OrderService {
                 .canRateRider(Boolean.FALSE)
                 .riderRatingSubmitted(Boolean.FALSE)
                 .riderRating(null)
+                .estimatedDeliveryTime(o.getEstimatedDeliveryTime() != null ? o.getEstimatedDeliveryTime().toString() : null)
+                .cutoffApplied(o.getCutoffApplied())
+                .timelineEvents(orderTimelineService.timelineForOrder(o.getId()))
                 .createdAt(o.getCreatedAt() != null ? o.getCreatedAt().toString() : null)
                 .build();
     }
@@ -1529,6 +1701,13 @@ public class OrderServiceImpl implements OrderService {
         dto.setCanRateRider(canRate);
     }
 
+    private HubEntity resolveHubById(Long hubId) {
+        if (hubId == null) {
+            return null;
+        }
+        return hubRepository.findById(hubId).orElse(null);
+    }
+
     /**
      * Customer/admin: OTP from post-accept job states until verified. Rider app: only {@code IN_TRANSIT} (handover).
      */
@@ -1542,12 +1721,33 @@ public class OrderServiceImpl implements OrderService {
         }
         OrderStatus s = o.getStatus();
         if (riderOrderApi) {
-            return s == OrderStatus.IN_TRANSIT ? otp : null;
+            return (s == OrderStatus.IN_TRANSIT || s == OrderStatus.OUT_FOR_DELIVERY) ? otp : null;
+        }
+        if (o.getServiceMode() == ServiceMode.OUTSTATION) {
+            return s == OrderStatus.OUT_FOR_DELIVERY ? otp : null;
         }
         return switch (s) {
-            case RIDER_ACCEPTED, PAYMENT_PENDING, CONFIRMED, PICKED_UP, IN_TRANSIT -> otp;
+            case RIDER_ACCEPTED, PAYMENT_PENDING, CONFIRMED, PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY -> otp;
             default -> null;
         };
+    }
+
+    private void transitionStatus(OrderEntity order, OrderStatus toStatus) {
+        if (order == null || toStatus == null) {
+            return;
+        }
+        orderStatusTransitionGuard.ensureAllowed(order.getServiceMode(), order.getStatus(), toStatus);
+        order.setStatus(toStatus);
+    }
+
+    private void appendTimeline(
+            OrderEntity order,
+            OrderStatus status,
+            String eventType,
+            Long hubId,
+            Long riderId,
+            String notes) {
+        orderTimelineService.appendEvent(order, status, eventType, hubId, riderId, null, notes);
     }
 
     /**

@@ -43,9 +43,11 @@ public class UserActiveOrderTopicPublisher {
         }
         UserActiveOrderEventDTO dto = new UserActiveOrderEventDTO();
         dto.setEvent(event);
+        dto.setEventVersion(1);
         dto.setHasActiveOrder(hasActiveOrder);
         dto.setOrderId(orderId);
         dto.setStatus(status);
+        dto.setStage(status);
         dto.setRiderId(riderId);
         dto.setEtaSeconds(etaSeconds);
         dto.setDistanceToDropKm(distanceToDropKm);

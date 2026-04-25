@@ -8,10 +8,17 @@ import lombok.Data;
 @Data
 public class UserActiveOrderEventDTO {
     private String event; // snapshot | status_updated | eta_updated | released
+    private Integer eventVersion;
     private Boolean hasActiveOrder;
     private Long orderId;
     private String status;
+    private String stage;
     private Integer etaSeconds;
     private Double distanceToDropKm;
     private Long riderId;
+    private Long pickupRiderId;
+    private Long deliveryRiderId;
+    private Long hubId;
+    private String location;
+    private String notes;
 }

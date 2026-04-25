@@ -32,15 +32,17 @@ public class AdminOrderController {
     public ApiResponse<OrderResponseDTO> assignRider(
             @PathVariable Long id,
             @RequestBody AdminOrderAssignDTO dto) {
-        if (dto.getRiderId() == null) {
+        final Long pickupRiderId = dto.getPickupRiderId() != null ? dto.getPickupRiderId() : dto.getRiderId();
+        final Long deliveryRiderId = dto.getDeliveryRiderId() != null ? dto.getDeliveryRiderId() : dto.getRiderId();
+        if (pickupRiderId == null && deliveryRiderId == null) {
             ApiResponse<OrderResponseDTO> r = new ApiResponse<>();
-            r.setMessage("riderId is required");
+            r.setMessage("pickupRiderId or deliveryRiderId is required");
             r.setMessageKey("ERROR");
             r.setSuccess(false);
             r.setStatus(500);
             return r;
         }
-        return orderService.adminAssignRider(id, dto.getRiderId());
+        return orderService.adminAssignRiders(id, pickupRiderId, deliveryRiderId);
     }
 
     @PostMapping("/{id}/update-status")

@@ -18,6 +18,7 @@ import com.youdash.realtime.RiderActiveOrderTopicPublisher;
 import com.youdash.realtime.UserActiveOrderTopicPublisher;
 import com.youdash.service.NotificationDedupService;
 import com.youdash.service.NotificationService;
+import com.youdash.service.OrderTimelineService;
 import com.youdash.service.OrderService;
 import com.youdash.service.PaymentService;
 import org.json.JSONObject;
@@ -75,6 +76,9 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Autowired
     private UserActiveOrderTopicPublisher userActiveOrderTopicPublisher;
+
+    @Autowired
+    private OrderTimelineService orderTimelineService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -292,6 +296,14 @@ public class PaymentServiceImpl implements PaymentService {
                     riderActiveOrderTopicPublisher.publish(
                             forRider.getRiderId(), forRider.getId(), OrderStatus.CONFIRMED, "confirmed");
                 }
+                orderTimelineService.appendEvent(
+                        order,
+                        OrderStatus.CONFIRMED,
+                        "payment_verified",
+                        order.getOriginHubId(),
+                        order.getRiderId(),
+                        null,
+                        "Payment verified and order confirmed");
             } else {
                 Instant now = Instant.now();
                 order.setPaymentStatus("PAID");
@@ -302,6 +314,14 @@ public class PaymentServiceImpl implements PaymentService {
                 }
                 order.setPaymentUpdatedAt(now);
                 orderRepository.save(order);
+                orderTimelineService.appendEvent(
+                        order,
+                        order.getStatus(),
+                        "payment_verified",
+                        order.getOriginHubId(),
+                        order.getRiderId(),
+                        null,
+                        "Outstation payment verified");
             }
             notifyPaymentSuccess(order);
 
@@ -330,7 +350,9 @@ public class PaymentServiceImpl implements PaymentService {
         evt.setOrderId(orderId);
         evt.setEvent("confirmed");
         evt.setEventType("confirmed");
+        evt.setEventVersion(1);
         evt.setStatus(OrderStatus.CONFIRMED.name());
+        evt.setStage(OrderStatus.CONFIRMED.name());
         messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", evt);
         userActiveOrderTopicPublisher.publishStatusUpdated(
                 userId, orderId, OrderStatus.CONFIRMED.name(), null);

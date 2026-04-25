@@ -135,6 +135,15 @@ public class OrderController {
         return orderService.verifyDeliveryOtp(id, dto, tokenUserId, type);
     }
 
+    @PostMapping("/{id}/resend-otp")
+    @Operation(summary = "Regenerate delivery OTP for active delivery stage")
+    public ApiResponse<OrderResponseDTO> resendDeliveryOtp(
+            @PathVariable Long id,
+            @RequestAttribute("userId") Long tokenUserId,
+            @RequestAttribute(value = "type", required = false) String type) {
+        return orderService.resendDeliveryOtp(id, tokenUserId, type);
+    }
+
     @PostMapping("/{id}/rate-rider")
     @Operation(summary = "Rate rider for delivered order", description = "USER only. One rating per order.")
     public ApiResponse<String> rateRider(

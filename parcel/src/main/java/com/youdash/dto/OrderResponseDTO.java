@@ -8,6 +8,8 @@ import com.youdash.model.wallet.CodSettlementStatus;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.List;
+
 @Data
 @Builder
 public class OrderResponseDTO {
@@ -47,11 +49,21 @@ public class OrderResponseDTO {
     private String deliveryType;
     private Long originHubId;
     private Long destinationHubId;
+    private String originHubName;
+    private String originHubCity;
+    private Double originHubLat;
+    private Double originHubLng;
+    private String destinationHubName;
+    private String destinationHubCity;
+    private Double destinationHubLat;
+    private Double destinationHubLng;
     private Double weight;
     private Double distanceKm;
     private PaymentType paymentType;
     private OrderStatus status;
     private Long riderId;
+    private Long pickupRiderId;
+    private Long deliveryRiderId;
     /** Populated when {@code riderId} is set (rider profile name / phone). */
     private String riderName;
     private String riderPhone;
@@ -61,6 +73,9 @@ public class OrderResponseDTO {
      */
     private String deliveryOtp;
     private Boolean isOtpVerified;
+    private String pickupOtp;
+    private String deliveryOtpGeneratedAt;
+    private Integer deliveryOtpAttempts;
     private Double subtotal;
     private Double gstAmount;
     private Double platformFee;
@@ -88,5 +103,8 @@ public class OrderResponseDTO {
     private Boolean riderRatingSubmitted;
     /** User-provided rider stars for this order (1..5), when rated. */
     private Integer riderRating;
+    private String estimatedDeliveryTime;
+    private Boolean cutoffApplied;
+    private List<OrderTimelineEventDTO> timelineEvents;
     private String createdAt;
 }

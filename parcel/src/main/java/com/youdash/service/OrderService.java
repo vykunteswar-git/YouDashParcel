@@ -39,6 +39,11 @@ public interface OrderService {
 
     ApiResponse<OrderResponseDTO> adminAssignRider(Long orderId, Long riderId);
 
+    ApiResponse<OrderResponseDTO> adminAssignRiders(
+            Long orderId,
+            Long pickupRiderId,
+            Long deliveryRiderId);
+
     ApiResponse<OrderResponseDTO> adminUpdateStatus(Long orderId, OrderStatus status);
 
     ApiResponse<OrderResponseDTO> completeOrderForRider(Long tokenUserId, String tokenType, OrderCompleteRequestDTO dto);
@@ -46,4 +51,6 @@ public interface OrderService {
     ApiResponse<OrderResponseDTO> cancelOrder(Long orderId, Long tokenUserId, String tokenType);
 
     ApiResponse<OrderResponseDTO> verifyDeliveryOtp(Long orderId, VerifyDeliveryOtpRequestDTO dto, Long tokenUserId, String tokenType);
+
+    ApiResponse<OrderResponseDTO> resendDeliveryOtp(Long orderId, Long tokenUserId, String tokenType);
 }

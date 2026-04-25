@@ -29,7 +29,13 @@ public class UserActiveOrderSubscriptionListener {
             OrderStatus.PAYMENT_PENDING,
             OrderStatus.CONFIRMED,
             OrderStatus.PICKED_UP,
-            OrderStatus.IN_TRANSIT);
+            OrderStatus.AT_ORIGIN_HUB,
+            OrderStatus.DEPARTED_ORIGIN_HUB,
+            OrderStatus.IN_TRANSIT,
+            OrderStatus.AT_DESTINATION_HUB,
+            OrderStatus.SORTED_AT_DESTINATION,
+            OrderStatus.OUT_FOR_DELIVERY,
+            OrderStatus.READY_FOR_PICKUP);
 
     private final OrderRepository orderRepository;
     private final RiderRepository riderRepository;

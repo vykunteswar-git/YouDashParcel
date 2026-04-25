@@ -16,7 +16,9 @@ import java.time.Instant;
         indexes = {
                 @Index(name = "idx_orders_status", columnList = "status"),
                 @Index(name = "idx_orders_search_expires_at", columnList = "search_expires_at"),
-                @Index(name = "idx_orders_payment_due_at", columnList = "payment_due_at")
+                @Index(name = "idx_orders_payment_due_at", columnList = "payment_due_at"),
+                @Index(name = "idx_orders_pickup_rider_id", columnList = "pickup_rider_id"),
+                @Index(name = "idx_orders_delivery_rider_id", columnList = "delivery_rider_id")
         })
 @Data
 public class OrderEntity {
@@ -113,6 +115,12 @@ public class OrderEntity {
     @Column(name = "rider_id")
     private Long riderId;
 
+    @Column(name = "pickup_rider_id")
+    private Long pickupRiderId;
+
+    @Column(name = "delivery_rider_id")
+    private Long deliveryRiderId;
+
     @Column(name = "accepted_at")
     private Instant acceptedAt;
 
@@ -199,9 +207,25 @@ public class OrderEntity {
     @Column(name = "delivery_otp", length = 6)
     private String deliveryOtp;
 
+    /** Optional handover OTP for first-mile collection. */
+    @Column(name = "pickup_otp", length = 6)
+    private String pickupOtp;
+
     /** True after successful {@code POST /orders/{id}/verify-otp} while {@code IN_TRANSIT}. */
     @Column(name = "is_otp_verified")
     private Boolean isOtpVerified;
+
+    @Column(name = "delivery_otp_generated_at")
+    private Instant deliveryOtpGeneratedAt;
+
+    @Column(name = "delivery_otp_attempts")
+    private Integer deliveryOtpAttempts;
+
+    @Column(name = "estimated_delivery_time")
+    private Instant estimatedDeliveryTime;
+
+    @Column(name = "cutoff_applied")
+    private Boolean cutoffApplied;
 
     @Column(name = "created_at")
     private Instant createdAt;
@@ -218,6 +242,12 @@ public class OrderEntity {
         updatedAt = now;
         if (isOtpVerified == null) {
             isOtpVerified = false;
+        }
+        if (deliveryOtpAttempts == null) {
+            deliveryOtpAttempts = 0;
+        }
+        if (cutoffApplied == null) {
+            cutoffApplied = false;
         }
     }
 

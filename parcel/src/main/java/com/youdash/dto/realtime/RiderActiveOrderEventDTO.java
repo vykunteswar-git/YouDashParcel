@@ -13,10 +13,12 @@ public class RiderActiveOrderEventDTO {
      * active INCITY assignment. Incremental events may leave this null.
      */
     private Boolean hasActiveOrder;
+    private Integer eventVersion;
 
     private Long orderId;
     /** Current {@link com.youdash.model.OrderStatus} name */
     private String status;
+    private String stage;
     /**
      * Suggested next {@link com.youdash.model.OrderStatus} name in the INCITY rider flow (e.g. after PICKED_UP → IN_TRANSIT).
      * Null when idle snapshot, terminal, or not applicable.
@@ -35,4 +37,12 @@ public class RiderActiveOrderEventDTO {
     private String event;
     /** When {@code event} is {@code released}: e.g. USER_CANCELLED, PAYMENT_TIMEOUT */
     private String reason;
+    private Long hubId;
+    private String location;
+    private String notes;
+    /**
+     * COD collectable amount for delivery-completion UI.
+     * Null for online/prepaid orders or when amount is unavailable.
+     */
+    private Double collectAmount;
 }

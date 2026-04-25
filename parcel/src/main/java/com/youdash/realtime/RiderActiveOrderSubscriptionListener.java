@@ -13,6 +13,7 @@ import org.springframework.web.socket.messaging.SessionSubscribeEvent;
 import com.youdash.dto.realtime.RiderActiveOrderEventDTO;
 import com.youdash.entity.OrderEntity;
 import com.youdash.model.OrderStatus;
+import com.youdash.model.PaymentType;
 import com.youdash.repository.OrderRepository;
 
 /**
@@ -73,6 +74,7 @@ public class RiderActiveOrderSubscriptionListener {
         dto.setStatus(o.getStatus() == null ? null : o.getStatus().name());
         dto.setNextStatus(IncityActiveOrderNextStatus.resolve(o.getStatus()));
         dto.setReason(null);
+        dto.setCollectAmount(resolveCollectAmount(o));
         return dto;
     }
 
@@ -84,6 +86,14 @@ public class RiderActiveOrderSubscriptionListener {
         dto.setStatus(null);
         dto.setNextStatus(null);
         dto.setReason(null);
+        dto.setCollectAmount(null);
         return dto;
+    }
+
+    private static Double resolveCollectAmount(OrderEntity o) {
+        if (o == null || o.getPaymentType() != PaymentType.COD) {
+            return null;
+        }
+        return o.getTotalAmount();
     }
 }

@@ -27,6 +27,8 @@ import com.youdash.util.DeliveryOtpGenerator;
 import com.youdash.util.TransactionAfterCommit;
 import com.youdash.service.DispatchService;
 import com.youdash.service.NotificationService;
+import com.youdash.service.OrderStatusTransitionGuard;
+import com.youdash.service.OrderTimelineService;
 import com.youdash.service.RiderOrderService;
 
 @Service
@@ -55,6 +57,12 @@ public class RiderOrderServiceImpl implements RiderOrderService {
 
     @Autowired
     private UserActiveOrderTopicPublisher userActiveOrderTopicPublisher;
+
+    @Autowired
+    private OrderTimelineService orderTimelineService;
+
+    @Autowired
+    private OrderStatusTransitionGuard orderStatusTransitionGuard;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -127,13 +135,21 @@ public class RiderOrderServiceImpl implements RiderOrderService {
 
         // 3) Close request for other riders.
         dispatchService.closeRequest(orderId, "accepted", riderId);
+        final OrderStatus statusAfterAccept = cod ? OrderStatus.CONFIRMED : OrderStatus.RIDER_ACCEPTED;
 
         // Persist delivery OTP once (COD → CONFIRMED; ONLINE → RIDER_ACCEPTED).
         OrderEntity refreshed = orderRepository.findById(orderId).orElse(order);
         if (refreshed.getDeliveryOtp() == null) {
             refreshed.setDeliveryOtp(DeliveryOtpGenerator.generate());
+            refreshed.setDeliveryOtpGeneratedAt(Instant.now());
             refreshed = orderRepository.save(refreshed);
         }
+        if (refreshed.getPickupRiderId() == null) {
+            refreshed.setPickupRiderId(riderId);
+            refreshed.setDeliveryRiderId(riderId);
+            refreshed = orderRepository.save(refreshed);
+        }
+        appendTimeline(refreshed, statusAfterAccept, "rider_accepted", refreshed.getOriginHubId(), riderId, "Rider accepted order");
 
         // 4) Notify user + rider topic after commit so HTTP (e.g. POST /payments/create-order) sees RIDER_ACCEPTED.
         final Long userId = order.getUserId();
@@ -141,7 +157,6 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         final Instant paymentDueFinal = paymentDue;
         final boolean codFinal = cod;
         final Long riderIdFinal = riderId;
-        final OrderStatus statusAfterAccept = cod ? OrderStatus.CONFIRMED : OrderStatus.RIDER_ACCEPTED;
         TransactionAfterCommit.run(() -> {
             if (codFinal) {
                 sendUserEvent(userId, acceptedOrderId, "rider_found", OrderStatus.CONFIRMED, null, riderIdFinal);
@@ -184,17 +199,23 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         OrderEntity order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BadRequestException("Order not found"));
-        requireAssignedIncityRider(order, riderId);
+        requireAssignedRider(order, riderId);
         if (order.getStatus() != OrderStatus.CONFIRMED) {
             throw new BadRequestException("Order must be CONFIRMED to mark picked up");
         }
-        order.setStatus(OrderStatus.PICKED_UP);
+        transitionStatus(order, OrderStatus.PICKED_UP);
         OrderEntity saved = orderRepository.save(order);
+        appendTimeline(saved, saved.getStatus(), "picked_up", saved.getOriginHubId(), riderId, "Parcel picked by rider");
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
         userActiveOrderTopicPublisher.publishStatusUpdated(
                 saved.getUserId(), saved.getId(), saved.getStatus().name(), riderId);
         sendUserOrderStatusPush(saved);
-        riderActiveOrderTopicPublisher.publish(riderId, saved.getId(), saved.getStatus(), "status_updated");
+        riderActiveOrderTopicPublisher.publish(
+                riderId,
+                saved.getId(),
+                saved.getStatus(),
+                "status_updated",
+                resolveCollectAmount(saved));
         response.setData(orderServiceImpl.toOrderDtoForRider(saved));
         response.setMessage("Pickup recorded");
         response.setMessageKey("SUCCESS");
@@ -209,17 +230,33 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         OrderEntity order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BadRequestException("Order not found"));
-        requireAssignedIncityRider(order, riderId);
-        if (order.getStatus() != OrderStatus.PICKED_UP) {
-            throw new BadRequestException("Order must be PICKED_UP to start transit");
+        requireAssignedRider(order, riderId);
+        if (order.getServiceMode() == ServiceMode.OUTSTATION) {
+            if (order.getStatus() == OrderStatus.AT_ORIGIN_HUB) {
+                transitionStatus(order, OrderStatus.DEPARTED_ORIGIN_HUB);
+            } else if (order.getStatus() == OrderStatus.DEPARTED_ORIGIN_HUB) {
+                transitionStatus(order, OrderStatus.IN_TRANSIT);
+            } else {
+                throw new BadRequestException("OUTSTATION order must be AT_ORIGIN_HUB or DEPARTED_ORIGIN_HUB to start transit");
+            }
+        } else {
+            if (order.getStatus() != OrderStatus.PICKED_UP) {
+                throw new BadRequestException("Order must be PICKED_UP to start transit");
+            }
+            transitionStatus(order, OrderStatus.IN_TRANSIT);
         }
-        order.setStatus(OrderStatus.IN_TRANSIT);
         OrderEntity saved = orderRepository.save(order);
+        appendTimeline(saved, saved.getStatus(), "in_transit", saved.getOriginHubId(), riderId, "Rider started transit");
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
         userActiveOrderTopicPublisher.publishStatusUpdated(
                 saved.getUserId(), saved.getId(), saved.getStatus().name(), riderId);
         sendUserOrderStatusPush(saved);
-        riderActiveOrderTopicPublisher.publish(riderId, saved.getId(), saved.getStatus(), "status_updated");
+        riderActiveOrderTopicPublisher.publish(
+                riderId,
+                saved.getId(),
+                saved.getStatus(),
+                "status_updated",
+                resolveCollectAmount(saved));
         response.setData(orderServiceImpl.toOrderDtoForRider(saved));
         response.setMessage("Transit started");
         response.setMessageKey("SUCCESS");
@@ -234,15 +271,27 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         OrderEntity order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BadRequestException("Order not found"));
-        requireAssignedIncityRider(order, riderId);
-        if (order.getStatus() != OrderStatus.IN_TRANSIT) {
+        requireAssignedRider(order, riderId);
+        if (order.getServiceMode() == ServiceMode.OUTSTATION) {
+            if (order.getStatus() != OrderStatus.PICKED_UP) {
+                throw new BadRequestException("OUTSTATION order must be PICKED_UP to record origin hub arrival");
+            }
+            transitionStatus(order, OrderStatus.AT_ORIGIN_HUB);
+        } else if (order.getStatus() != OrderStatus.IN_TRANSIT) {
             throw new BadRequestException("Order must be IN_TRANSIT to record destination arrival");
         }
-        sendTypedUserEvent(order.getUserId(), order.getId(), "reach_destination", order.getStatus(), riderId);
+        OrderEntity saved = orderRepository.save(order);
+        sendTypedUserEvent(saved.getUserId(), saved.getId(), "reach_destination", saved.getStatus(), riderId);
+        appendTimeline(saved, saved.getStatus(), "reach_destination", saved.getDestinationHubId(), riderId, "Rider reached destination");
         userActiveOrderTopicPublisher.publishStatusUpdated(
-                order.getUserId(), order.getId(), order.getStatus().name(), riderId);
-        riderActiveOrderTopicPublisher.publish(riderId, order.getId(), order.getStatus(), "reach_destination");
-        response.setData(orderServiceImpl.toOrderDtoForRider(order));
+                saved.getUserId(), saved.getId(), saved.getStatus().name(), riderId);
+        riderActiveOrderTopicPublisher.publish(
+                riderId,
+                saved.getId(),
+                saved.getStatus(),
+                "reach_destination",
+                resolveCollectAmount(saved));
+        response.setData(orderServiceImpl.toOrderDtoForRider(saved));
         response.setMessage("Destination reached");
         response.setMessageKey("SUCCESS");
         response.setStatus(200);
@@ -296,7 +345,9 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         dto.setOrderId(orderId);
         dto.setEvent(event);
         dto.setEventType(event);
+        dto.setEventVersion(1);
         dto.setStatus(status == null ? null : status.name());
+        dto.setStage(status == null ? null : status.name());
         dto.setPaymentDueAtEpochMs(paymentDueAt == null ? null : paymentDueAt.toEpochMilli());
         dto.setRiderId(riderId);
         messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", dto);
@@ -310,7 +361,9 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         dto.setOrderId(orderId);
         dto.setEvent(eventType);
         dto.setEventType(eventType);
+        dto.setEventVersion(1);
         dto.setStatus(status == null ? null : status.name());
+        dto.setStage(status == null ? null : status.name());
         dto.setRiderId(riderId);
         messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", dto);
     }
@@ -331,13 +384,33 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                 NotificationType.USER_ORDER_STATUS_UPDATE);
     }
 
-    private static void requireAssignedIncityRider(OrderEntity order, Long riderId) {
-        if (order.getServiceMode() != ServiceMode.INCITY) {
-            throw new BadRequestException("Only INCITY orders support this action");
-        }
-        if (order.getRiderId() == null || !order.getRiderId().equals(riderId)) {
+    private static void requireAssignedRider(OrderEntity order, Long riderId) {
+        final Long assigned = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
+        if (assigned == null || !assigned.equals(riderId)) {
             throw new BadRequestException("Access denied");
         }
+    }
+
+    private void transitionStatus(OrderEntity order, OrderStatus toStatus) {
+        orderStatusTransitionGuard.ensureAllowed(order.getServiceMode(), order.getStatus(), toStatus);
+        order.setStatus(toStatus);
+    }
+
+    private void appendTimeline(
+            OrderEntity order,
+            OrderStatus status,
+            String eventType,
+            Long hubId,
+            Long riderId,
+            String notes) {
+        orderTimelineService.appendEvent(order, status, eventType, hubId, riderId, null, notes);
+    }
+
+    private static Double resolveCollectAmount(OrderEntity order) {
+        if (order == null || order.getPaymentType() != PaymentType.COD) {
+            return null;
+        }
+        return order.getTotalAmount();
     }
 
     @SuppressWarnings("unused")

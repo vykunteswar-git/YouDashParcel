@@ -120,7 +120,7 @@ public class DeliveryPromiseServiceImpl implements DeliveryPromiseService {
         String cutoffInfo = buildCutoffInfo(deliveryTypeUI, cutoffText, deliveredBy, shifted, handoverDateText);
         String message = shifted
                 ? ("Today's delivery slot is missed. Next available slot is on " + handoverDateText + " before " + cutoffText + ".")
-                : "Slot is available.";
+                : deliveredBy;
 
         return new DeliveryPromiseDTO(message, cutoffInfo, deliveredBy, shifted);
     }
@@ -137,16 +137,16 @@ public class DeliveryPromiseServiceImpl implements DeliveryPromiseService {
         if ("HUB_TO_DOOR".equals(type)) {
             if (shifted) {
                 return "Today's delivery slot is missed. Please hand over the parcel at the hub on "
-                        + handoverDateText + " before " + cutoffText + ". " + deliveredBy + ".";
+                        + handoverDateText + " before " + cutoffText + ".";
             }
-            return "Please hand over the parcel at the hub before " + cutoffText + ". " + deliveredBy + ".";
+            return "Available slot today: please hand over the parcel at the hub before " + cutoffText + ".";
         }
 
         if (shifted) {
             return "Today's delivery slot is missed. Pickup will be initiated on "
-                    + handoverDateText + " before " + cutoffText + ". " + deliveredBy + ".";
+                    + handoverDateText + " before " + cutoffText + ".";
         }
-        return "Our rider will pick up the parcel before " + cutoffText + ". " + deliveredBy + ".";
+        return "Available slot today: our rider will pick up the parcel before " + cutoffText + ".";
     }
 
     private static String normalizeUiType(String deliveryTypeUI) {
