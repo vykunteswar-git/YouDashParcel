@@ -168,21 +168,23 @@ public class HubRouteSlaServiceImpl implements HubRouteSlaService {
             String type = normalizeType(sla.getDeliveryType());
             if (DELIVERY_NEXT_DAY.equals(type) && sla.getCutoffTime() != null && sla.getDeliveryTime() != null) {
                 messages.add(String.format(
-                        "Hand over before %s → Delivery by tomorrow %s",
+                        "Reach origin hub before %s — delivered by tomorrow at %s",
                         DISPLAY_TIME.format(sla.getCutoffTime()),
                         DISPLAY_TIME.format(sla.getDeliveryTime())));
             } else if (DELIVERY_HOURS.equals(type) && sla.getCutoffTime() != null && sla.getDeliveredWithinHours() != null) {
                 messages.add(String.format(
-                        "Hand over before %s → Delivered within %d hours",
+                        "Reach origin hub before %s — delivered within %d hour%s",
                         DISPLAY_TIME.format(sla.getCutoffTime()),
-                        sla.getDeliveredWithinHours()));
+                        sla.getDeliveredWithinHours(),
+                        sla.getDeliveredWithinHours() == 1 ? "" : "s"));
             } else if (DELIVERY_HOURS.equals(type) && sla.getCutoffTime() == null && sla.getDeliveredWithinHours() != null) {
                 messages.add(String.format(
-                        "After that → Delivered within %d hours",
-                        sla.getDeliveredWithinHours()));
+                        "After all slots — delivered within %d hour%s",
+                        sla.getDeliveredWithinHours(),
+                        sla.getDeliveredWithinHours() == 1 ? "" : "s"));
             } else if (DELIVERY_NEXT_DAY.equals(type) && sla.getCutoffTime() == null && sla.getDeliveryTime() != null) {
                 messages.add(String.format(
-                        "Delivery by next day %s",
+                        "Next available slot — delivered by next day at %s",
                         DISPLAY_TIME.format(sla.getDeliveryTime())));
             }
         }
