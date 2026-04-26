@@ -31,6 +31,10 @@ public class AuthServiceImpl implements AuthService {
   @Value("${auth.test-login.otp:1234}")
   private String testLoginOtp;
 
+  /** When true (no real SMS yet), include the generated OTP in the API response for in-app display. Set false once Msg91 (or similar) sends OTPs. */
+  @Value("${auth.otp.expose-in-response:true}")
+  private boolean exposeOtpInResponse;
+
   @Autowired
   private OtpRepository otpRepository;
 
@@ -67,8 +71,7 @@ public class AuthServiceImpl implements AuthService {
 
       System.out.println("OTP for " + phone + " = " + otp);
 
-      // Return OTP only for test phone; real phones get null otp in response.
-      String responseOtp = isTestPhone ? otp : null;
+      String responseOtp = (exposeOtpInResponse || isTestPhone) ? otp : null;
       response.setData(new OtpResponseDTO(phone, responseOtp));
       response.setMessage("OTP sent successfully");
       response.setMessageKey("SUCCESS");
