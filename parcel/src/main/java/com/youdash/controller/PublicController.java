@@ -5,8 +5,10 @@ import com.youdash.dto.BannerDTO;
 import com.youdash.dto.CheckoutPaymentOptionsDTO;
 import com.youdash.dto.PackageCategoryDTO;
 import com.youdash.dto.VehicleDTO;
+import com.youdash.dto.VersionCheckResponseDTO;
 import com.youdash.service.AdminService;
 import com.youdash.service.AppConfigService;
+import com.youdash.service.AppVersionService;
 import com.youdash.service.BannerService;
 import com.youdash.service.PackageCategoryService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -14,6 +16,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -34,6 +37,9 @@ public class PublicController {
 
     @Autowired
     private BannerService bannerService;
+
+    @Autowired
+    private AppVersionService appVersionService;
 
     @GetMapping("/vehicles")
     @Operation(summary = "List active vehicles")
@@ -57,6 +63,14 @@ public class PublicController {
     @Operation(summary = "Get active user banners", description = "Returns active banners sorted by sortOrder for user-home carousel.")
     public ApiResponse<List<BannerDTO>> banners() {
         return bannerService.listPublicActive();
+    }
+
+    @GetMapping("/version-check")
+    @Operation(summary = "Check if app update is required", description = "Returns updateRequired=true if app versionCode does not match the admin-configured code.")
+    public ApiResponse<VersionCheckResponseDTO> versionCheck(
+            @RequestParam String appType,
+            @RequestParam Integer versionCode) {
+        return appVersionService.checkVersion(appType, versionCode);
     }
 }
 
