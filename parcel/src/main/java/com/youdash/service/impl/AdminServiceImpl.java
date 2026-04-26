@@ -7,6 +7,7 @@ import com.youdash.dto.VehicleDTO;
 import com.youdash.entity.AdminEntity;
 import com.youdash.entity.VehicleEntity;
 import com.youdash.repository.AdminRepository;
+import com.youdash.repository.UserRepository;
 import com.youdash.repository.VehicleRepository;
 import com.youdash.service.AdminService;
 import com.youdash.util.JwtUtil;
@@ -27,6 +28,9 @@ public class AdminServiceImpl implements AdminService {
 
     @Autowired
     private VehicleRepository vehicleRepository;
+
+    @Autowired
+    private UserRepository userRepository;
 
     @Autowired
     private JwtUtil jwtUtil;
@@ -163,6 +167,39 @@ public class AdminServiceImpl implements AdminService {
             response.setStatus(200);
         } catch (Exception e) {
             setErrorResponse(response, e.getMessage());
+        }
+        return response;
+    }
+
+    // --- USER MANAGEMENT ---
+
+    @Override
+    public ApiResponse<String> hardDeleteUser(Long userId) {
+        ApiResponse<String> response = new ApiResponse<>();
+        try {
+            if (userId == null) {
+                throw new RuntimeException("userId is required");
+            }
+            if (!userRepository.existsById(userId)) {
+                throw new RuntimeException("User not found with id: " + userId);
+            }
+            userRepository.deleteById(userId);
+            response.setData("User " + userId + " permanently deleted");
+            response.setMessage("User deleted");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            // FK violations (orders referencing this user) surface here — return a clear message.
+            String msg = e.getMessage();
+            if (msg != null && (msg.toLowerCase().contains("foreign key") || msg.toLowerCase().contains("constraint"))) {
+                msg = "Cannot delete user " + userId + ": related records exist (orders, wallet, etc.). "
+                        + "Soft-delete via DELETE /users/{id} instead, or remove related data first.";
+            }
+            response.setMessage(msg);
+            response.setMessageKey("ERROR");
+            response.setSuccess(false);
+            response.setStatus(500);
         }
         return response;
     }

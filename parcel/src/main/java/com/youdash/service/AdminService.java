@@ -17,4 +17,8 @@ public interface AdminService {
     ApiResponse<List<VehicleDTO>> getAllVehicles();
     ApiResponse<List<VehicleDTO>> getActiveVehicles();
     ApiResponse<VehicleDTO> updateVehicle(Long id, VehicleDTO dto);
+
+    // User Management
+    /** Permanently remove a user row. Fails cleanly if FK constraints exist. */
+    ApiResponse<String> hardDeleteUser(Long userId);
 }

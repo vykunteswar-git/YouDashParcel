@@ -138,4 +138,20 @@ public class UserController {
   public ApiResponse<String> deleteUser(@PathVariable Long id) {
     return userService.deleteUser(id);
   }
+
+  // HARD DELETE (self — authenticated user closes their own account)
+  @DeleteMapping("/me/close-account")
+  public ApiResponse<String> closeAccount(
+      @RequestAttribute("userId") Long userId,
+      @RequestAttribute(value = "type", required = false) String type) {
+    if (!"USER".equals(type)) {
+      ApiResponse<String> denied = new ApiResponse<>();
+      denied.setSuccess(false);
+      denied.setMessage("User token required");
+      denied.setMessageKey("ERROR");
+      denied.setStatus(403);
+      return denied;
+    }
+    return userService.closeAccount(userId);
+  }
 }

@@ -183,6 +183,10 @@ public class OrderEntity {
     @Column(name = "razorpay_payment_id", length = 255)
     private String razorpayPaymentId;
 
+    /** Razorpay QR code ID (e.g. qr_xxx) created for COD UPI collection. Used to match webhook events. */
+    @Column(name = "upi_qr_id", length = 128)
+    private String upiQrId;
+
     @Column(name = "payment_method", length = 32)
     private String paymentMethod;
 

@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.Random;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.youdash.bean.ApiResponse;
@@ -21,6 +22,15 @@ import com.youdash.service.AuthService;
 @Service
 public class AuthServiceImpl implements AuthService {
 
+  @Value("${auth.test-login.enabled:false}")
+  private boolean testLoginEnabled;
+
+  @Value("${auth.test-login.phone:}")
+  private String testLoginPhone;
+
+  @Value("${auth.test-login.otp:1234}")
+  private String testLoginOtp;
+
   @Autowired
   private OtpRepository otpRepository;
 
@@ -36,70 +46,71 @@ public class AuthServiceImpl implements AuthService {
   // SEND OTP
   @Override
   public ApiResponse<OtpResponseDTO> sendOtp(OtpRequestDTO request) {
-
     ApiResponse<OtpResponseDTO> response = new ApiResponse<>();
-
     try {
       String phone = request.getPhoneNumber();
+      boolean isTestPhone = testLoginEnabled
+          && testLoginPhone != null
+          && !testLoginPhone.isBlank()
+          && testLoginPhone.trim().equals(phone);
 
-      // 🔥 Dummy OTP (for testing)
-      String otp = phone.equals("9999999999") ? "1234"
+      String otp = isTestPhone
+          ? testLoginOtp
           : String.valueOf(new Random().nextInt(9000) + 1000);
 
       OtpEntity otpEntity = otpRepository.findByPhoneNumber(phone)
           .orElse(new OtpEntity());
-
       otpEntity.setPhoneNumber(phone);
       otpEntity.setOtp(otp);
       otpEntity.setExpiryTime(LocalDateTime.now().plusMinutes(5));
-
       otpRepository.save(otpEntity);
-
-      // 👉 MSG91 integration here (later)
 
       System.out.println("OTP for " + phone + " = " + otp);
 
-      response.setData(new OtpResponseDTO(phone, otp)); // 🔥 Return phone + OTP for frontend testing
+      // Return OTP only for test phone; real phones get null otp in response.
+      String responseOtp = isTestPhone ? otp : null;
+      response.setData(new OtpResponseDTO(phone, responseOtp));
       response.setMessage("OTP sent successfully");
       response.setMessageKey("SUCCESS");
       response.setStatus(200);
       response.setSuccess(true);
-
     } catch (Exception e) {
       response.setMessage("Failed to send OTP");
       response.setSuccess(false);
     }
-
     return response;
   }
 
   // VERIFY OTP
   @Override
   public ApiResponse<UserResponseDTO> verifyOtp(VerifyOtpRequestDTO request) {
-
     ApiResponse<UserResponseDTO> response = new ApiResponse<>();
-
     try {
       System.out.println("Verifying OTP for " + request.getPhoneNumber() + " (Entered: " + request.getOtp() + ")");
-      
-      OtpEntity otpEntity = otpRepository
-          .findTopByPhoneNumberOrderByIdDesc(request.getPhoneNumber())
-          .orElseThrow(() -> new RuntimeException("OTP not found"));
 
-      // Expiry check
-      if (otpEntity.getExpiryTime().isBefore(LocalDateTime.now())) {
-        throw new RuntimeException("OTP expired");
+      String phone = request.getPhoneNumber();
+      boolean isTestPhone = testLoginEnabled
+          && testLoginPhone != null
+          && !testLoginPhone.isBlank()
+          && testLoginPhone.trim().equals(phone);
+
+      if (isTestPhone && testLoginOtp.equals(request.getOtp())) {
+        // Test-login fast path: skip DB OTP lookup and expiry check.
+      } else {
+        OtpEntity otpEntity = otpRepository
+            .findTopByPhoneNumberOrderByIdDesc(phone)
+            .orElseThrow(() -> new RuntimeException("OTP not found"));
+
+        if (otpEntity.getExpiryTime().isBefore(LocalDateTime.now())) {
+          throw new RuntimeException("OTP expired");
+        }
+        if (!otpEntity.getOtp().equals(request.getOtp())) {
+          throw new RuntimeException("Invalid OTP");
+        }
       }
 
-      // OTP match
-      if (!otpEntity.getOtp().equals(request.getOtp())) {
-        throw new RuntimeException("Invalid OTP");
-      }
-
-      // Check user exists
-      UserEntity user = userRepository.findByPhoneNumber(request.getPhoneNumber())
+      UserEntity user = userRepository.findByPhoneNumber(phone)
           .map(existingUser -> {
-            // ✅ Reactivate user if they were soft-deleted
             if (Boolean.FALSE.equals(existingUser.getActive())) {
               existingUser.setActive(true);
               return userRepository.save(existingUser);
@@ -108,7 +119,7 @@ public class AuthServiceImpl implements AuthService {
           })
           .orElseGet(() -> {
             UserEntity newUser = new UserEntity();
-            newUser.setPhoneNumber(request.getPhoneNumber());
+            newUser.setPhoneNumber(phone);
             newUser.setActive(true);
             newUser.setProfileCompleted(false);
             return userRepository.save(newUser);
@@ -119,7 +130,7 @@ public class AuthServiceImpl implements AuthService {
         String trimmed = fcm.trim();
         user.setFcmToken(trimmed);
         user = userRepository.save(user);
-        riderRepository.findByPhone(request.getPhoneNumber()).ifPresent(rider -> {
+        riderRepository.findByPhone(phone).ifPresent(rider -> {
           rider.setFcmToken(trimmed);
           riderRepository.save(rider);
         });
@@ -133,17 +144,14 @@ public class AuthServiceImpl implements AuthService {
       response.setMessage("Login successful");
       response.setSuccess(true);
       response.setStatus(200);
-
     } catch (Exception e) {
       response.setMessage(e.getMessage());
       response.setSuccess(false);
       response.setStatus(400);
     }
-
     return response;
   }
 
-  // 🔁 MAPPING METHOD
   private UserResponseDTO mapToDTO(UserEntity user) {
     UserResponseDTO dto = new UserResponseDTO();
     dto.setId(user.getId());

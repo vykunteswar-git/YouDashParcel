@@ -1104,17 +1104,19 @@ public class OrderServiceImpl implements OrderService {
             o.setCodCollectionMode(null);
             o.setCodSettlementStatus(CodSettlementStatus.SETTLED);
         } else if (o.getPaymentType() == PaymentType.COD) {
-            if (dto.getCodCollectionMode() == null || dto.getCodCollectionMode().isBlank()) {
-                throw new BadRequestException("codCollectionMode is required for COD (CASH or QR)");
+            // If collectPayment was already called (new flow), skip re-setting.
+            if (o.getCodCollectionMode() == null || o.getCodCollectedAmount() == null) {
+                if (dto.getCodCollectionMode() == null || dto.getCodCollectionMode().isBlank()) {
+                    throw new BadRequestException("codCollectionMode is required for COD (CASH or QR)");
+                }
+                CodCollectionMode mode = CodCollectionMode.valueOf(dto.getCodCollectionMode().trim().toUpperCase());
+                double collected = round2(nz(o.getTotalAmount()));
+                if (collected <= 0) {
+                    throw new BadRequestException("Invalid order total for COD settlement");
+                }
+                o.setCodCollectionMode(mode);
+                o.setCodCollectedAmount(collected);
             }
-            CodCollectionMode mode = CodCollectionMode.valueOf(dto.getCodCollectionMode().trim().toUpperCase());
-            // Rider should not type COD amount. Capture exact payable from the order.
-            double collected = round2(nz(o.getTotalAmount()));
-            if (collected <= 0) {
-                throw new BadRequestException("Invalid order total for COD settlement");
-            }
-            o.setCodCollectionMode(mode);
-            o.setCodCollectedAmount(collected);
             o.setCodSettlementStatus(CodSettlementStatus.PENDING);
         } else {
             throw new BadRequestException("Unsupported payment type: " + o.getPaymentType());

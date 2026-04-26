@@ -21,6 +21,9 @@ public interface UserService {
 
     ApiResponse<String> deleteUser(Long id);
 
+    /** Permanently delete the authenticated user's own account. */
+    ApiResponse<String> closeAccount(Long userId);
+
     /** Persist FCM registration token for the authenticated customer app. */
     ApiResponse<String> saveFcmToken(Long userId, FcmTokenRequestDTO dto);
 }

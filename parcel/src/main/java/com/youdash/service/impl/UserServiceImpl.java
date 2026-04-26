@@ -277,6 +277,36 @@ public class UserServiceImpl implements UserService {
     return response;
   }
 
+  // HARD DELETE (self close-account)
+  @Override
+  public ApiResponse<String> closeAccount(Long userId) {
+    ApiResponse<String> response = new ApiResponse<>();
+    try {
+      if (userId == null) {
+        throw new RuntimeException("Unauthorized");
+      }
+      if (!userRepository.existsById(userId)) {
+        throw new RuntimeException("User not found");
+      }
+      userRepository.deleteById(userId);
+      response.setData("Account permanently deleted");
+      response.setMessage("Account deleted");
+      response.setMessageKey("SUCCESS");
+      response.setStatus(200);
+      response.setSuccess(true);
+    } catch (Exception e) {
+      String msg = e.getMessage();
+      if (msg != null && (msg.toLowerCase().contains("foreign key") || msg.toLowerCase().contains("constraint"))) {
+        msg = "Cannot delete account: related records exist. Please contact support.";
+      }
+      response.setMessage(msg);
+      response.setMessageKey("ERROR");
+      response.setStatus(500);
+      response.setSuccess(false);
+    }
+    return response;
+  }
+
   // 🔁 MAPPING METHOD
   private UserResponseDTO mapToDTO(UserEntity user) {
 

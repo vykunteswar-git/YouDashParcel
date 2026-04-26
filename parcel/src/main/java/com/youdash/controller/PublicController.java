@@ -20,11 +20,18 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/public")
 @Tag(name = "Public", description = "Public app bootstrapping data (no JWT).")
 public class PublicController {
+
+    @GetMapping("/health")
+    @Operation(summary = "Backend health", description = "Lightweight liveness check for mobile apps (no JWT).")
+    public Map<String, String> health() {
+        return Map.of("status", "UP");
+    }
 
     @Autowired
     private AdminService adminService;
