@@ -6,9 +6,11 @@ import com.youdash.dto.BannerRequestDTO;
 import com.youdash.entity.BannerEntity;
 import com.youdash.repository.BannerRepository;
 import com.youdash.service.BannerService;
+import com.youdash.service.ImageStorageService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
@@ -21,6 +23,9 @@ public class BannerServiceImpl implements BannerService {
 
     @Autowired
     private BannerRepository bannerRepository;
+
+    @Autowired
+    private ImageStorageService imageStorageService;
 
     @Override
     public ApiResponse<List<BannerDTO>> listPublicActive() {
@@ -64,12 +69,12 @@ public class BannerServiceImpl implements BannerService {
     }
 
     @Override
-    public ApiResponse<BannerDTO> createAdmin(BannerRequestDTO dto) {
+    public ApiResponse<BannerDTO> createAdmin(BannerRequestDTO dto, MultipartFile imageFile) {
         ApiResponse<BannerDTO> response = new ApiResponse<>();
         try {
-            validateRequest(dto, true);
+            validateRequest(dto, imageFile, true);
             BannerEntity e = new BannerEntity();
-            applyRequest(e, dto, true);
+            applyRequest(e, dto, imageFile, true);
             BannerEntity saved = bannerRepository.save(e);
             response.setData(toDto(saved));
             response.setMessage("Banner created");
@@ -83,13 +88,13 @@ public class BannerServiceImpl implements BannerService {
     }
 
     @Override
-    public ApiResponse<BannerDTO> updateAdmin(Long id, BannerRequestDTO dto) {
+    public ApiResponse<BannerDTO> updateAdmin(Long id, BannerRequestDTO dto, MultipartFile imageFile) {
         ApiResponse<BannerDTO> response = new ApiResponse<>();
         try {
             BannerEntity e = bannerRepository.findById(Objects.requireNonNull(id))
                     .orElseThrow(() -> new RuntimeException("Banner not found"));
-            validateRequest(dto, false);
-            applyRequest(e, dto, false);
+            validateRequest(dto, imageFile, false);
+            applyRequest(e, dto, imageFile, false);
             BannerEntity saved = bannerRepository.save(e);
             response.setData(toDto(saved));
             response.setMessage("Banner updated");
@@ -128,9 +133,9 @@ public class BannerServiceImpl implements BannerService {
         return e.getEndsAt() == null || !now.isAfter(e.getEndsAt());
     }
 
-    private void validateRequest(BannerRequestDTO dto, boolean create) {
-        if (create && (dto.getImageUrl() == null || dto.getImageUrl().isBlank())) {
-            throw new RuntimeException("imageUrl is required");
+    private void validateRequest(BannerRequestDTO dto, MultipartFile imageFile, boolean create) {
+        if (create && (imageFile == null || imageFile.isEmpty()) && (dto.getImageUrl() == null || dto.getImageUrl().isBlank())) {
+            throw new RuntimeException("image file is required");
         }
         Instant startsAt = parseInstant(dto.getStartsAt(), "startsAt");
         Instant endsAt = parseInstant(dto.getEndsAt(), "endsAt");
@@ -139,17 +144,19 @@ public class BannerServiceImpl implements BannerService {
         }
     }
 
-    private void applyRequest(BannerEntity e, BannerRequestDTO dto, boolean create) {
+    private void applyRequest(BannerEntity e, BannerRequestDTO dto, MultipartFile imageFile, boolean create) {
         if (dto.getTitle() != null) {
             e.setTitle(trimToNull(dto.getTitle()));
         }
         if (dto.getSubtitle() != null) {
             e.setSubtitle(trimToNull(dto.getSubtitle()));
         }
-        if (dto.getImageUrl() != null) {
+        if (imageFile != null && !imageFile.isEmpty()) {
+            e.setImageUrl(imageStorageService.uploadBannerImage(imageFile));
+        } else if (dto.getImageUrl() != null) {
             String image = trimToNull(dto.getImageUrl());
             if (image == null && create) {
-                throw new RuntimeException("imageUrl is required");
+                throw new RuntimeException("image file is required");
             }
             if (image != null) {
                 e.setImageUrl(image);

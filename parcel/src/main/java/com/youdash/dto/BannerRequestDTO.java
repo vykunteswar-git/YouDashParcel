@@ -3,8 +3,8 @@ package com.youdash.dto;
 import lombok.Data;
 
 /**
- * Image upload is expected to be done externally (S3/Cloudinary/Firebase Storage).
- * Pass final imageUrl here to publish banner metadata.
+ * For admin create/update, image can be sent as multipart file.
+ * imageUrl remains as optional fallback for backward compatibility.
  */
 @Data
 public class BannerRequestDTO {
