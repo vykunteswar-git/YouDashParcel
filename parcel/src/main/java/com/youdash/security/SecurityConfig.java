@@ -31,7 +31,7 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/auth/**", "/rider-auth/**", "/rider/auth/**", "/admin/login", "/public/**", "/customer/hub-route-sla-preview", "/payments/webhook", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/ws/**").permitAll()
+                        .requestMatchers("/auth/**", "/rider-auth/**", "/rider/auth/**", "/admin/login", "/public/**", "/customer/hub-route-sla-preview", "/payments/webhook", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/ws/**", "/api/app-config/**", "/privacy-policy.html", "/terms.html", "/account-deletion.html").permitAll()
                         .requestMatchers(HttpMethod.POST, "/riders").permitAll()
                         .anyRequest().authenticated()
                 )
@@ -51,7 +51,7 @@ public class SecurityConfig {
         configuration.setAllowedOriginPatterns(List.of("*"));
         configuration.setAllowCredentials(true);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Cache-Control", "X-Razorpay-Signature"));
+        configuration.setAllowedHeaders(List.of("*"));
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
