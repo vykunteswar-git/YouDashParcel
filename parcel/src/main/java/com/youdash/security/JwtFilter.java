@@ -51,6 +51,10 @@ public class JwtFilter extends OncePerRequestFilter {
             path.startsWith("/rider/auth/") ||
             path.equals("/admin/login") ||
             path.startsWith("/public/") ||
+            path.startsWith("/api/app-config/") ||
+            path.equals("/privacy-policy.html") ||
+            path.equals("/terms.html") ||
+            path.equals("/account-deletion.html") ||
             path.equals("/payments/webhook") ||
             path.startsWith("/swagger-ui") ||
             path.startsWith("/v3/api-docs") ||
