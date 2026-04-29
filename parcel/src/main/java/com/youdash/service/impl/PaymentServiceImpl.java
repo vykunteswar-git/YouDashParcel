@@ -4,6 +4,7 @@ import com.razorpay.Order;
 import com.razorpay.QrCode;
 import com.razorpay.RazorpayClient;
 import com.youdash.bean.ApiResponse;
+import com.youdash.config.RazorpayProperties;
 import com.youdash.dto.CollectPaymentRequestDTO;
 import com.youdash.dto.OrderResponseDTO;
 import com.youdash.dto.RazorpayOrderCreatedDTO;
@@ -55,11 +56,11 @@ import java.util.Set;
 public class PaymentServiceImpl implements PaymentService {
     private static final Logger log = LoggerFactory.getLogger(PaymentServiceImpl.class);
 
-    @Value("${razorpay.key_id}")
-    private String keyId;
+    @Autowired
+    private RazorpayProperties razorpayProperties;
 
-    @Value("${razorpay.key_secret}")
-    private String keySecret;
+    @Autowired
+    private RazorpayClient razorpayClient;
 
     @Value("${razorpay.webhook_secret:}")
     private String webhookSecret;
@@ -106,10 +107,12 @@ public class PaymentServiceImpl implements PaymentService {
     @PostConstruct
     void logRazorpayConfigState() {
         if (isRazorpayConfigured()) {
-            log.info("Razorpay config loaded (key id present)");
+            log.info("Razorpay config loaded (mode={}, key id present)", razorpayProperties.getNormalizedMode());
             return;
         }
-        log.warn("Razorpay config missing: set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET");
+        log.warn(
+                "Razorpay config missing for mode={}: set env vars for active mode keys",
+                razorpayProperties.getNormalizedMode());
     }
 
     @Override
@@ -148,7 +151,6 @@ public class PaymentServiceImpl implements PaymentService {
             }
 
             ensureRazorpayConfigured();
-            RazorpayClient razorpayClient = new RazorpayClient(keyId, keySecret);
 
             JSONObject orderRequest = new JSONObject();
             long amountPaise = Math.round(amount * 100);
@@ -195,7 +197,7 @@ public class PaymentServiceImpl implements PaymentService {
             dto.setAmount(amt == null ? null : ((Number) amt).longValue());
             Object cur = order.get("currency");
             dto.setCurrency(cur == null ? null : cur.toString());
-            dto.setKeyId(keyId);
+            dto.setKeyId(razorpayProperties.getActiveKeyId());
 
             response.setData(dto);
             response.setMessage("Razorpay order created successfully");
@@ -262,12 +264,15 @@ public class PaymentServiceImpl implements PaymentService {
                 throw new RuntimeException("Razorpay orderId mismatch for this order");
             }
 
-            if (!verifyRazorpaySignature(dto.getRazorpayOrderId(), dto.getRazorpayPaymentId(), dto.getRazorpaySignature(), keySecret)) {
+            if (!verifyRazorpaySignature(
+                    dto.getRazorpayOrderId(),
+                    dto.getRazorpayPaymentId(),
+                    dto.getRazorpaySignature(),
+                    razorpayProperties.getActiveKeySecret())) {
                 throw new RuntimeException("Invalid Razorpay signature");
             }
 
             try {
-                RazorpayClient razorpayClient = new RazorpayClient(keyId, keySecret);
                 Order rpOrder = razorpayClient.orders.fetch(dto.getRazorpayOrderId());
                 long rpAmount = ((Number) rpOrder.get("amount")).longValue();
                 long expectedAmount = Math.round((order.getTotalAmount() == null ? 0.0 : order.getTotalAmount()) * 100);
@@ -673,7 +678,7 @@ public class PaymentServiceImpl implements PaymentService {
         dto.setRazorpayOrderId("TEST_BYPASS");
         dto.setAmount(orderEntity.getTotalAmount() == null ? 0L : Math.round(orderEntity.getTotalAmount() * 100));
         dto.setCurrency("INR");
-        dto.setKeyId(keyId);
+        dto.setKeyId(razorpayProperties.getActiveKeyId());
 
         response.setData(dto);
         response.setMessage("Test bypass — order confirmed");
@@ -817,7 +822,6 @@ public class PaymentServiceImpl implements PaymentService {
                 existing.setQrId(order.getUpiQrId());
                 // Re-fetch image URL from Razorpay.
                 try {
-                    RazorpayClient razorpayClient = new RazorpayClient(keyId, keySecret);
                     QrCode qr = razorpayClient.qrCode.fetch(order.getUpiQrId());
                     Object imgUrl = qr.get("image_url");
                     existing.setImageUrl(imgUrl != null ? imgUrl.toString() : null);
@@ -832,7 +836,6 @@ public class PaymentServiceImpl implements PaymentService {
                 return response;
             }
 
-            RazorpayClient razorpayClient = new RazorpayClient(keyId, keySecret);
             JSONObject qrRequest = new JSONObject();
             qrRequest.put("type", "upi_qr");
             qrRequest.put("name", "YouDash COD");
@@ -893,11 +896,13 @@ public class PaymentServiceImpl implements PaymentService {
     private void ensureRazorpayConfigured() {
         if (!isRazorpayConfigured()) {
             throw new IllegalStateException(
-                    "Razorpay keys not configured — set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET");
+                    "Razorpay keys not configured for mode=" + razorpayProperties.getNormalizedMode());
         }
     }
 
     private boolean isRazorpayConfigured() {
+        String keyId = razorpayProperties.getActiveKeyId();
+        String keySecret = razorpayProperties.getActiveKeySecret();
         return keyId != null
                 && !keyId.isBlank()
                 && keySecret != null
