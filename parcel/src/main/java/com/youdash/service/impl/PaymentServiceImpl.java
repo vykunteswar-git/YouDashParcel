@@ -36,6 +36,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.annotation.PostConstruct;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -102,6 +103,15 @@ public class PaymentServiceImpl implements PaymentService {
     @Autowired
     private OrderTimelineService orderTimelineService;
 
+    @PostConstruct
+    void logRazorpayConfigState() {
+        if (isRazorpayConfigured()) {
+            log.info("Razorpay config loaded (key id present)");
+            return;
+        }
+        log.warn("Razorpay config missing: set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET");
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ApiResponse<RazorpayOrderCreatedDTO> createRazorpayOrder(String orderIdOrReference, Long userId) {
@@ -137,9 +147,7 @@ public class PaymentServiceImpl implements PaymentService {
                 return applyTestBypass(orderEntity, response);
             }
 
-            if (keyId == null || keyId.isBlank() || keySecret == null || keySecret.isBlank()) {
-                throw new RuntimeException("Razorpay keys not configured — set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET");
-            }
+            ensureRazorpayConfigured();
             RazorpayClient razorpayClient = new RazorpayClient(keyId, keySecret);
 
             JSONObject orderRequest = new JSONObject();
@@ -194,6 +202,11 @@ public class PaymentServiceImpl implements PaymentService {
             response.setMessageKey("SUCCESS");
             response.setStatus(200);
             response.setSuccess(true);
+        } catch (IllegalStateException e) {
+            response.setMessage("Failed to create Razorpay order: " + e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(503);
+            response.setSuccess(false);
         } catch (Exception e) {
             response.setMessage("Failed to create Razorpay order: " + e.getMessage());
             response.setMessageKey("ERROR");
@@ -209,6 +222,7 @@ public class PaymentServiceImpl implements PaymentService {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         OrderEntity resolvedOrder = null;
         try {
+            ensureRazorpayConfigured();
             // Use one reference time for the full verification flow to avoid
             // boundary races (window expires mid-request after payment success).
             Instant verificationStartedAt = Instant.now();
@@ -360,6 +374,14 @@ public class PaymentServiceImpl implements PaymentService {
             response.setStatus(200);
             response.setSuccess(true);
             attachOrderDto(response, order);
+        } catch (IllegalStateException e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(503);
+            response.setSuccess(false);
+            if (resolvedOrder != null) {
+                attachOrderDto(response, resolvedOrder);
+            }
         } catch (Exception e) {
             response.setMessage(e.getMessage());
             response.setMessageKey("ERROR");
@@ -772,6 +794,7 @@ public class PaymentServiceImpl implements PaymentService {
     public ApiResponse<UpiQrCreatedDTO> createUpiQr(Long riderId, Long orderId) {
         ApiResponse<UpiQrCreatedDTO> response = new ApiResponse<>();
         try {
+            ensureRazorpayConfigured();
             if (orderId == null) {
                 throw new RuntimeException("orderId is required");
             }
@@ -840,6 +863,11 @@ public class PaymentServiceImpl implements PaymentService {
             response.setMessageKey("SUCCESS");
             response.setStatus(200);
             response.setSuccess(true);
+        } catch (IllegalStateException e) {
+            response.setMessage("Failed to create UPI QR: " + e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(503);
+            response.setSuccess(false);
         } catch (Exception e) {
             response.setMessage("Failed to create UPI QR: " + e.getMessage());
             response.setMessageKey("ERROR");
@@ -860,5 +888,19 @@ public class PaymentServiceImpl implements PaymentService {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private void ensureRazorpayConfigured() {
+        if (!isRazorpayConfigured()) {
+            throw new IllegalStateException(
+                    "Razorpay keys not configured — set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET");
+        }
+    }
+
+    private boolean isRazorpayConfigured() {
+        return keyId != null
+                && !keyId.isBlank()
+                && keySecret != null
+                && !keySecret.isBlank();
     }
 }
