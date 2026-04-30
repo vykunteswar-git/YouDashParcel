@@ -59,7 +59,7 @@ public class PaymentServiceImpl implements PaymentService {
     @Autowired
     private RazorpayProperties razorpayProperties;
 
-    @Autowired
+    @Autowired(required = false)
     private RazorpayClient razorpayClient;
 
     @Value("${razorpay.webhook_secret:}")
@@ -901,6 +901,9 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     private boolean isRazorpayConfigured() {
+        if (razorpayClient == null) {
+            return false;
+        }
         String keyId = razorpayProperties.getActiveKeyId();
         String keySecret = razorpayProperties.getActiveKeySecret();
         return keyId != null

@@ -3,6 +3,7 @@ package com.youdash.config;
 import com.razorpay.RazorpayClient;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
@@ -10,19 +11,10 @@ import org.springframework.context.annotation.Configuration;
 public class RazorpayConfig {
 
     @Bean
+    @Conditional(RazorpayKeysConfiguredCondition.class)
     public RazorpayClient razorpayClient(RazorpayProperties razorpayProperties) throws Exception {
-        String keyId = razorpayProperties.getActiveKeyId();
-        String keySecret = razorpayProperties.getActiveKeySecret();
-        if (isBlank(keyId) || isBlank(keySecret)) {
-            throw new IllegalStateException(
-                    "Razorpay active keys not configured for mode="
-                            + razorpayProperties.getNormalizedMode()
-                            + ". Set env vars for the selected mode.");
-        }
-        return new RazorpayClient(keyId, keySecret);
-    }
-
-    private boolean isBlank(String value) {
-        return value == null || value.isBlank();
+        return new RazorpayClient(
+                razorpayProperties.getActiveKeyId(),
+                razorpayProperties.getActiveKeySecret());
     }
 }
