@@ -16,14 +16,69 @@
       "description": "Razorpay webhook signing secret for POST /payments/webhook (PaymentServiceImpl)."
     },
     {
+      "name": "razorpay.mode",
+      "type": "java.lang.String",
+      "description": "Active Razorpay mode selector: test or live (RazorpayProperties)."
+    },
+    {
+      "name": "razorpay.live.key_id",
+      "type": "java.lang.String",
+      "description": "Razorpay live mode key id (RazorpayProperties)."
+    },
+    {
+      "name": "razorpay.live.key_secret",
+      "type": "java.lang.String",
+      "description": "Razorpay live mode key secret (RazorpayProperties)."
+    },
+    {
+      "name": "razorpay.test.key_id",
+      "type": "java.lang.String",
+      "description": "Razorpay test mode key id (RazorpayProperties)."
+    },
+    {
+      "name": "razorpay.test.key_secret",
+      "type": "java.lang.String",
+      "description": "Razorpay test mode key secret (RazorpayProperties)."
+    },
+    {
+      "name": "auth.test-login.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Enable fixed OTP fast-path for one configured test phone (AuthServiceImpl)."
+    },
+    {
+      "name": "auth.test-login.phone",
+      "type": "java.lang.String",
+      "description": "Phone number allowed to use test-login OTP fast-path (AuthServiceImpl)."
+    },
+    {
+      "name": "auth.test-login.otp",
+      "type": "java.lang.String",
+      "description": "Static OTP used for test-login phone when enabled (AuthServiceImpl)."
+    },
+    {
+      "name": "auth.otp.expose-in-response",
+      "type": "java.lang.Boolean",
+      "description": "Whether generated OTP is echoed in API response for QA flows (AuthServiceImpl)."
+    },
+    {
+      "name": "payments.test-bypass.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Enable payment bypass for whitelisted phones during QA/review (PaymentServiceImpl)."
+    },
+    {
+      "name": "payments.test-bypass.phones",
+      "type": "java.lang.String",
+      "description": "Comma-separated phone numbers allowed to bypass real Razorpay (PaymentServiceImpl)."
+    },
+    {
       "name": "jwt.secret",
       "type": "java.lang.String",
       "description": "HMAC secret for signing JWTs (JwtUtil)."
     },
     {
       "name": "jwt.expiration",
-      "type": "java.lang.Long",
-      "description": "JWT validity in milliseconds (JwtUtil)."
+      "type": "java.time.Duration",
+      "description": "JWT validity duration (supports units like 24h, 30m; plain numeric values are treated as milliseconds)."
     },
     {
       "name": "youdash.outstation.price-per-km",
@@ -74,6 +129,16 @@
       "name": "incity.payment-reminder.scheduler-delay-ms",
       "type": "java.lang.Long",
       "description": "Fixed delay between scheduler runs for payment reminders (IncityPaymentReminderScheduler)."
+    },
+    {
+      "name": "openapi.server.url",
+      "type": "java.lang.String",
+      "description": "Primary OpenAPI server URL shown in Swagger UI (SwaggerConfig)."
+    },
+    {
+      "name": "openapi.server.local-url",
+      "type": "java.lang.String",
+      "description": "Local OpenAPI server URL shown in Swagger UI (SwaggerConfig)."
     },
     {
       "name": "youdash.tracking.min-update-interval-ms",

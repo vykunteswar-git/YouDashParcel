@@ -5,9 +5,11 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.convert.DurationStyle;
 import org.springframework.stereotype.Component;
 
 import java.security.Key;
+import java.time.Duration;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -19,9 +21,8 @@ public class JwtUtil {
     private final long expiration;
     private final Key key;
 
-    public JwtUtil(@Value("${jwt.secret}") String secret, @Value("${jwt.expiration}") long expiration) {
-        this.expiration = expiration;
-        // Generate a safe key from the secret
+    public JwtUtil(@Value("${jwt.secret}") String secret, @Value("${jwt.expiration:24h}") String expirationRaw) {
+        this.expiration = parseExpirationMs(expirationRaw);
         this.key = Keys.hmacShaKeyFor(secret.getBytes());
     }
 
@@ -104,5 +105,26 @@ public class JwtUtil {
 
     private Boolean isTokenExpired(String token) {
         return extractExpiration(token).before(new Date());
+    }
+
+    private static long parseExpirationMs(String rawValue) {
+        String raw = rawValue == null ? "" : rawValue.trim();
+        if (raw.isEmpty()) {
+            return Duration.ofHours(24).toMillis();
+        }
+
+        Duration parsed = DurationStyle.detectAndParse(raw);
+        long millis = parsed.toMillis();
+        if (millis <= 0) {
+            throw new IllegalStateException("jwt.expiration must be > 0 (example: 24h, 30m, 86400000)");
+        }
+
+        // Guard against accidental seconds value (e.g. 3600 interpreted as 3.6s).
+        if (raw.matches("\\d+") && millis < Duration.ofMinutes(1).toMillis()) {
+            throw new IllegalStateException(
+                    "jwt.expiration looks too small: " + raw + "ms. " +
+                            "If you meant seconds, use unit suffix (e.g. 1h, 30m) or milliseconds explicitly.");
+        }
+        return millis;
     }
 }
