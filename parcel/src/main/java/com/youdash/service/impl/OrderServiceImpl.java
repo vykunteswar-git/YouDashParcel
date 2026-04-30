@@ -446,7 +446,10 @@ public class OrderServiceImpl implements OrderService {
                     .orElseThrow(() -> new RuntimeException("Order not found"));
             if (!admin) {
                 if ("RIDER".equals(tokenType)) {
-                    if (o.getRiderId() == null || !Objects.equals(o.getRiderId(), tokenUserId)) {
+                    boolean riderAllowed = Objects.equals(o.getRiderId(), tokenUserId)
+                            || Objects.equals(o.getPickupRiderId(), tokenUserId)
+                            || Objects.equals(o.getDeliveryRiderId(), tokenUserId);
+                    if (!riderAllowed) {
                         throw new RuntimeException("Access denied");
                     }
                 } else if (!Objects.equals(o.getUserId(), tokenUserId)) {
@@ -461,7 +464,7 @@ public class OrderServiceImpl implements OrderService {
             applyRiderRatingFlags(data, riderStars);
             if (riderOrderApi) {
                 data = stripCommercialDetailsForRider(data);
-                data.setEarnedAmount(riderWalletService.resolveRiderEarningForOrder(o));
+                data.setEarnedAmount(resolveRiderEarningForViewer(o, tokenUserId));
             }
             response.setData(data);
             response.setMessage("OK");
@@ -478,9 +481,10 @@ public class OrderServiceImpl implements OrderService {
     public ApiResponse<List<OrderResponseDTO>> listRiderOrders(Long riderId) {
         ApiResponse<List<OrderResponseDTO>> response = new ApiResponse<>();
         try {
-            List<OrderEntity> orders = orderRepository.findByRiderIdOrderByCreatedAtDesc(riderId, PageRequest.of(0, 200));
+            List<OrderEntity> orders = orderRepository.findByPickupRiderIdOrDeliveryRiderIdOrderByCreatedAtDesc(
+                    riderId, riderId, PageRequest.of(0, 200));
             Set<Long> riderIds = orders.stream()
-                    .map(OrderEntity::getRiderId)
+                    .flatMap(o -> java.util.stream.Stream.of(o.getRiderId(), o.getPickupRiderId(), o.getDeliveryRiderId()))
                     .filter(Objects::nonNull)
                     .collect(Collectors.toSet());
             Map<Long, RiderEntity> riderMap = riderIds.isEmpty()
@@ -497,7 +501,7 @@ public class OrderServiceImpl implements OrderService {
             for (OrderEntity o : orders) {
                 OrderResponseDTO d = stripCommercialDetailsForRider(toOrderDto(o, riderMap, vehicleMap, true, riderId));
                 Double settled = settledEarningByOrderId.get(o.getId());
-                d.setEarnedAmount(settled != null ? settled : riderWalletService.estimateRiderEarningForOrder(o));
+                d.setEarnedAmount(settled != null ? settled : resolveRiderEarningForViewer(o, riderId));
                 list.add(d);
             }
             response.setData(list);
@@ -1758,6 +1762,40 @@ public class OrderServiceImpl implements OrderService {
         dto.setDropLandmark(null);
         dto.setDropLat(targetHub.getLat());
         dto.setDropLng(targetHub.getLng());
+    }
+
+    private double resolveRiderEarningForViewer(OrderEntity order, Long viewerRiderId) {
+        double totalRiderEarning = riderWalletService.resolveRiderEarningForOrder(order);
+        if (order == null || viewerRiderId == null || order.getServiceMode() != ServiceMode.OUTSTATION) {
+            return totalRiderEarning;
+        }
+        boolean splitRiders = order.getPickupRiderId() != null
+                && order.getDeliveryRiderId() != null
+                && !Objects.equals(order.getPickupRiderId(), order.getDeliveryRiderId());
+        if (!splitRiders) {
+            return totalRiderEarning;
+        }
+        if (Objects.equals(viewerRiderId, order.getPickupRiderId())) {
+            return allocateRiderEarningByDistance(totalRiderEarning, order.getPickupDistanceKm(), order);
+        }
+        if (Objects.equals(viewerRiderId, order.getDeliveryRiderId())) {
+            return allocateRiderEarningByDistance(totalRiderEarning, order.getDropDistanceKm(), order);
+        }
+        return 0.0;
+    }
+
+    private static double allocateRiderEarningByDistance(double totalEarning, Double riderLegKm, OrderEntity order) {
+        if (totalEarning <= 0.0 || order == null) {
+            return 0.0;
+        }
+        double leg = riderLegKm == null ? 0.0 : Math.max(0.0, riderLegKm);
+        double totalLegs = Math.max(0.0, nz(order.getPickupDistanceKm()))
+                + Math.max(0.0, nz(order.getHubDistanceKm()))
+                + Math.max(0.0, nz(order.getDropDistanceKm()));
+        if (totalLegs <= 0.0 || leg <= 0.0) {
+            return 0.0;
+        }
+        return round2(totalEarning * (leg / totalLegs));
     }
 
     private Map<Long, Integer> buildRiderRatingByOrderId(List<OrderEntity> orders) {

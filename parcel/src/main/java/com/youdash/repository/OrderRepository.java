@@ -30,6 +30,13 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
 
     List<OrderEntity> findByRiderIdOrderByCreatedAtDesc(Long riderId, Pageable pageable);
 
+    /**
+     * Rider feed should include OUTSTATION split assignments where rider is either pickup or delivery rider.
+     * Using both columns keeps compatibility with existing INCITY rows where {@code riderId} is primary.
+     */
+    List<OrderEntity> findByPickupRiderIdOrDeliveryRiderIdOrderByCreatedAtDesc(
+            Long pickupRiderId, Long deliveryRiderId, Pageable pageable);
+
     List<OrderEntity> findByRiderIdAndServiceModeAndStatusIn(Long riderId, ServiceMode serviceMode, List<OrderStatus> statuses);
 
     /** Latest INCITY order for this rider in one of the given statuses (e.g. active job). */
