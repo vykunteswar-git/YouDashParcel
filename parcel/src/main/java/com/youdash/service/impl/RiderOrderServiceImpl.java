@@ -194,7 +194,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                     orderRepository.findById(acceptedOrderId).orElse(null));
         });
 
-        response.setData(orderServiceImpl.toOrderDtoForRider(refreshed));
+        response.setData(orderServiceImpl.toOrderDtoForRider(refreshed, riderId));
         response.setMessage("Order accepted");
         response.setMessageKey("SUCCESS");
         response.setStatus(200);
@@ -230,7 +230,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                 saved.getStatus(),
                 "status_updated",
                 resolveCollectAmount(saved));
-        response.setData(orderServiceImpl.toOrderDtoForRider(saved));
+        response.setData(orderServiceImpl.toOrderDtoForRider(saved, riderId));
         response.setMessage("Pickup recorded");
         response.setMessageKey("SUCCESS");
         response.setStatus(200);
@@ -276,7 +276,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                 saved.getStatus(),
                 "status_updated",
                 resolveCollectAmount(saved));
-        response.setData(orderServiceImpl.toOrderDtoForRider(saved));
+        response.setData(orderServiceImpl.toOrderDtoForRider(saved, riderId));
         response.setMessage("Transit started");
         response.setMessageKey("SUCCESS");
         response.setStatus(200);
@@ -315,7 +315,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                 saved.getStatus(),
                 "reach_destination",
                 resolveCollectAmount(saved));
-        response.setData(orderServiceImpl.toOrderDtoForRider(saved));
+        response.setData(orderServiceImpl.toOrderDtoForRider(saved, riderId));
         response.setMessage("Destination reached");
         response.setMessageKey("SUCCESS");
         response.setStatus(200);

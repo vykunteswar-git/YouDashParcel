@@ -426,7 +426,7 @@ public class OrderServiceImpl implements OrderService {
             if (saved.getServiceMode() == ServiceMode.INCITY && saved.getStatus() == OrderStatus.SEARCHING_RIDER) {
                 dispatchService.dispatchNewIncityOrder(saved);
             }
-            response.setData(toOrderDto(saved, null, null, false));
+            response.setData(toOrderDto(saved, null, null, false, null));
             response.setMessage("Order created");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
@@ -454,7 +454,7 @@ public class OrderServiceImpl implements OrderService {
                 }
             }
             boolean riderOrderApi = "RIDER".equals(tokenType);
-            OrderResponseDTO data = toOrderDto(o, null, null, riderOrderApi);
+            OrderResponseDTO data = toOrderDto(o, null, null, riderOrderApi, riderOrderApi ? tokenUserId : null);
             Integer riderStars = riderRatingRepository.findByOrderId(o.getId())
                     .map(RiderRatingEntity::getStars)
                     .orElse(null);
@@ -495,7 +495,7 @@ public class OrderServiceImpl implements OrderService {
                             .collect(Collectors.toMap(OrderRiderFinancialEntity::getOrderId, OrderRiderFinancialEntity::getRiderEarningAmount, (a, b) -> a));
             List<OrderResponseDTO> list = new ArrayList<>(orders.size());
             for (OrderEntity o : orders) {
-                OrderResponseDTO d = stripCommercialDetailsForRider(toOrderDto(o, riderMap, vehicleMap, true));
+                OrderResponseDTO d = stripCommercialDetailsForRider(toOrderDto(o, riderMap, vehicleMap, true, riderId));
                 Double settled = settledEarningByOrderId.get(o.getId());
                 d.setEarnedAmount(settled != null ? settled : riderWalletService.estimateRiderEarningForOrder(o));
                 list.add(d);
@@ -533,7 +533,7 @@ public class OrderServiceImpl implements OrderService {
             Map<Long, VehicleEntity> vehicleMap = buildVehicleBatchForOrders(orders, riderMap);
             Map<Long, Integer> riderRatingByOrderId = buildRiderRatingByOrderId(orders);
             List<OrderResponseDTO> list = orders.stream()
-                    .map(o -> toOrderDto(o, riderMap, vehicleMap, false))
+                    .map(o -> toOrderDto(o, riderMap, vehicleMap, false, null))
                     .peek(d -> applyRiderRatingFlags(d, riderRatingByOrderId.get(d.getId())))
                     .collect(Collectors.toList());
             response.setData(list);
@@ -812,7 +812,7 @@ public class OrderServiceImpl implements OrderService {
                             .collect(Collectors.toMap(RiderEntity::getId, Function.identity()));
             Map<Long, VehicleEntity> vehicleMap = buildVehicleBatchForOrders(allOrders, riderMap);
             List<OrderResponseDTO> list = allOrders.stream()
-                    .map(o -> toOrderDto(o, riderMap, vehicleMap, false))
+                    .map(o -> toOrderDto(o, riderMap, vehicleMap, false, null))
                     .collect(Collectors.toList());
             response.setData(list);
             response.setMessage("OK");
@@ -970,7 +970,7 @@ public class OrderServiceImpl implements OrderService {
             } catch (Exception ignored) {
                 // Keep assignment successful even if one notification channel fails.
             }
-            response.setData(toOrderDto(saved, null, null, false));
+            response.setData(toOrderDto(saved, null, null, false, null));
             response.setMessage("Rider assigned");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
@@ -1043,7 +1043,7 @@ public class OrderServiceImpl implements OrderService {
                 "Order #" + saved.getId() + " is now " + status.name().replace('_', ' '),
                 NotificationService.baseData(saved.getId(), status.name(), NotificationType.USER_ORDER_STATUS_UPDATE),
                 NotificationType.USER_ORDER_STATUS_UPDATE);
-        response.setData(toOrderDto(saved, null, null, false));
+        response.setData(toOrderDto(saved, null, null, false, null));
         response.setMessage("Status updated");
         response.setMessageKey("SUCCESS");
         response.setSuccess(true);
@@ -1074,7 +1074,7 @@ public class OrderServiceImpl implements OrderService {
         if (alreadyDelivered && financialExists) {
             OrderEntity refreshed = orderRepository.findById(o.getId()).orElse(o);
             markRiderAvailableAfterDelivery(refreshed.getRiderId());
-            response.setData(stripCommercialDetailsForRider(toOrderDto(refreshed, null, null, true)));
+            response.setData(stripCommercialDetailsForRider(toOrderDto(refreshed, null, null, true, actingRiderId)));
             response.setMessage("Order completed");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
@@ -1170,7 +1170,7 @@ public class OrderServiceImpl implements OrderService {
         riderActiveOrderTopicPublisher.publish(actingRiderId, saved.getId(), OrderStatus.DELIVERED, "delivered");
 
         OrderEntity refreshed = orderRepository.findById(saved.getId()).orElse(saved);
-        response.setData(stripCommercialDetailsForRider(toOrderDto(refreshed, null, null, true)));
+        response.setData(stripCommercialDetailsForRider(toOrderDto(refreshed, null, null, true, actingRiderId)));
         response.setMessage("Order completed");
         response.setMessageKey("SUCCESS");
         response.setSuccess(true);
@@ -1277,7 +1277,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         boolean riderApi = "RIDER".equals(tokenType);
-        OrderResponseDTO data = toOrderDto(saved, null, null, riderApi);
+        OrderResponseDTO data = toOrderDto(saved, null, null, riderApi, riderApi ? tokenUserId : null);
         if (riderApi) {
             data = stripCommercialDetailsForRider(data);
         }
@@ -1321,7 +1321,7 @@ public class OrderServiceImpl implements OrderService {
         order = orderRepository.save(order);
         appendTimeline(order, order.getStatus(), "otp_resent", order.getDestinationHubId(), order.getRiderId(), "Delivery OTP regenerated");
 
-        response.setData(toOrderDto(order, null, null, "RIDER".equals(tokenType)));
+        response.setData(toOrderDto(order, null, null, "RIDER".equals(tokenType), "RIDER".equals(tokenType) ? tokenUserId : null));
         response.setMessage("Delivery OTP resent");
         response.setMessageKey("SUCCESS");
         response.setSuccess(true);
@@ -1354,7 +1354,7 @@ public class OrderServiceImpl implements OrderService {
             throw new RuntimeException("Delivered orders cannot be cancelled");
         }
         if (o.getStatus() == OrderStatus.CANCELLED || o.getStatus() == OrderStatus.EXPIRED) {
-            response.setData(toOrderDto(o, null, null, false));
+            response.setData(toOrderDto(o, null, null, false, null));
             response.setMessage("Order already closed");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
@@ -1394,7 +1394,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         OrderEntity refreshed = orderRepository.findById(o.getId()).orElse(o);
-        response.setData(toOrderDto(refreshed, null, null, false));
+        response.setData(toOrderDto(refreshed, null, null, false, null));
         response.setMessage("Order cancelled");
         response.setMessageKey("SUCCESS");
         response.setSuccess(true);
@@ -1603,12 +1603,25 @@ public class OrderServiceImpl implements OrderService {
     }
 
     OrderResponseDTO toOrderDto(OrderEntity o) {
-        return toOrderDto(o, null, null, false);
+        return toOrderDto(o, null, null, false, null);
     }
 
     /** Full mapping for rider apps: narrower OTP rules + strips GST/platform fields. */
     OrderResponseDTO toOrderDtoForRider(OrderEntity o) {
-        return stripCommercialDetailsForRider(toOrderDto(o, null, null, true));
+        OrderResponseDTO dto = stripCommercialDetailsForRider(toOrderDto(o, null, null, true, o != null ? o.getRiderId() : null));
+        if (dto != null && o != null) {
+            dto.setEarnedAmount(riderWalletService.resolveRiderEarningForOrder(o));
+        }
+        return dto;
+    }
+
+    /** Full mapping for rider apps with explicit viewer rider context for OUTSTATION hub masking. */
+    OrderResponseDTO toOrderDtoForRider(OrderEntity o, Long viewerRiderId) {
+        OrderResponseDTO dto = stripCommercialDetailsForRider(toOrderDto(o, null, null, true, viewerRiderId));
+        if (dto != null && o != null) {
+            dto.setEarnedAmount(riderWalletService.resolveRiderEarningForOrder(o));
+        }
+        return dto;
     }
 
     /**
@@ -1617,7 +1630,7 @@ public class OrderServiceImpl implements OrderService {
      * @param riderOrderApi   {@code true} for rider-facing endpoints (OTP only in {@code IN_TRANSIT} until verified).
      *                        {@code false} for customer/admin — OTP shown from accept/payment through trip until verified.
      */
-    OrderResponseDTO toOrderDto(OrderEntity o, Map<Long, RiderEntity> riderBatch, Map<Long, VehicleEntity> vehicleBatch, boolean riderOrderApi) {
+    OrderResponseDTO toOrderDto(OrderEntity o, Map<Long, RiderEntity> riderBatch, Map<Long, VehicleEntity> vehicleBatch, boolean riderOrderApi, Long viewerRiderId) {
         RiderEntity rider = resolveRiderForOrderDto(o.getRiderId(), riderBatch);
         String riderName = rider != null ? rider.getName() : null;
         String riderPhone = rider != null ? rider.getPhone() : null;
@@ -1639,7 +1652,7 @@ public class OrderServiceImpl implements OrderService {
         String vehicleImageUrl = vehicleRow != null ? vehicleRow.getImageUrl() : null;
         String vehicleNumber = rider != null ? trimToNull(rider.getVehicleNumber()) : null;
 
-        return OrderResponseDTO.builder()
+        OrderResponseDTO dto = OrderResponseDTO.builder()
                 .id(o.getId())
                 .userId(o.getUserId())
                 .categoryId(o.getPackageCategoryId())
@@ -1711,6 +1724,40 @@ public class OrderServiceImpl implements OrderService {
                 .timelineEvents(orderTimelineService.timelineForOrder(o.getId()))
                 .createdAt(o.getCreatedAt() != null ? o.getCreatedAt().toString() : null)
                 .build();
+        applyOutstationRiderHubDestination(dto, o, riderOrderApi, viewerRiderId, originHub, destinationHub);
+        return dto;
+    }
+
+    private static void applyOutstationRiderHubDestination(
+            OrderResponseDTO dto,
+            OrderEntity order,
+            boolean riderOrderApi,
+            Long viewerRiderId,
+            HubEntity originHub,
+            HubEntity destinationHub) {
+        if (!riderOrderApi || dto == null || order == null || order.getServiceMode() != ServiceMode.OUTSTATION) {
+            return;
+        }
+        Long riderId = viewerRiderId != null ? viewerRiderId : order.getRiderId();
+        boolean pickupOnlyRider = riderId != null
+                && Objects.equals(riderId, order.getPickupRiderId())
+                && !Objects.equals(order.getPickupRiderId(), order.getDeliveryRiderId());
+        HubEntity targetHub = pickupOnlyRider ? originHub : destinationHub;
+        if (targetHub == null) {
+            targetHub = destinationHub != null ? destinationHub : originHub;
+        }
+        if (targetHub == null) {
+            return;
+        }
+        String hubAddress = targetHub.getCity() == null || targetHub.getCity().isBlank()
+                ? targetHub.getName() + " Hub"
+                : targetHub.getName() + " Hub, " + targetHub.getCity();
+        dto.setDropAddress(hubAddress);
+        dto.setDropTag("HUB");
+        dto.setDropDoorNo(null);
+        dto.setDropLandmark(null);
+        dto.setDropLat(targetHub.getLat());
+        dto.setDropLng(targetHub.getLng());
     }
 
     private Map<Long, Integer> buildRiderRatingByOrderId(List<OrderEntity> orders) {
