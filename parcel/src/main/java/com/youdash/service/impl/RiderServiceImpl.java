@@ -357,10 +357,12 @@ public class RiderServiceImpl implements RiderService {
 
             // INCITY only: broadcast + history save + ETA + geofencing.
             try {
+                // Same lifecycle as assignment: stream live GPS from rider-accept / payment-pending
+                // through delivery so the customer map updates before CONFIRMED (online pay window).
                 List<OrderEntity> activeIncityOrders = orderRepository.findByRiderIdAndServiceModeAndStatusIn(
                         riderId,
                         ServiceMode.INCITY,
-                        List.of(OrderStatus.CONFIRMED, OrderStatus.PICKED_UP, OrderStatus.IN_TRANSIT));
+                        ACTIVE_ASSIGNMENT_STATUSES);
 
                 long ts = System.currentTimeMillis();
                 Instant now = Instant.ofEpochMilli(ts);
