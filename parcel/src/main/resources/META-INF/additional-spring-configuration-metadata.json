@@ -81,6 +81,11 @@
       "description": "JWT validity duration (supports units like 24h, 30m; plain numeric values are treated as milliseconds)."
     },
     {
+      "name": "jwt.clock-skew-seconds",
+      "type": "java.lang.Long",
+      "description": "Allowed clock skew in seconds when parsing JWT exp (JwtUtil / JJWT). Override via JWT_CLOCK_SKEW_SECONDS."
+    },
+    {
       "name": "youdash.outstation.price-per-km",
       "type": "java.lang.Double",
       "description": "Fallback price per km for outstation quotes when vehicle is not selected. Prefer kebab-case in application.properties; camelCase is an accepted alias."

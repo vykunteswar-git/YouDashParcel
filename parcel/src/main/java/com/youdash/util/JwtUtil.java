@@ -1,6 +1,9 @@
 package com.youdash.util;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.JwtParser;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
@@ -20,10 +23,19 @@ public class JwtUtil {
 
     private final long expiration;
     private final Key key;
+    private final JwtParser jwtParser;
 
-    public JwtUtil(@Value("${jwt.secret}") String secret, @Value("${jwt.expiration:24h}") String expirationRaw) {
+    public JwtUtil(
+            @Value("${jwt.secret}") String secret,
+            @Value("${jwt.expiration:24h}") String expirationRaw,
+            @Value("${jwt.clock-skew-seconds:120}") long clockSkewSeconds) {
         this.expiration = parseExpirationMs(expirationRaw);
         this.key = Keys.hmacShaKeyFor(secret.getBytes());
+        long skew = Math.max(0L, clockSkewSeconds);
+        this.jwtParser = Jwts.parserBuilder()
+                .setSigningKey(key)
+                .setAllowedClockSkewSeconds(skew)
+                .build();
     }
 
     /** Claim name for USER / ADMIN; avoid {@code "type"} — some JWT stacks serialize it as {@code typ}, breaking admin checks. */
@@ -47,10 +59,20 @@ public class JwtUtil {
     }
 
     public Boolean validateToken(String token) {
+        return validateTokenFailureMessage(token) == null;
+    }
+
+    /**
+     * @return {@code null} if the token parses and is within allowed clock skew; otherwise a short reason for 401 bodies.
+     */
+    public String validateTokenFailureMessage(String token) {
         try {
-            return !isTokenExpired(token);
-        } catch (Exception e) {
-            return false;
+            jwtParser.parseClaimsJws(token);
+            return null;
+        } catch (ExpiredJwtException e) {
+            return "Token expired";
+        } catch (JwtException | IllegalArgumentException e) {
+            return "Invalid token";
         }
     }
 
@@ -96,15 +118,7 @@ public class JwtUtil {
     }
 
     private Claims extractAllClaims(String token) {
-        return Jwts.parserBuilder()
-                .setSigningKey(key)
-                .build()
-                .parseClaimsJws(token)
-                .getBody();
-    }
-
-    private Boolean isTokenExpired(String token) {
-        return extractExpiration(token).before(new Date());
+        return jwtParser.parseClaimsJws(token).getBody();
     }
 
     private static long parseExpirationMs(String rawValue) {

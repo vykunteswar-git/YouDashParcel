@@ -45,6 +45,12 @@ public class JwtFilter extends OncePerRequestFilter {
         // Path without context path; avoids empty servletPath + pathInfo quirks on some containers.
         String path = PATH_HELPER.getPathWithinApplication(request);
 
+        // CORS preflight must not require a JWT (browser sends OPTIONS without Authorization).
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         // 1. Skip validation for public endpoints
         // SockJS: GET /ws/info (and related) must work without Authorization — auth happens on STOMP CONNECT
         // (see WebSocketAuthChannelInterceptor).
@@ -74,8 +80,9 @@ public class JwtFilter extends OncePerRequestFilter {
         }
 
         // 3. Validate Token (401)
-        if (!jwtUtil.validateToken(token)) {
-            sendErrorResponse(response, "Invalid or expired token", 401);
+        String tokenProblem = jwtUtil.validateTokenFailureMessage(token);
+        if (tokenProblem != null) {
+            sendErrorResponse(response, tokenProblem, 401);
             return;
         }
 
