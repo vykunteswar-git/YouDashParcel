@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -53,8 +54,8 @@ public class AdminRiderOpsController {
         return riderService.rejectRider(id);
     }
 
-    @PostMapping("/available")
-    @Operation(summary = "Approved, available, not busy on active orders")
+    @RequestMapping(value = "/available", method = {RequestMethod.GET, RequestMethod.POST})
+    @Operation(summary = "Approved, available, not busy on active orders (GET or POST)")
     public ApiResponse<List<RiderResponseDTO>> available() {
         return riderService.listRidersEligibleForAssignment();
     }
