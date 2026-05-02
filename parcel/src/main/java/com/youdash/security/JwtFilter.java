@@ -46,7 +46,10 @@ public class JwtFilter extends OncePerRequestFilter {
         String path = PATH_HELPER.getPathWithinApplication(request);
 
         // 1. Skip validation for public endpoints
-        if (path.startsWith("/auth/") ||
+        // SockJS: GET /ws/info (and related) must work without Authorization — auth happens on STOMP CONNECT
+        // (see WebSocketAuthChannelInterceptor).
+        if (path.equals("/ws") || path.startsWith("/ws/") ||
+            path.startsWith("/auth/") ||
             path.startsWith("/rider-auth/") ||
             path.startsWith("/rider/auth/") ||
             path.equals("/admin/login") ||
