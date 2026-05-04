@@ -1382,6 +1382,8 @@ public class OrderServiceImpl implements OrderService {
             }
             dispatchService.closeRequest(o.getId(), "cancelled", null);
             userActiveOrderTopicPublisher.publishReleased(o.getUserId(), o.getId());
+            // Match payment-timeout path: user tracking + banner also listen on order-events.
+            sendUserOrderCancelledSocketEvent(o.getUserId(), o.getId());
             OrderEntity refreshedForPush = orderRepository.findById(o.getId()).orElse(o);
             Map<String, String> closedData = new HashMap<>(
                     NotificationService.baseData(
@@ -1404,6 +1406,24 @@ public class OrderServiceImpl implements OrderService {
         response.setSuccess(true);
         response.setStatus(200);
         return response;
+    }
+
+    private void sendUserOrderCancelledSocketEvent(Long userId, Long orderId) {
+        if (userId == null || orderId == null) {
+            return;
+        }
+        UserOrderEventDTO evt = new UserOrderEventDTO();
+        evt.setOrderId(orderId);
+        evt.setEvent("cancelled");
+        evt.setEventType("cancelled");
+        evt.setEventVersion(1);
+        evt.setTsEpochMs(Instant.now().toEpochMilli());
+        evt.setSource("backend");
+        evt.setStatus(OrderStatus.CANCELLED.name());
+        evt.setServiceMode(ServiceMode.INCITY.name());
+        evt.setPaymentDueAtEpochMs(null);
+        evt.setRiderId(null);
+        messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", evt);
     }
 
     private OrderEntity resolveOrderByIdOrReference(String raw) {
