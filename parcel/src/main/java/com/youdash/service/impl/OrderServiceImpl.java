@@ -1045,12 +1045,7 @@ public class OrderServiceImpl implements OrderService {
                     null,
                     "ADMIN");
         }
-        notificationService.sendToUser(
-                saved.getUserId(),
-                "Order update",
-                "Order #" + saved.getId() + " is now " + status.name().replace('_', ' '),
-                NotificationService.baseData(saved.getId(), status.name(), NotificationType.USER_ORDER_STATUS_UPDATE),
-                NotificationType.USER_ORDER_STATUS_UPDATE);
+        sendMilestoneUserStatusPush(saved, status);
         response.setData(toOrderDto(saved, null, null, false, null));
         response.setMessage("Status updated");
         response.setMessageKey("SUCCESS");
@@ -1166,12 +1161,7 @@ public class OrderServiceImpl implements OrderService {
                 saved.getRiderId());
         userActiveOrderTopicPublisher.publishReleased(saved.getUserId(), saved.getId());
 
-        notificationService.sendToUser(
-                saved.getUserId(),
-                "Order update",
-                "Order #" + saved.getId() + " is now " + OrderStatus.DELIVERED.name().replace('_', ' '),
-                NotificationService.baseData(saved.getId(), OrderStatus.DELIVERED.name(), NotificationType.USER_ORDER_STATUS_UPDATE),
-                NotificationType.USER_ORDER_STATUS_UPDATE);
+        sendMilestoneUserStatusPush(saved, OrderStatus.DELIVERED);
 
         markRiderAvailableAfterDelivery(saved.getRiderId());
 
@@ -1508,6 +1498,37 @@ public class OrderServiceImpl implements OrderService {
                 message != null && !message.isBlank() ? message : "Please try again.",
                 data,
                 NotificationType.ORDER_CREATE_FAILED);
+    }
+
+    private void sendMilestoneUserStatusPush(OrderEntity order, OrderStatus status) {
+        if (order == null || order.getUserId() == null || order.getId() == null || status == null) {
+            return;
+        }
+        NotificationType type = switch (status) {
+            case IN_TRANSIT -> NotificationType.IN_TRANSIT_TO_DEST_HUB;
+            case OUT_FOR_DELIVERY -> NotificationType.OUT_FOR_DELIVERY;
+            case DELIVERED -> NotificationType.DELIVERED;
+            default -> null;
+        };
+        if (type == null) {
+            return;
+        }
+        String title = "Order update";
+        String body = switch (status) {
+            case IN_TRANSIT -> "Order #" + order.getId() + " is in transit";
+            case OUT_FOR_DELIVERY -> "Order #" + order.getId() + " is out for delivery";
+            case DELIVERED -> "Order #" + order.getId() + " was delivered";
+            default -> null;
+        };
+        if (body == null) {
+            return;
+        }
+        notificationService.sendToUser(
+                order.getUserId(),
+                title,
+                body,
+                NotificationService.baseData(order.getId(), status.name(), type),
+                type);
     }
 
     private AppConfigEntity requireConfig() {

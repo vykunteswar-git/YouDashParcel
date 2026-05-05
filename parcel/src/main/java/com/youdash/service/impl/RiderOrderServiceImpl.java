@@ -400,16 +400,33 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         if (order == null || order.getUserId() == null || order.getId() == null || order.getStatus() == null) {
             return;
         }
-        String readableStatus = order.getStatus().name().replace('_', ' ');
+        NotificationType type = switch (order.getStatus()) {
+            case IN_TRANSIT -> NotificationType.IN_TRANSIT_TO_DEST_HUB;
+            case OUT_FOR_DELIVERY -> NotificationType.OUT_FOR_DELIVERY;
+            case DELIVERED -> NotificationType.DELIVERED;
+            default -> null;
+        };
+        if (type == null) {
+            return;
+        }
+        String body = switch (order.getStatus()) {
+            case IN_TRANSIT -> "Order #" + order.getId() + " is in transit";
+            case OUT_FOR_DELIVERY -> "Order #" + order.getId() + " is out for delivery";
+            case DELIVERED -> "Order #" + order.getId() + " was delivered";
+            default -> null;
+        };
+        if (body == null) {
+            return;
+        }
         notificationService.sendToUser(
                 order.getUserId(),
                 "Order update",
-                "Order #" + order.getId() + " is now " + readableStatus,
+                body,
                 NotificationService.baseData(
                         order.getId(),
                         order.getStatus().name(),
-                        NotificationType.USER_ORDER_STATUS_UPDATE),
-                NotificationType.USER_ORDER_STATUS_UPDATE);
+                        type),
+                type);
     }
 
     private static void requireAssignedRider(OrderEntity order, Long riderId) {
