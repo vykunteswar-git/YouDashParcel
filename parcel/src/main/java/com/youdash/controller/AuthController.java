@@ -26,4 +26,17 @@ public class AuthController {
     public ApiResponse<UserResponseDTO> verifyOtp(@RequestBody VerifyOtpRequestDTO request) {
         return authService.verifyOtp(request);
     }
+
+    /**
+     * Client should delete the stored JWT after this call. Stateless server — no server-side session to destroy.
+     */
+    @PostMapping("/logout")
+    public ApiResponse<Void> logout() {
+        ApiResponse<Void> r = new ApiResponse<>();
+        r.setSuccess(true);
+        r.setMessage("Logged out");
+        r.setMessageKey("SUCCESS");
+        r.setStatus(200);
+        return r;
+    }
 }

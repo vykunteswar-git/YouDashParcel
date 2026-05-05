@@ -78,7 +78,7 @@
     {
       "name": "jwt.expiration",
       "type": "java.time.Duration",
-      "description": "JWT validity duration (supports units like 24h, 30m; plain numeric values are treated as milliseconds)."
+      "description": "JWT access-token TTL: duration strings (e.g. 365d, 24h) or legacy plain milliseconds integer. Long TTL + POST /auth/logout clears client token; server cannot revoke JWT without extra store."
     },
     {
       "name": "jwt.clock-skew-seconds",

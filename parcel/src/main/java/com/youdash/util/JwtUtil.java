@@ -27,7 +27,7 @@ public class JwtUtil {
 
     public JwtUtil(
             @Value("${jwt.secret}") String secret,
-            @Value("${jwt.expiration:24h}") String expirationRaw,
+            @Value("${jwt.expiration:365d}") String expirationRaw,
             @Value("${jwt.clock-skew-seconds:120}") long clockSkewSeconds) {
         this.expiration = parseExpirationMs(expirationRaw);
         this.key = Keys.hmacShaKeyFor(secret.getBytes());
@@ -124,20 +124,27 @@ public class JwtUtil {
     private static long parseExpirationMs(String rawValue) {
         String raw = rawValue == null ? "" : rawValue.trim();
         if (raw.isEmpty()) {
-            return Duration.ofHours(24).toMillis();
+            return Duration.ofDays(365).toMillis();
+        }
+
+        // Legacy: plain integer = milliseconds (e.g. 86400000), unchanged from older application.properties.
+        if (raw.matches("\\d+")) {
+            long millis = Long.parseLong(raw);
+            if (millis <= 0) {
+                throw new IllegalStateException("jwt.expiration must be > 0");
+            }
+            if (millis < Duration.ofMinutes(1).toMillis()) {
+                throw new IllegalStateException(
+                        "jwt.expiration looks too small: " + raw + "ms. " +
+                                "If you meant seconds, use unit suffix (e.g. 1h, 30m).");
+            }
+            return millis;
         }
 
         Duration parsed = DurationStyle.detectAndParse(raw);
         long millis = parsed.toMillis();
         if (millis <= 0) {
-            throw new IllegalStateException("jwt.expiration must be > 0 (example: 24h, 30m, 86400000)");
-        }
-
-        // Guard against accidental seconds value (e.g. 3600 interpreted as 3.6s).
-        if (raw.matches("\\d+") && millis < Duration.ofMinutes(1).toMillis()) {
-            throw new IllegalStateException(
-                    "jwt.expiration looks too small: " + raw + "ms. " +
-                            "If you meant seconds, use unit suffix (e.g. 1h, 30m) or milliseconds explicitly.");
+            throw new IllegalStateException("jwt.expiration must be > 0 (example: 365d, 24h, 86400000)");
         }
         return millis;
     }

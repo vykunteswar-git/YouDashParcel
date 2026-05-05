@@ -131,5 +131,16 @@ public class RiderAuthController {
         }
         return response;
     }
+
+    /** Client should discard stored rider JWT. Stateless — no server session. */
+    @PostMapping("/logout")
+    public ApiResponse<Void> logout() {
+        ApiResponse<Void> r = new ApiResponse<>();
+        r.setSuccess(true);
+        r.setMessage("Logged out");
+        r.setMessageKey("SUCCESS");
+        r.setStatus(200);
+        return r;
+    }
 }
 
