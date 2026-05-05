@@ -7,6 +7,7 @@ import com.youdash.service.OrderStatusTransitionGuard;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 @Service
@@ -35,6 +36,32 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             Map.entry(OrderStatus.READY_FOR_PICKUP, Set.of(OrderStatus.DELIVERED, OrderStatus.RETURNED)),
             Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RETURNED)));
 
+    /**
+     * Curated status options for admin dropdowns. Keeps operational control while reducing noisy options.
+     */
+    private static final Map<OrderStatus, Set<OrderStatus>> OUTSTATION_ADMIN_SELECTABLE = Map.ofEntries(
+            Map.entry(OrderStatus.CREATED, Set.of(OrderStatus.CONFIRMED, OrderStatus.CANCELLED)),
+            Map.entry(OrderStatus.CONFIRMED, Set.of(OrderStatus.PICKED_UP, OrderStatus.CANCELLED)),
+            Map.entry(OrderStatus.PICKED_UP, Set.of(OrderStatus.AT_ORIGIN_HUB, OrderStatus.FAILED_DELIVERY)),
+            Map.entry(OrderStatus.AT_ORIGIN_HUB, Set.of(OrderStatus.DEPARTED_ORIGIN_HUB, OrderStatus.FAILED_DELIVERY)),
+            Map.entry(OrderStatus.DEPARTED_ORIGIN_HUB, Set.of(OrderStatus.IN_TRANSIT, OrderStatus.FAILED_DELIVERY)),
+            Map.entry(OrderStatus.IN_TRANSIT, Set.of(OrderStatus.AT_DESTINATION_HUB, OrderStatus.FAILED_DELIVERY)),
+            Map.entry(OrderStatus.AT_DESTINATION_HUB, Set.of(OrderStatus.SORTED_AT_DESTINATION, OrderStatus.FAILED_DELIVERY)),
+            Map.entry(OrderStatus.SORTED_AT_DESTINATION, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.READY_FOR_PICKUP, OrderStatus.FAILED_DELIVERY)),
+            Map.entry(OrderStatus.OUT_FOR_DELIVERY, Set.of(OrderStatus.DELIVERED, OrderStatus.FAILED_DELIVERY)),
+            Map.entry(OrderStatus.READY_FOR_PICKUP, Set.of(OrderStatus.DELIVERED, OrderStatus.RETURNED)),
+            Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RETURNED)));
+
+    private static final Map<OrderStatus, Set<OrderStatus>> INCITY_ADMIN_SELECTABLE = Map.ofEntries(
+            Map.entry(OrderStatus.SEARCHING_RIDER, Set.of(OrderStatus.CONFIRMED, OrderStatus.CANCELLED)),
+            Map.entry(OrderStatus.RIDER_ACCEPTED, Set.of(OrderStatus.CONFIRMED, OrderStatus.CANCELLED)),
+            Map.entry(OrderStatus.PAYMENT_PENDING, Set.of(OrderStatus.CONFIRMED, OrderStatus.CANCELLED)),
+            Map.entry(OrderStatus.CONFIRMED, Set.of(OrderStatus.PICKED_UP, OrderStatus.CANCELLED)),
+            Map.entry(OrderStatus.PICKED_UP, Set.of(OrderStatus.IN_TRANSIT, OrderStatus.FAILED_DELIVERY)),
+            Map.entry(OrderStatus.IN_TRANSIT, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED, OrderStatus.FAILED_DELIVERY)),
+            Map.entry(OrderStatus.OUT_FOR_DELIVERY, Set.of(OrderStatus.DELIVERED, OrderStatus.FAILED_DELIVERY)),
+            Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RETURNED)));
+
     @Override
     public void ensureAllowed(ServiceMode serviceMode, OrderStatus from, OrderStatus to) {
         if (to == null || from == to || from == null || serviceMode == null) {
@@ -47,5 +74,33 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             return;
         }
         throw new BadRequestException("Invalid transition: " + from + " -> " + to + " for " + serviceMode);
+    }
+
+    @Override
+    public Set<OrderStatus> allowedNextStatuses(ServiceMode serviceMode, OrderStatus current) {
+        if (serviceMode == null || current == null) {
+            return Set.of();
+        }
+        final Map<OrderStatus, Set<OrderStatus>> matrix =
+                serviceMode == ServiceMode.OUTSTATION ? OUTSTATION_ALLOWED : INCITY_ALLOWED;
+        Set<OrderStatus> allowed = matrix.get(current);
+        if (allowed == null || allowed.isEmpty()) {
+            return Set.of();
+        }
+        return new LinkedHashSet<>(allowed);
+    }
+
+    @Override
+    public Set<OrderStatus> adminSelectableNextStatuses(ServiceMode serviceMode, OrderStatus current) {
+        if (serviceMode == null || current == null) {
+            return Set.of();
+        }
+        final Map<OrderStatus, Set<OrderStatus>> matrix =
+                serviceMode == ServiceMode.OUTSTATION ? OUTSTATION_ADMIN_SELECTABLE : INCITY_ADMIN_SELECTABLE;
+        Set<OrderStatus> curated = matrix.get(current);
+        if (curated == null || curated.isEmpty()) {
+            return Set.of();
+        }
+        return new LinkedHashSet<>(curated);
     }
 }

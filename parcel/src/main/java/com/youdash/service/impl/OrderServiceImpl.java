@@ -232,11 +232,15 @@ public class OrderServiceImpl implements OrderService {
             order.setSenderPhone(trimToNull(dto.getSenderPhone()));
             order.setReceiverName(trimToNull(dto.getReceiverName()));
             order.setReceiverPhone(trimToNull(dto.getReceiverPhone()));
-            order.setPickupAddress(trimToNull(dto.getPickupAddress()));
+            String normalizedPickupAddress = resolveDisplayAddress(
+                    dto.getPickupAddress(), dto.getPickupDoorNo(), dto.getPickupLandmark(), dto.getPickupLat(), dto.getPickupLng());
+            String normalizedDropAddress = resolveDisplayAddress(
+                    dto.getDropAddress(), dto.getDropDoorNo(), dto.getDropLandmark(), dto.getDropLat(), dto.getDropLng());
+            order.setPickupAddress(normalizedPickupAddress);
             order.setPickupTag(trimToNull(dto.getPickupTag()));
             order.setPickupDoorNo(trimToNull(dto.getPickupDoorNo()));
             order.setPickupLandmark(trimToNull(dto.getPickupLandmark()));
-            order.setDropAddress(trimToNull(dto.getDropAddress()));
+            order.setDropAddress(normalizedDropAddress);
             order.setDropTag(trimToNull(dto.getDropTag()));
             order.setDropDoorNo(trimToNull(dto.getDropDoorNo()));
             order.setDropLandmark(trimToNull(dto.getDropLandmark()));
@@ -1556,6 +1560,33 @@ public class OrderServiceImpl implements OrderService {
         return t.isEmpty() ? null : t;
     }
 
+    private static String resolveDisplayAddress(
+            String primaryAddress,
+            String doorNo,
+            String landmark,
+            Double lat,
+            Double lng) {
+        String primary = trimToNull(primaryAddress);
+        if (primary != null) {
+            return primary;
+        }
+        String door = trimToNull(doorNo);
+        String mark = trimToNull(landmark);
+        if (door != null && mark != null) {
+            return door + ", " + mark;
+        }
+        if (door != null) {
+            return door;
+        }
+        if (mark != null) {
+            return mark;
+        }
+        if (lat != null && lng != null) {
+            return String.format(Locale.ROOT, "%.6f, %.6f", lat, lng);
+        }
+        return null;
+    }
+
     private static String normalizeTag(String tag) {
         String t = trimToNull(tag);
         return t == null ? null : t.toUpperCase(Locale.ROOT);
@@ -1661,6 +1692,10 @@ public class OrderServiceImpl implements OrderService {
         String deliveryOtp = resolveDeliveryOtpForResponse(o, riderOrderApi);
         HubEntity originHub = resolveHubById(o.getOriginHubId());
         HubEntity destinationHub = resolveHubById(o.getDestinationHubId());
+        String resolvedPickupAddress = resolveDisplayAddress(
+                o.getPickupAddress(), o.getPickupDoorNo(), o.getPickupLandmark(), o.getPickupLat(), o.getPickupLng());
+        String resolvedDropAddress = resolveDisplayAddress(
+                o.getDropAddress(), o.getDropDoorNo(), o.getDropLandmark(), o.getDropLat(), o.getDropLng());
 
         Long effectiveVehicleId = resolveEffectiveVehicleId(o, rider);
         VehicleEntity vehicleRow = null;
@@ -1684,11 +1719,11 @@ public class OrderServiceImpl implements OrderService {
                 .senderPhone(o.getSenderPhone())
                 .receiverName(o.getReceiverName())
                 .receiverPhone(o.getReceiverPhone())
-                .pickupAddress(o.getPickupAddress())
+                .pickupAddress(resolvedPickupAddress)
                 .pickupTag(o.getPickupTag())
                 .pickupDoorNo(o.getPickupDoorNo())
                 .pickupLandmark(o.getPickupLandmark())
-                .dropAddress(o.getDropAddress())
+                .dropAddress(resolvedDropAddress)
                 .dropTag(o.getDropTag())
                 .dropDoorNo(o.getDropDoorNo())
                 .dropLandmark(o.getDropLandmark())
@@ -1717,6 +1752,8 @@ public class OrderServiceImpl implements OrderService {
                 .distanceKm(o.getDistanceKm())
                 .paymentType(o.getPaymentType())
                 .status(o.getStatus())
+                .allowedNextStatuses(orderStatusTransitionGuard.allowedNextStatuses(o.getServiceMode(), o.getStatus()))
+                .adminSelectableNextStatuses(orderStatusTransitionGuard.adminSelectableNextStatuses(o.getServiceMode(), o.getStatus()))
                 .riderId(o.getRiderId())
                 .pickupRiderId(o.getPickupRiderId())
                 .deliveryRiderId(o.getDeliveryRiderId())

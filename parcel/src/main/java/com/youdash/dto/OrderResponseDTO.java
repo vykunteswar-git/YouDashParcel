@@ -9,6 +9,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.util.List;
+import java.util.Set;
 
 @Data
 @Builder
@@ -61,6 +62,10 @@ public class OrderResponseDTO {
     private Double distanceKm;
     private PaymentType paymentType;
     private OrderStatus status;
+    /** Next valid statuses for admin/rider UI actions from the current state. */
+    private Set<OrderStatus> allowedNextStatuses;
+    /** Curated status list for admin dropdown (reduced options for operations UX). */
+    private Set<OrderStatus> adminSelectableNextStatuses;
     private Long riderId;
     private Long pickupRiderId;
     private Long deliveryRiderId;
