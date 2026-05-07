@@ -3,6 +3,7 @@ package com.youdash.service.impl;
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.incentive.PeakIncentiveCampaignDTO;
 import com.youdash.dto.incentive.IncentiveSlabDTO;
+import com.youdash.dto.incentive.RiderIncentiveProgressDTO;
 import com.youdash.entity.OrderEntity;
 import com.youdash.entity.PeakIncentiveCampaignEntity;
 import com.youdash.model.IncentiveType;
@@ -27,6 +28,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -125,17 +127,17 @@ public class PeakIncentiveServiceImpl implements PeakIncentiveService {
 
     @Override
     @Transactional(readOnly = true)
-    public ApiResponse<List<PeakIncentiveCampaignDTO>> riderProgress(Long riderId) {
-        ApiResponse<List<PeakIncentiveCampaignDTO>> response = new ApiResponse<>();
+    public ApiResponse<List<RiderIncentiveProgressDTO>> riderProgress(Long riderId) {
+        ApiResponse<List<RiderIncentiveProgressDTO>> response = new ApiResponse<>();
         if (riderId == null) {
             throw new RuntimeException("riderId is required");
         }
         Instant now = Instant.now();
         List<PeakIncentiveCampaignEntity> active = peakIncentiveCampaignRepository
                 .findByIsActiveTrueAndValidFromLessThanEqualAndValidToGreaterThanEqual(now, now);
-        List<PeakIncentiveCampaignDTO> data = active.stream()
+        List<RiderIncentiveProgressDTO> data = active.stream()
                 .sorted(Comparator.comparing(PeakIncentiveCampaignEntity::getId).reversed())
-                .map(this::toDto)
+                .map(c -> toRiderProgressDto(c, riderId, now))
                 .collect(Collectors.toList());
         response.setData(data);
         response.setMessage("OK");
@@ -144,6 +146,83 @@ public class PeakIncentiveServiceImpl implements PeakIncentiveService {
         response.setStatus(200);
         response.setTotalCount(data.size());
         return response;
+    }
+
+    private RiderIncentiveProgressDTO toRiderProgressDto(PeakIncentiveCampaignEntity c, Long riderId, Instant now) {
+        IncentiveType type = normalizeIncentiveType(c.getIncentiveType());
+        Window window = resolveWindow(c, now);
+        long completedOrders = 0L;
+        String status = "ACTIVE";
+        String windowStart = null;
+        String windowEnd = null;
+        if (window != null) {
+            windowStart = window.start().toString();
+            windowEnd = window.end().toString();
+            status = resolveStatus(now, window);
+        }
+
+        if (type == IncentiveType.DAILY_DELIVERIES_SLOT && window != null) {
+            Instant countTo = now;
+            if (now.isBefore(window.start())) {
+                countTo = window.start();
+            } else if (now.isAfter(window.end())) {
+                countTo = window.end();
+            }
+            if (!countTo.isBefore(window.start())) {
+                // Industry-standard behavior: progress counts from incentive slot start,
+                // so same-day campaigns can include deliveries completed before creation time.
+                completedOrders = countDeliveredInWindow(riderId, c.getServiceMode(), window.start(), countTo);
+            }
+        }
+
+        List<IncentiveSlabDTO> slabs = normalizedSlabs(c);
+        int remainingOrders;
+        Integer nextRequiredDeliveries = null;
+        Double nextBonusAmount = null;
+
+        if (!slabs.isEmpty()) {
+            Optional<IncentiveSlabDTO> next = slabs.stream()
+                    .filter(s -> completedOrders < nzInt(s.getRequiredDeliveries()))
+                    .findFirst();
+            if (next.isPresent()) {
+                nextRequiredDeliveries = nzInt(next.get().getRequiredDeliveries());
+                nextBonusAmount = round2(nz(next.get().getBonusAmount()));
+                remainingOrders = Math.max(0, nextRequiredDeliveries - (int) completedOrders);
+            } else {
+                remainingOrders = 0;
+            }
+        } else {
+            int minOrders = Math.max(1, nzInt(c.getMinCompletedOrders()));
+            remainingOrders = Math.max(0, minOrders - (int) completedOrders);
+            if (remainingOrders > 0) {
+                nextRequiredDeliveries = minOrders;
+                nextBonusAmount = round2(nz(c.getBonusAmount()));
+            }
+        }
+
+        double achievedBonus = resolveAchievedBonus(c, completedOrders);
+        return RiderIncentiveProgressDTO.builder()
+                .campaignId(c.getId())
+                .incentiveType(type)
+                .campaignType(type.name())
+                .incentiveTag(type == IncentiveType.ONLINE_HOURS_DAILY ? "HOURS" : "DELIVERIES")
+                .campaignName(c.getName())
+                .serviceMode(c.getServiceMode())
+                .incentiveDate(c.getIncentiveDate() != null ? c.getIncentiveDate().toString() : null)
+                .targetOnlineMinutes(c.getTargetOnlineMinutes())
+                .completedOnlineMinutes(null)
+                .bonusAmount(round2(nz(c.getBonusAmount())))
+                .minCompletedOrders(c.getMinCompletedOrders())
+                .completedOrdersInWindow(completedOrders)
+                .remainingOrders(remainingOrders)
+                .nextRequiredDeliveries(nextRequiredDeliveries)
+                .nextBonusAmount(nextBonusAmount)
+                .slabs(slabs)
+                .eligibleNow(achievedBonus > 0.0)
+                .windowStart(windowStart)
+                .windowEnd(windowEnd)
+                .status(status)
+                .build();
     }
 
     @Override
@@ -244,6 +323,16 @@ public class PeakIncentiveServiceImpl implements PeakIncentiveService {
                 .filter(s -> !s.isBlank())
                 .map(s -> DayOfWeek.valueOf(s.toUpperCase(Locale.ROOT)))
                 .collect(Collectors.toSet());
+    }
+
+    private String resolveStatus(Instant now, Window window) {
+        if (now.isBefore(window.start())) {
+            return "UPCOMING";
+        }
+        if (now.isAfter(window.end())) {
+            return "CLOSED";
+        }
+        return "ACTIVE";
     }
 
     private void applyDto(PeakIncentiveCampaignEntity e, PeakIncentiveCampaignDTO dto, boolean create) {
