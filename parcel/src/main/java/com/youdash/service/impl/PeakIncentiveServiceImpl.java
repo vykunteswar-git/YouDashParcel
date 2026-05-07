@@ -180,9 +180,10 @@ public class PeakIncentiveServiceImpl implements PeakIncentiveService {
         Integer nextRequiredDeliveries = null;
         Double nextBonusAmount = null;
 
+        final long completedOrdersFinal = completedOrders;
         if (!slabs.isEmpty()) {
             Optional<IncentiveSlabDTO> next = slabs.stream()
-                    .filter(s -> completedOrders < nzInt(s.getRequiredDeliveries()))
+                    .filter(s -> completedOrdersFinal < nzInt(s.getRequiredDeliveries()))
                     .findFirst();
             if (next.isPresent()) {
                 nextRequiredDeliveries = nzInt(next.get().getRequiredDeliveries());
