@@ -4,6 +4,7 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.*;
 import com.youdash.entity.*;
 import com.youdash.util.DeliveryOtpGenerator;
+import com.youdash.util.OutstationPayableLegSplit;
 import com.youdash.exception.BadRequestException;
 import com.youdash.model.*;
 import com.youdash.repository.*;
@@ -356,6 +357,12 @@ public class OrderServiceImpl implements OrderService {
                 order.setDropDistanceKm(legs.dropKm());
                 order.setDistanceKm(round4(nz(order.getPickupDistanceKm()) + nz(order.getHubDistanceKm()) + nz(order.getDropDistanceKm())));
 
+                AppConfigEntity cfgOs = checkoutConfig;
+                double routeRateOs = resolveRouteRate(dto.getOriginHubId(), dto.getDestinationHubId(), cfgOs);
+                PricingService.OutstationBreakdown quoteLegs = pricingService.outstationBreakdown(
+                        pickupDist, hubDist, dropDist, routeRateOs, dto.getWeight(), dtype, cfgOs);
+                applyOutstationQuoteLegCosts(order, quoteLegs);
+
                 if (clientPricing) {
                     if (StringUtils.hasText(dto.getCouponCode())) {
                         double preCoupon = resolvePreCouponTotalForClientPricing(dto);
@@ -372,11 +379,7 @@ public class OrderServiceImpl implements OrderService {
                         applyClientPricing(order, dto);
                     }
                 } else {
-                    AppConfigEntity cfg = checkoutConfig;
-                    double routeRate = resolveRouteRate(dto.getOriginHubId(), dto.getDestinationHubId(), cfg);
-                    PricingService.OutstationBreakdown b = pricingService.outstationBreakdown(
-                            pickupDist, hubDist, dropDist, routeRate, dto.getWeight(), dtype, cfg);
-                    double baseOs = round2(b.getTotal());
+                    double baseOs = round2(quoteLegs.getTotal());
                     double couponDiscOs;
                     if (StringUtils.hasText(dto.getCouponCode())) {
                         CouponApplication cap = couponService.resolveApplication(
@@ -387,9 +390,9 @@ public class OrderServiceImpl implements OrderService {
                     } else {
                         couponDiscOs = resolveCouponAmount(dto.getCouponAmount(), baseOs);
                     }
-                    order.setSubtotal(b.getSubtotal());
-                    order.setGstAmount(b.getGstAmount());
-                    order.setPlatformFee(b.getPlatformFee());
+                    order.setSubtotal(quoteLegs.getSubtotal());
+                    order.setGstAmount(quoteLegs.getGstAmount());
+                    order.setPlatformFee(quoteLegs.getPlatformFee());
                     order.setCouponAmount(round2(couponDiscOs));
                     order.setTotalAmount(round2(baseOs - couponDiscOs));
                 }
@@ -1841,25 +1844,25 @@ public class OrderServiceImpl implements OrderService {
         if (dto == null || order == null || order.getServiceMode() != ServiceMode.OUTSTATION) {
             return;
         }
-        double pickupKm = Math.max(0.0, nz(order.getPickupDistanceKm()));
-        double hubKm = Math.max(0.0, nz(order.getHubDistanceKm()));
-        double dropKm = Math.max(0.0, nz(order.getDropDistanceKm()));
-        double den = pickupKm + hubKm + dropKm;
-        if (den <= 0.0) {
-            return;
-        }
-        double payable = Math.max(0.0, nz(order.getTotalAmount()));
-        double pickupAmount = round2(payable * (pickupKm / den));
-        double hubAmount = round2(payable * (hubKm / den));
-        double lastMileAmount = round2(payable - pickupAmount - hubAmount);
-        dto.setPickupAmount(pickupAmount);
-        dto.setHubToHubAmount(hubAmount);
-        dto.setLastMileAmount(lastMileAmount);
+        OutstationPayableLegSplit leg = OutstationPayableLegSplit.fromOrder(order);
+        dto.setPickupAmount(leg.pickupAmount());
+        dto.setHubToHubAmount(leg.hubToHubAmount());
+        dto.setLastMileAmount(leg.lastMileAmount());
         if (riderOrderApi) {
             String legType = resolveLegTypeForRider(order, true, viewerRiderId);
             dto.setLegTypeForRider(legType);
-            dto.setLegAmountForRider("DROP".equals(legType) ? lastMileAmount : pickupAmount);
+            dto.setLegAmountForRider("DROP".equals(legType) ? leg.lastMileAmount() : leg.pickupAmount());
         }
+    }
+
+    private static void applyOutstationQuoteLegCosts(OrderEntity order, PricingService.OutstationBreakdown b) {
+        if (order == null || b == null) {
+            return;
+        }
+        order.setOutstationPickupCost(b.getPickupCost());
+        order.setOutstationHubCost(b.getHubCost());
+        order.setOutstationDropCost(b.getDropCost());
+        order.setOutstationWeightCost(b.getWeightCost());
     }
 
     private static void applyOutstationRiderContactVisibility(

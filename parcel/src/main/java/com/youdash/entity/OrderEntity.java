@@ -158,6 +158,22 @@ public class OrderEntity {
     @Column(name = "total_amount")
     private Double totalAmount;
 
+    /**
+     * OUTSTATION: quote line pickup cost (pre-GST), from same breakdown as customer pricing.
+     * Used for rider leg amount / earnings; scaled when a coupon reduces payable.
+     */
+    @Column(name = "outstation_pickup_cost")
+    private Double outstationPickupCost;
+
+    @Column(name = "outstation_hub_cost")
+    private Double outstationHubCost;
+
+    @Column(name = "outstation_drop_cost")
+    private Double outstationDropCost;
+
+    @Column(name = "outstation_weight_cost")
+    private Double outstationWeightCost;
+
     @Column(name = "coupon_amount")
     private Double couponAmount;
 

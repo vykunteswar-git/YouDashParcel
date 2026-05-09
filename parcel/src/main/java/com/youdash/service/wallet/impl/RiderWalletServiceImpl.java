@@ -58,6 +58,7 @@ import com.youdash.service.NotificationDedupService;
 import com.youdash.service.NotificationService;
 import com.youdash.service.PeakIncentiveService;
 import com.youdash.service.wallet.RiderWalletService;
+import com.youdash.util.OutstationPayableLegSplit;
 
 
 /**
@@ -691,7 +692,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             throw new RuntimeException("OUTSTATION split settlement requires distinct pickup and delivery riders");
         }
 
-        OutstationLegAllocation leg = outstationLegAllocation(orderAmount, order);
+        OutstationPayableLegSplit leg = OutstationPayableLegSplit.fromOrder(order);
         double oaPick = leg.pickupAmount();
         double oaDrop = leg.lastMileAmount();
         double commPick = round2(oaPick * (commissionPercent / 100.0));
@@ -953,7 +954,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 && order.getPickupRiderId() != null
                 && order.getDeliveryRiderId() != null
                 && !order.getPickupRiderId().equals(order.getDeliveryRiderId())) {
-            OutstationLegAllocation leg = outstationLegAllocation(orderAmount, order);
+            OutstationPayableLegSplit leg = OutstationPayableLegSplit.fromOrder(order);
             double pickupNet = round2(Math.max(0.0, leg.pickupAmount() - (leg.pickupAmount() * (commissionPercent / 100.0))));
             double dropNet = round2(Math.max(0.0,
                     leg.lastMileAmount() - (leg.lastMileAmount() * (commissionPercent / 100.0))));
@@ -1029,7 +1030,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         Long pRid = order.getPickupRiderId();
         Long dRid = order.getDeliveryRiderId();
         boolean split = pRid != null && dRid != null && !pRid.equals(dRid);
-        OutstationLegAllocation leg = outstationLegAllocation(orderAmount, order);
+        OutstationPayableLegSplit leg = OutstationPayableLegSplit.fromOrder(order);
         double pickupNet = round2(Math.max(0.0, leg.pickupAmount() - (leg.pickupAmount() * (commissionPercent / 100.0))));
         double dropNet = round2(Math.max(0.0,
                 leg.lastMileAmount() - (leg.lastMileAmount() * (commissionPercent / 100.0))));
@@ -1063,23 +1064,6 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             return dropNet;
         }
         return 0.0;
-    }
-
-    private record OutstationLegAllocation(double pickupAmount, double hubToHubAmount, double lastMileAmount) {
-    }
-
-    private static OutstationLegAllocation outstationLegAllocation(double orderAmount, OrderEntity order) {
-        double pickupKm = Math.max(0.0, nz(order.getPickupDistanceKm()));
-        double hubKm = Math.max(0.0, nz(order.getHubDistanceKm()));
-        double dropKm = Math.max(0.0, nz(order.getDropDistanceKm()));
-        double den = pickupKm + hubKm + dropKm;
-        if (den <= 0.0) {
-            return new OutstationLegAllocation(round2(orderAmount), 0.0, 0.0);
-        }
-        double pickupAmount = round2(orderAmount * (pickupKm / den));
-        double hubAmount = round2(orderAmount * (hubKm / den));
-        double dropAmount = round2(orderAmount - pickupAmount - hubAmount);
-        return new OutstationLegAllocation(pickupAmount, hubAmount, dropAmount);
     }
 
     private static double resolveCommissionPercent(RiderCommissionConfigEntity cfg, PaymentType payType,
