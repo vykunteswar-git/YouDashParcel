@@ -134,7 +134,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public ApiResponse<RiderWalletSummaryDTO> getWalletSummary(Long riderId) {
         ApiResponse<RiderWalletSummaryDTO> response = new ApiResponse<>();
         try {
