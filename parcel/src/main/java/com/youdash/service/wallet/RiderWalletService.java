@@ -28,8 +28,11 @@ public interface RiderWalletService {
      */
     void settleOrderDelivered(OrderEntity order, CodCollectionMode codMode, Double codCollectedAmount, Long actorUserId, String actorType);
 
-    /** True if a rider financial snapshot row exists for this order (settlement completed or in progress). */
-    boolean hasOrderRiderFinancial(Long orderId);
+    /**
+     * True when all expected per-rider financial rows exist for this order (one for INCITY / single rider,
+     * two for OUTSTATION with different pickup and delivery riders).
+     */
+    boolean isOrderWalletSettlementComplete(OrderEntity order);
 
     void ensureDefaultCommissionConfig();
 
@@ -41,6 +44,14 @@ public interface RiderWalletService {
      */
     double estimateRiderEarningForOrder(OrderEntity order);
 
-    /** Settled {@link com.youdash.entity.wallet.OrderRiderFinancialEntity} amount when present, otherwise {@link #estimateRiderEarningForOrder}. */
+    /**
+     * Sum of settled rider earnings for all riders on this order; if none settled yet, full-trip estimate
+     * (same as a single rider would see before split).
+     */
     double resolveRiderEarningForOrder(OrderEntity order);
+
+    /**
+     * This rider's settled earning for the order, or an estimate from first/last-mile share for OUTSTATION split riders.
+     */
+    double resolveRiderEarningForOrder(OrderEntity order, Long riderId);
 }

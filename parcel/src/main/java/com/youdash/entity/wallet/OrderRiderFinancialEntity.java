@@ -8,13 +8,15 @@ import jakarta.persistence.*;
 import lombok.Data;
 
 /**
- * One row per order for idempotent rider financial settlement + COD tracking.
+ * Per rider per order: one row for INCITY / single rider; two rows for
+ * OUTSTATION pickup + delivery riders.
+ * COD collection fields are set only on the delivery-rider row.
  */
 @Entity
 @Table(name = "youdash_order_rider_financials", indexes = {
-        @Index(name = "idx_orf_order", columnList = "order_id", unique = true),
+        @Index(name = "idx_orf_order", columnList = "order_id"),
         @Index(name = "idx_orf_rider", columnList = "rider_id")
-})
+}, uniqueConstraints = @UniqueConstraint(name = "uk_orf_order_rider", columnNames = { "order_id", "rider_id" }))
 @Data
 public class OrderRiderFinancialEntity {
 
@@ -22,7 +24,7 @@ public class OrderRiderFinancialEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "order_id", nullable = false, unique = true)
+    @Column(name = "order_id", nullable = false)
     private Long orderId;
 
     @Column(name = "rider_id", nullable = false)

@@ -3,6 +3,7 @@ package com.youdash.service.impl;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -430,8 +431,13 @@ public class RiderOrderServiceImpl implements RiderOrderService {
     }
 
     private static void requireAssignedRider(OrderEntity order, Long riderId) {
-        final Long assigned = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
-        if (assigned == null || !assigned.equals(riderId)) {
+        if (riderId == null) {
+            throw new BadRequestException("Access denied");
+        }
+        boolean ok = Objects.equals(riderId, order.getRiderId())
+                || Objects.equals(riderId, order.getPickupRiderId())
+                || Objects.equals(riderId, order.getDeliveryRiderId());
+        if (!ok) {
             throw new BadRequestException("Access denied");
         }
     }

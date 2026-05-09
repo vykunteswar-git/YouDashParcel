@@ -8,6 +8,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.time.temporal.TemporalAdjusters;
 
@@ -57,6 +59,10 @@ import com.youdash.service.NotificationService;
 import com.youdash.service.PeakIncentiveService;
 import com.youdash.service.wallet.RiderWalletService;
 
+
+/**
+ * Wallet, withdrawals, per-order settlement (including split OUTSTATION legs).
+ */
 @Service
 public class RiderWalletServiceImpl implements RiderWalletService {
 
@@ -104,11 +110,27 @@ public class RiderWalletServiceImpl implements RiderWalletService {
 
     @Override
     @Transactional(readOnly = true)
-    public boolean hasOrderRiderFinancial(Long orderId) {
-        if (orderId == null) {
+    public boolean isOrderWalletSettlementComplete(OrderEntity order) {
+        if (order == null || order.getId() == null) {
             return false;
         }
-        return orderRiderFinancialRepository.existsByOrderId(orderId);
+        int need = expectedSettlementLegCount(order);
+        return orderRiderFinancialRepository.countByOrderId(order.getId()) >= need;
+    }
+
+    private int expectedSettlementLegCount(OrderEntity orderEntity) {
+        if (orderEntity.getServiceMode() != com.youdash.model.ServiceMode.OUTSTATION) {
+            return 1;
+        }
+        Long pickupRiderId = orderEntity.getPickupRiderId();
+        Long deliveryRiderId = orderEntity.getDeliveryRiderId();
+        if (pickupRiderId == null || deliveryRiderId == null) {
+            return 1;
+        }
+        if (pickupRiderId.equals(deliveryRiderId)) {
+            return 1;
+        }
+        return 2;
     }
 
     @Override
@@ -265,6 +287,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
 
             double netAvail = wallet.getCurrentBalance() - wallet.getCodPendingAmount() - wallet.getWithdrawalPendingAmount();
             if (amount > netAvail + 0.0001) {
+                    
                 throw new RuntimeException("Insufficient wallet balance for withdrawal");
             }
 
@@ -287,13 +310,12 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             txn.setReferenceType(WalletTxnReferenceType.WITHDRAWAL);
             txn.setReferenceId(w.getId());
             txn.setStatus(WalletTxnStatus.PENDING);
-            txn.setNote("Withdrawal requested — funds reserved");
+            txn.setNote("Withdrawal requested - funds reserved");
             riderWalletTransactionRepository.save(txn);
 
             audit("WITHDRAW_REQUEST", "RIDER", riderId, "WITHDRAWAL", w.getId(), Map.of(
                     "amount", amount,
-                    "walletTxnId", txn.getId()
-            ));
+                    "walletTxnId", txn.getId()));
 
             Map<String, String> adminWd = new HashMap<>();
             adminWd.put("withdrawalId", String.valueOf(w.getId()));
@@ -343,8 +365,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                             w.getRiderId(),
                             WalletTxnReferenceType.WITHDRAWAL,
                             w.getId(),
-                            WalletTxnStatus.PENDING
-                    )
+                            WalletTxnStatus.PENDING)
                     .orElse(null);
 
             if (Boolean.TRUE.equals(dto.getApprove())) {
@@ -369,7 +390,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                     riderWalletTransactionRepository.save(holdTxn);
                 }
 
-                audit("WITHDRAW_APPROVED", "ADMIN", adminUserId, "WITHDRAWAL", w.getId(), Map.of("riderId", w.getRiderId(), "amount", w.getAmount()));
+                audit("WITHDRAW_APPROVED", "ADMIN", adminUserId, "WITHDRAWAL", w.getId(),
+                        Map.of("riderId", w.getRiderId(), "amount", w.getAmount()));
                 if (notificationDedupService.tryAcquire("rider-withdrawal-approved:" + w.getId())) {
                     Map<String, String> d = new HashMap<>();
                     d.put("withdrawalId", String.valueOf(w.getId()));
@@ -391,11 +413,12 @@ public class RiderWalletServiceImpl implements RiderWalletService {
 
                 if (holdTxn != null) {
                     holdTxn.setStatus(WalletTxnStatus.REVERSED);
-                    holdTxn.setNote("Withdrawal rejected — reservation released (balance unchanged)");
+                    holdTxn.setNote("Withdrawal rejected - reservation released (balance unchanged)");
                     riderWalletTransactionRepository.save(holdTxn);
                 }
 
-                audit("WITHDRAW_REJECTED", "ADMIN", adminUserId, "WITHDRAWAL", w.getId(), Map.of("riderId", w.getRiderId(), "amount", w.getAmount()));
+                audit("WITHDRAW_REJECTED", "ADMIN", adminUserId, "WITHDRAWAL", w.getId(),
+                        Map.of("riderId", w.getRiderId(), "amount", w.getAmount()));
                 if (notificationDedupService.tryAcquire("rider-withdrawal-rejected:" + w.getId())) {
                     Map<String, String> d = new HashMap<>();
                     d.put("withdrawalId", String.valueOf(w.getId()));
@@ -423,17 +446,19 @@ public class RiderWalletServiceImpl implements RiderWalletService {
 
     @Override
     @Transactional
-    public ApiResponse<RiderCommissionConfigDTO> upsertCommissionConfig(Long adminUserId, RiderCommissionConfigDTO dto) {
+    public ApiResponse<RiderCommissionConfigDTO> upsertCommissionConfig(Long adminUserId,
+            RiderCommissionConfigDTO dto) {
         ApiResponse<RiderCommissionConfigDTO> response = new ApiResponse<>();
         try {
             if (dto == null) {
                 throw new RuntimeException("body is required");
             }
-            RiderCommissionConfigEntity cfg = riderCommissionConfigRepository.findById(COMMISSION_CONFIG_ID).orElseGet(() -> {
-                RiderCommissionConfigEntity c = new RiderCommissionConfigEntity();
-                c.setId(COMMISSION_CONFIG_ID);
-                return c;
-            });
+            RiderCommissionConfigEntity cfg = riderCommissionConfigRepository.findById(COMMISSION_CONFIG_ID)
+                    .orElseGet(() -> {
+                        RiderCommissionConfigEntity c = new RiderCommissionConfigEntity();
+                        c.setId(COMMISSION_CONFIG_ID);
+                        return c;
+                    });
             if (dto.getOnlineCommissionPercent() != null) {
                 validateCommissionPercent("onlineCommissionPercent", dto.getOnlineCommissionPercent());
                 cfg.setOnlineCommissionPercent(dto.getOnlineCommissionPercent());
@@ -479,7 +504,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
     public ApiResponse<RiderCommissionConfigDTO> getCommissionConfig() {
         ApiResponse<RiderCommissionConfigDTO> response = new ApiResponse<>();
         try {
-            RiderCommissionConfigEntity cfg = riderCommissionConfigRepository.findById(COMMISSION_CONFIG_ID).orElse(null);
+            RiderCommissionConfigEntity cfg = riderCommissionConfigRepository.findById(COMMISSION_CONFIG_ID)
+                    .orElse(null);
             if (cfg == null) {
                 response.setData(new RiderCommissionConfigDTO());
             } else {
@@ -497,18 +523,20 @@ public class RiderWalletServiceImpl implements RiderWalletService {
 
     @Override
     @Transactional
-    public void settleOrderDelivered(OrderEntity order, CodCollectionMode codMode, Double codCollectedAmount, Long actorUserId, String actorType) {
+    public void settleOrderDelivered(OrderEntity order, CodCollectionMode codMode, Double codCollectedAmount,
+            Long actorUserId, String actorType) {
         if (order == null || order.getId() == null) {
-            return;
-        }
-        if (order.getRiderId() == null) {
             return;
         }
         if (order.getStatus() != OrderStatus.DELIVERED) {
             return;
         }
-        if (orderRiderFinancialRepository.findByOrderId(order.getId()).isPresent()) {
-            return; // idempotent
+        int expectedLegs = expectedSettlementLegCount(order);
+        if (orderRiderFinancialRepository.countByOrderId(order.getId()) >= expectedLegs) {
+            return;
+        }
+        if (expectedLegs == 1 && order.getRiderId() == null) {
+            return;
         }
 
         ensureDefaultCommissionConfig();
@@ -523,15 +551,57 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         double commissionPercent = resolveCommissionPercent(cfg, payType, codMode);
         double commissionAmount = round2(orderAmount * (commissionPercent / 100.0));
         double baseRiderEarning = round2(orderAmount - commissionAmount);
-        double peakBonus = peakIncentiveService.resolveBonusForDeliveredOrder(order, Instant.now());
-        double riderEarning = round2(baseRiderEarning + peakBonus);
-        if (riderEarning < -0.0001) {
+        double peakBonusTotal = peakIncentiveService.resolveBonusForDeliveredOrder(order, Instant.now());
+        double totalRiderPool = round2(baseRiderEarning + peakBonusTotal);
+        if (totalRiderPool < -0.0001) {
             throw new RuntimeException("Invalid commission config: rider earning cannot be negative");
         }
-        riderEarning = Math.max(0.0, riderEarning);
 
-        log.info("EARNING_CALCULATION -> riderId={}, orderId={}, paymentType={}, codMode={}, orderAmount={}, commissionPercent={}, commissionAmount={}, riderEarning={}",
-                order.getRiderId(),
+        if (expectedLegs == 1) {
+            settleSingleRiderOrderDelivered(
+                    order,
+                    payType,
+                    codMode,
+                    orderAmount,
+                    commissionPercent,
+                    commissionAmount,
+                    baseRiderEarning,
+                    peakBonusTotal,
+                    Math.max(0.0, totalRiderPool),
+                    actorUserId,
+                    actorType);
+            return;
+        }
+
+        settleSplitOutstationOrderDelivered(
+                order,
+                payType,
+                codMode,
+                orderAmount,
+                commissionPercent,
+                commissionAmount,
+                baseRiderEarning,
+                peakBonusTotal,
+                actorUserId,
+                actorType);
+    }
+
+    private void settleSingleRiderOrderDelivered(
+            OrderEntity order,
+            PaymentType payType,
+            CodCollectionMode codMode,
+            double orderAmount,
+            double commissionPercent,
+            double commissionAmount,
+            double baseRiderEarning,
+            double peakBonus,
+            double riderEarning,
+            Long actorUserId,
+            String actorType) {
+        Long riderId = order.getRiderId();
+        log.info(
+                "EARNING_CALCULATION -> riderId={}, orderId={}, paymentType={}, codMode={}, orderAmount={}, commissionPercent={}, commissionAmount={}, riderEarning={}",
+                riderId,
                 order.getId(),
                 payType,
                 codMode,
@@ -540,20 +610,16 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 commissionAmount,
                 riderEarning);
 
-        RiderWalletEntity wallet = riderWalletRepository.lockByRiderId(order.getRiderId())
-                .orElseGet(() -> riderWalletRepository.save(newWallet(order.getRiderId())));
-
-        double collected = 0.0;
-
         OrderRiderFinancialEntity fin = new OrderRiderFinancialEntity();
         fin.setOrderId(order.getId());
-        fin.setRiderId(order.getRiderId());
+        fin.setRiderId(riderId);
         fin.setOrderAmount(orderAmount);
         fin.setCommissionPercentApplied(commissionPercent);
         fin.setCommissionAmount(commissionAmount);
         fin.setSurgeBonusAmount(peakBonus);
         fin.setRiderEarningAmount(riderEarning);
 
+        double collected = 0.0;
         if (payType == PaymentType.ONLINE) {
             if (!"PAID".equalsIgnoreCase(nzStr(order.getPaymentStatus()))) {
                 throw new RuntimeException("ONLINE order must be PAID before settlement");
@@ -563,7 +629,6 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             fin.setCodSettlementStatus(CodSettlementStatus.SETTLED);
             fin.setSettledAt(Instant.now());
         } else if (payType == PaymentType.COD) {
-            // Source of truth: order total payable. Rider-entered amount should not affect settlement.
             collected = round2(orderAmount);
             if (collected <= 0) {
                 throw new RuntimeException("Invalid order total for COD settlement");
@@ -578,88 +643,273 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         try {
             orderRiderFinancialRepository.saveAndFlush(fin);
         } catch (DataIntegrityViolationException ex) {
-            log.info("ORDER_SETTLE_RACE orderId={} — financial row already exists, skipping wallet mutations", order.getId());
+            log.info("ORDER_SETTLE_RACE orderId={} - financial row already exists, skipping wallet mutations",
+                    order.getId());
             return;
         }
 
+        RiderWalletEntity wallet = riderWalletRepository.lockByRiderId(riderId)
+                .orElseGet(() -> riderWalletRepository.save(newWallet(riderId)));
         if (wallet.getCurrentBalance() < -0.0001) {
             throw new RuntimeException("Wallet in invalid negative state");
         }
 
         if (payType == PaymentType.ONLINE) {
-            wallet.setTotalEarnings(round2(wallet.getTotalEarnings() + riderEarning));
-            wallet.setCurrentBalance(round2(wallet.getCurrentBalance() + riderEarning));
-            riderWalletRepository.save(wallet);
-
-            RiderWalletTransactionEntity earnTxn = new RiderWalletTransactionEntity();
-            earnTxn.setRiderId(order.getRiderId());
-            earnTxn.setType(WalletTxnType.CREDIT);
-            earnTxn.setAmount(riderEarning);
-            earnTxn.setReferenceType(WalletTxnReferenceType.ORDER);
-            earnTxn.setReferenceId(order.getId());
-            earnTxn.setStatus(WalletTxnStatus.COMPLETED);
-            earnTxn.setNote("Order delivered — rider earning credit");
-            earnTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(
-                    orderAmount, payType, commissionPercent, commissionAmount, baseRiderEarning, peakBonus, riderEarning, null, null)));
-            riderWalletTransactionRepository.save(earnTxn);
+            creditOnlineEarningToWallet(order, riderId, riderEarning, orderAmount, commissionPercent, commissionAmount,
+                    baseRiderEarning, peakBonus);
         } else {
-            // COD: credit only rider earning to spendable balance; collected COD is liability in codPendingAmount.
-            wallet.setTotalEarnings(round2(wallet.getTotalEarnings() + riderEarning));
-            wallet.setCurrentBalance(round2(wallet.getCurrentBalance() + riderEarning));
-            wallet.setCodPendingAmount(round2(wallet.getCodPendingAmount() + collected));
-            riderWalletRepository.save(wallet);
-
-            log.info("COD_FLOW -> orderId={}, codCollectedAmount={}, codPending={}, riderBalance={}",
-                    order.getId(),
-                    collected,
-                    wallet.getCodPendingAmount(),
-                    wallet.getCurrentBalance());
-
-            RiderWalletTransactionEntity earnTxn = new RiderWalletTransactionEntity();
-            earnTxn.setRiderId(order.getRiderId());
-            earnTxn.setType(WalletTxnType.CREDIT);
-            earnTxn.setAmount(riderEarning);
-            earnTxn.setReferenceType(WalletTxnReferenceType.ORDER);
-            earnTxn.setReferenceId(order.getId());
-            earnTxn.setStatus(WalletTxnStatus.COMPLETED);
-            earnTxn.setNote("Order delivered — rider earning credit (COD)");
-            earnTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(
-                    orderAmount, payType, commissionPercent, commissionAmount, baseRiderEarning, peakBonus, riderEarning, codMode, collected)));
-            riderWalletTransactionRepository.save(earnTxn);
-
-            RiderWalletTransactionEntity codTxn = new RiderWalletTransactionEntity();
-            codTxn.setRiderId(order.getRiderId());
-            codTxn.setType(WalletTxnType.CREDIT);
-            codTxn.setAmount(collected);
-            codTxn.setReferenceType(WalletTxnReferenceType.ORDER);
-            codTxn.setReferenceId(order.getId());
-            codTxn.setStatus(WalletTxnStatus.COMPLETED);
-            codTxn.setNote("COD collected by rider — pending settlement");
-            codTxn.setMetadataJson(writeJson(Map.of(
-                    "codCollectionMode", codMode.name(),
-                    "codCollectedAmount", collected
-            )));
-            riderWalletTransactionRepository.save(codTxn);
+            creditCodEarningAndCollectionToWallet(
+                    order, riderId, riderEarning, orderAmount, commissionPercent, commissionAmount, baseRiderEarning,
+                    peakBonus, codMode, collected);
         }
 
         audit("ORDER_SETTLE_DELIVERED", actorType, actorUserId, "ORDER", order.getId(), Map.of(
-                "riderId", order.getRiderId(),
+                "riderId", riderId,
                 "paymentType", payType.name(),
-                "riderEarning", riderEarning
-        ));
+                "riderEarning", riderEarning));
 
-        if (notificationDedupService.tryAcquire("rider-wallet-earning:" + order.getId())) {
+        sendRiderEarningCreditedNotification(order.getId(), riderId, riderEarning, payType);
+    }
+
+    private void settleSplitOutstationOrderDelivered(
+            OrderEntity order,
+            PaymentType payType,
+            CodCollectionMode codMode,
+            double orderAmount,
+            double commissionPercent,
+            double commissionAmount,
+            double baseRiderEarning,
+            double peakBonusTotal,
+            Long actorUserId,
+            String actorType) {
+        Long pickupId = order.getPickupRiderId();
+        Long deliveryId = order.getDeliveryRiderId();
+        if (pickupId == null || deliveryId == null) {
+            throw new RuntimeException("OUTSTATION split settlement requires pickupRiderId and deliveryRiderId");
+        }
+        if (Objects.equals(pickupId, deliveryId)) {
+            throw new RuntimeException("OUTSTATION split settlement requires distinct pickup and delivery riders");
+        }
+
+        double pickKm = nz(order.getPickupDistanceKm());
+        double dropKm = nz(order.getDropDistanceKm());
+        double den = pickKm + dropKm;
+        double pickShare = den > 0.0 ? pickKm / den : 0.5;
+
+        double basePick = round2(baseRiderEarning * pickShare);
+        double baseDrop = round2(baseRiderEarning - basePick);
+        double peakPick = round2(peakBonusTotal * pickShare);
+        double peakDrop = round2(peakBonusTotal - peakPick);
+        double earnPick = round2(Math.max(0.0, basePick + peakPick));
+        double earnDrop = round2(Math.max(0.0, baseDrop + peakDrop));
+
+        double oaPick = round2(orderAmount * pickShare);
+        double oaDrop = round2(orderAmount - oaPick);
+        double commPick = round2(commissionAmount * pickShare);
+        double commDrop = round2(commissionAmount - commPick);
+
+        if (payType == PaymentType.ONLINE && !"PAID".equalsIgnoreCase(nzStr(order.getPaymentStatus()))) {
+            throw new RuntimeException("ONLINE order must be PAID before settlement");
+        }
+        double collected = payType == PaymentType.COD ? round2(orderAmount) : 0.0;
+        if (payType == PaymentType.COD && collected <= 0) {
+            throw new RuntimeException("Invalid order total for COD settlement");
+        }
+
+        OrderRiderFinancialEntity finP = new OrderRiderFinancialEntity();
+        finP.setOrderId(order.getId());
+        finP.setRiderId(pickupId);
+        finP.setOrderAmount(oaPick);
+        finP.setCommissionPercentApplied(commissionPercent);
+        finP.setCommissionAmount(commPick);
+        finP.setSurgeBonusAmount(peakPick);
+        finP.setRiderEarningAmount(earnPick);
+        if (payType == PaymentType.ONLINE) {
+            finP.setCodSettlementStatus(CodSettlementStatus.SETTLED);
+            finP.setSettledAt(Instant.now());
+        } else {
+            finP.setCodCollectedAmount(null);
+            finP.setCodCollectionMode(null);
+            finP.setCodSettlementStatus(CodSettlementStatus.SETTLED);
+        }
+
+        OrderRiderFinancialEntity finD = new OrderRiderFinancialEntity();
+        finD.setOrderId(order.getId());
+        finD.setRiderId(deliveryId);
+        finD.setOrderAmount(oaDrop);
+        finD.setCommissionPercentApplied(commissionPercent);
+        finD.setCommissionAmount(commDrop);
+        finD.setSurgeBonusAmount(peakDrop);
+        finD.setRiderEarningAmount(earnDrop);
+
+        if (payType == PaymentType.ONLINE) {
+            finD.setCodSettlementStatus(CodSettlementStatus.SETTLED);
+            finD.setSettledAt(Instant.now());
+        } else {
+            finD.setCodCollectedAmount(collected);
+            finD.setCodCollectionMode(codMode);
+            finD.setCodSettlementStatus(CodSettlementStatus.PENDING);
+        }
+
+        try {
+            orderRiderFinancialRepository.saveAndFlush(finP);
+            orderRiderFinancialRepository.saveAndFlush(finD);
+        } catch (DataIntegrityViolationException ex) {
+            log.info("ORDER_SETTLE_RACE orderId={} - financial rows already exist, skipping wallet mutations",
+                    order.getId());
+            return;
+        }
+
+        if (payType == PaymentType.ONLINE) {
+            creditOnlineEarningToWallet(order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick,
+                    peakPick);
+            creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop,
+                    peakDrop);
+        } else {
+            creditOnlineEarningToWallet(order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick,
+                    peakPick);
+            creditCodEarningAndCollectionToWallet(
+                    order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop, codMode,
+                    collected);
+        }
+
+        log.info(
+                "EARNING_SPLIT -> orderId={}, pickupRider={}, pickupEarning={}, deliveryRider={}, deliveryEarning={}",
+                order.getId(),
+                pickupId,
+                earnPick,
+                deliveryId,
+                earnDrop);
+
+        audit("ORDER_SETTLE_DELIVERED_SPLIT", actorType, actorUserId, "ORDER", order.getId(), Map.of(
+                "pickupRiderId", pickupId,
+                "deliveryRiderId", deliveryId,
+                "pickupEarning", earnPick,
+                "deliveryEarning", earnDrop,
+                "paymentType", payType.name()));
+
+        sendRiderEarningCreditedNotification(order.getId(), pickupId, earnPick, payType);
+        sendRiderEarningCreditedNotification(order.getId(), deliveryId, earnDrop, payType);
+    }
+
+    private void creditOnlineEarningToWallet(
+            OrderEntity order,
+            Long riderId,
+            double riderEarning,
+            double orderAmountPortion,
+            double commissionPercent,
+            double commissionAmountPortion,
+            double basePortion,
+            double peakPortion) {
+        RiderWalletEntity wallet = riderWalletRepository.lockByRiderId(riderId)
+                .orElseGet(() -> riderWalletRepository.save(newWallet(riderId)));
+        if (wallet.getCurrentBalance() < -0.0001) {
+            throw new RuntimeException("Wallet in invalid negative state");
+        }
+        wallet.setTotalEarnings(round2(wallet.getTotalEarnings() + riderEarning));
+        wallet.setCurrentBalance(round2(wallet.getCurrentBalance() + riderEarning));
+        riderWalletRepository.save(wallet);
+
+        RiderWalletTransactionEntity earnTxn = new RiderWalletTransactionEntity();
+        earnTxn.setRiderId(riderId);
+        earnTxn.setType(WalletTxnType.CREDIT);
+        earnTxn.setAmount(riderEarning);
+        earnTxn.setReferenceType(WalletTxnReferenceType.ORDER);
+        earnTxn.setReferenceId(order.getId());
+        earnTxn.setStatus(WalletTxnStatus.COMPLETED);
+        earnTxn.setNote("Order delivered - rider earning credit");
+        earnTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(
+                orderAmountPortion,
+                PaymentType.ONLINE,
+                commissionPercent,
+                commissionAmountPortion,
+                basePortion,
+                peakPortion,
+                riderEarning,
+                null,
+                null)));
+        riderWalletTransactionRepository.save(earnTxn);
+    }
+
+    private void creditCodEarningAndCollectionToWallet(
+            OrderEntity order,
+            Long riderId,
+            double riderEarning,
+            double orderAmountPortion,
+            double commissionPercent,
+            double commissionAmountPortion,
+            double basePortion,
+            double peakPortion,
+            CodCollectionMode codMode,
+            double collected) {
+        RiderWalletEntity wallet = riderWalletRepository.lockByRiderId(riderId)
+                .orElseGet(() -> riderWalletRepository.save(newWallet(riderId)));
+        if (wallet.getCurrentBalance() < -0.0001) {
+            throw new RuntimeException("Wallet in invalid negative state");
+        }
+        wallet.setTotalEarnings(round2(wallet.getTotalEarnings() + riderEarning));
+        wallet.setCurrentBalance(round2(wallet.getCurrentBalance() + riderEarning));
+        wallet.setCodPendingAmount(round2(wallet.getCodPendingAmount() + collected));
+        riderWalletRepository.save(wallet);
+
+        log.info(
+                "COD_FLOW -> orderId={}, riderId={}, codCollectedAmount={}, codPending={}, riderBalance={}",
+                order.getId(),
+                riderId,
+                collected,
+                wallet.getCodPendingAmount(),
+                wallet.getCurrentBalance());
+
+        RiderWalletTransactionEntity earnTxn = new RiderWalletTransactionEntity();
+        earnTxn.setRiderId(riderId);
+        earnTxn.setType(WalletTxnType.CREDIT);
+        earnTxn.setAmount(riderEarning);
+        earnTxn.setReferenceType(WalletTxnReferenceType.ORDER);
+        earnTxn.setReferenceId(order.getId());
+        earnTxn.setStatus(WalletTxnStatus.COMPLETED);
+        earnTxn.setNote("Order delivered - rider earning credit (COD)");
+        earnTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(
+                orderAmountPortion,
+                PaymentType.COD,
+                commissionPercent,
+                commissionAmountPortion,
+                basePortion,
+                peakPortion,
+                riderEarning,
+                codMode,
+                collected)));
+        riderWalletTransactionRepository.save(earnTxn);
+
+        RiderWalletTransactionEntity codTxn = new RiderWalletTransactionEntity();
+        codTxn.setRiderId(riderId);
+        codTxn.setType(WalletTxnType.CREDIT);
+        codTxn.setAmount(collected);
+        codTxn.setReferenceType(WalletTxnReferenceType.ORDER);
+        codTxn.setReferenceId(order.getId());
+        codTxn.setStatus(WalletTxnStatus.COMPLETED);
+        codTxn.setNote("COD collected by rider - pending settlement");
+        Map<String, Object> codMeta = new HashMap<>();
+        codMeta.put("codCollectionMode", codMode.name());
+        codMeta.put("codCollectedAmount", collected);
+        codTxn.setMetadataJson(writeJson(codMeta));
+        riderWalletTransactionRepository.save(codTxn);
+    }
+
+    private void sendRiderEarningCreditedNotification(Long orderId, Long riderId, double riderEarning,
+            PaymentType payType) {
+        if (notificationDedupService.tryAcquire("rider-wallet-earning:" + orderId + ":" + riderId)) {
             Map<String, String> earnData = new HashMap<>(
                     NotificationService.baseData(
-                            order.getId(),
+                            orderId,
                             OrderStatus.DELIVERED.name(),
                             NotificationType.RIDER_WALLET_EARNING_CREDITED));
             earnData.put("riderEarning", String.valueOf(riderEarning));
             earnData.put("paymentType", payType.name());
+            String earnBody = "Rs. " + String.format("%.2f", riderEarning) + " credited for order " + orderId + ".";
             notificationService.sendToRider(
-                    order.getRiderId(),
+                    riderId,
                     "Earning credited",
-                    "₹" + String.format("%.2f", riderEarning) + " credited for order #" + order.getId() + ".",
+                    earnBody,
                     earnData,
                     NotificationType.RIDER_WALLET_EARNING_CREDITED);
         }
@@ -692,12 +942,76 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (order == null || order.getId() == null) {
             return 0.0;
         }
-        return orderRiderFinancialRepository.findByOrderId(order.getId())
-                .map(OrderRiderFinancialEntity::getRiderEarningAmount)
-                .orElseGet(() -> estimateRiderEarningForOrder(order));
+        List<OrderRiderFinancialEntity> rows = orderRiderFinancialRepository.findAllByOrderId(order.getId());
+        if (!rows.isEmpty()) {
+            double sum = 0.0;
+            for (OrderRiderFinancialEntity r : rows) {
+                sum += nz(r.getRiderEarningAmount());
+            }
+            return round2(sum);
+        }
+        return estimateRiderEarningForOrder(order);
     }
 
-    private static double resolveCommissionPercent(RiderCommissionConfigEntity cfg, PaymentType payType, CodCollectionMode codMode) {
+    @Override
+    @Transactional(readOnly = true)
+    public double resolveRiderEarningForOrder(OrderEntity order, Long riderId) {
+        if (order == null || order.getId() == null || riderId == null) {
+            return 0.0;
+        }
+        Optional<OrderRiderFinancialEntity> finOpt = orderRiderFinancialRepository
+                .findByOrderIdAndRiderId(order.getId(), riderId);
+        if (finOpt.isPresent()) {
+            return round2(nz(finOpt.get().getRiderEarningAmount()));
+        }
+        return estimateLegEarningForRider(order, riderId);
+    }
+
+    private double estimateLegEarningForRider(OrderEntity order, Long riderId) {
+        double full = estimateRiderEarningForOrder(order);
+        return allocateOutstationFirstLastMileEarningShare(full, order, riderId);
+    }
+
+    private static double allocateOutstationFirstLastMileEarningShare(double totalNetEstimate, OrderEntity order,
+            Long riderId) {
+        if (totalNetEstimate <= 0.0 || order == null || riderId == null) {
+            return 0.0;
+        }
+        if (order.getServiceMode() != com.youdash.model.ServiceMode.OUTSTATION) {
+            return Objects.equals(riderId, order.getRiderId()) ? round2(totalNetEstimate) : 0.0;
+        }
+        Long pRid = order.getPickupRiderId();
+        Long dRid = order.getDeliveryRiderId();
+        boolean split = pRid != null && dRid != null && !pRid.equals(dRid);
+        if (!split) {
+            if (Objects.equals(riderId, order.getRiderId())) {
+                return round2(totalNetEstimate);
+            }
+            if (Objects.equals(riderId, order.getPickupRiderId())) {
+                return round2(totalNetEstimate);
+            }
+            if (Objects.equals(riderId, order.getDeliveryRiderId())) {
+                return round2(totalNetEstimate);
+            }
+            return 0.0;
+        }
+        double pickKm = nz(order.getPickupDistanceKm());
+        double dropKm = nz(order.getDropDistanceKm());
+        double den = pickKm + dropKm;
+        if (den <= 0.0) {
+            return 0.0;
+        }
+        if (Objects.equals(riderId, order.getPickupRiderId())) {
+            return round2(totalNetEstimate * (pickKm / den));
+        }
+        if (Objects.equals(riderId, order.getDeliveryRiderId())) {
+            return round2(totalNetEstimate * (dropKm / den));
+        }
+        return 0.0;
+    }
+
+    private static double resolveCommissionPercent(RiderCommissionConfigEntity cfg, PaymentType payType,
+            CodCollectionMode codMode) {
         if (cfg == null) {
             return 0.0;
         }
@@ -792,12 +1106,17 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             if (order.getPaymentType() != PaymentType.COD) {
                 throw new RuntimeException("Order is not COD");
             }
-            if (order.getRiderId() == null) {
-                throw new RuntimeException("Order has no rider");
+            Long codRiderId = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
+            if (codRiderId == null) {
+                throw new RuntimeException("Order has no delivery rider for COD settlement");
             }
 
-            OrderRiderFinancialEntity fin = orderRiderFinancialRepository.findByOrderId(order.getId())
-                    .orElseThrow(() -> new RuntimeException("Financials not found for order (complete delivery first)"));
+            Optional<OrderRiderFinancialEntity> finRow = orderRiderFinancialRepository
+                    .findByOrderIdAndRiderId(order.getId(), codRiderId);
+            if (finRow.isEmpty()) {
+                throw new RuntimeException("Financials not found for order (complete delivery first)");
+            }
+            OrderRiderFinancialEntity fin = finRow.get();
 
             double expected = nz(fin.getCodCollectedAmount());
             double amt = round2(dto.getAmount());
@@ -816,8 +1135,11 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 return response;
             }
 
-            RiderWalletEntity wallet = riderWalletRepository.lockByRiderId(order.getRiderId())
-                    .orElseThrow(() -> new RuntimeException("Wallet not found"));
+            Optional<RiderWalletEntity> walletOpt = riderWalletRepository.lockByRiderId(codRiderId);
+            if (walletOpt.isEmpty()) {
+                throw new RuntimeException("Wallet not found");
+            }
+            RiderWalletEntity wallet = walletOpt.get();
             if (wallet.getCurrentBalance() < -0.0001) {
                 throw new RuntimeException("Wallet in invalid negative state");
             }
@@ -830,14 +1152,16 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             riderWalletRepository.save(wallet);
 
             RiderWalletTransactionEntity txn = new RiderWalletTransactionEntity();
-            txn.setRiderId(order.getRiderId());
+            txn.setRiderId(codRiderId);
             txn.setType(WalletTxnType.DEBIT);
             txn.setAmount(amt);
             txn.setReferenceType(WalletTxnReferenceType.ORDER);
             txn.setReferenceId(order.getId());
             txn.setStatus(WalletTxnStatus.COMPLETED);
             txn.setNote("COD settled to admin");
-            txn.setMetadataJson(writeJson(Map.of("orderId", order.getId())));
+            Map<String, Object> settleMeta = new HashMap<>();
+            settleMeta.put("orderId", order.getId());
+            txn.setMetadataJson(writeJson(settleMeta));
             riderWalletTransactionRepository.save(txn);
 
             fin.setCodSettlementStatus(CodSettlementStatus.SETTLED);
@@ -847,10 +1171,10 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             order.setCodSettlementStatus(CodSettlementStatus.SETTLED);
             orderRepository.save(order);
 
-            audit("COD_SETTLE", "ADMIN", adminUserId, "ORDER", order.getId(), Map.of(
-                    "riderId", order.getRiderId(),
-                    "amount", amt
-            ));
+            Map<String, Object> codAudit = new HashMap<>();
+            codAudit.put("riderId", codRiderId);
+            codAudit.put("amount", amt);
+            audit("COD_SETTLE", "ADMIN", adminUserId, "ORDER", order.getId(), codAudit);
 
             if (notificationDedupService.tryAcquire("rider-cod-settled:" + order.getId())) {
                 Map<String, String> codData = new HashMap<>(
@@ -859,10 +1183,12 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                                 order.getStatus() != null ? order.getStatus().name() : null,
                                 NotificationType.RIDER_COD_SETTLED_ADMIN));
                 codData.put("settledAmount", String.valueOf(amt));
+                String codBody = "Rs. " + String.format("%.2f", amt) + " COD for order " + order.getId()
+                        + " was settled.";
                 notificationService.sendToRider(
-                        order.getRiderId(),
+                        codRiderId,
                         "COD settled",
-                        "₹" + String.format("%.2f", amt) + " COD for order #" + order.getId() + " was settled.",
+                        codBody,
                         codData,
                         NotificationType.RIDER_COD_SETTLED_ADMIN);
             }
@@ -897,7 +1223,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
     }
 
     private RiderWalletEntity getOrCreateWallet(Long riderId) {
-        return riderWalletRepository.findByRiderId(riderId).orElseGet(() -> riderWalletRepository.save(newWallet(riderId)));
+        return riderWalletRepository.findByRiderId(riderId)
+                .orElseGet(() -> riderWalletRepository.save(newWallet(riderId)));
     }
 
     private RiderWalletEntity newWallet(Long riderId) {
@@ -931,8 +1258,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         }
         String note = nzStr(e.getNote());
         // This row records COD cash collection liability movement, not rider earning.
-        if ("COD collected by rider - pending settlement".equals(note)
-                || "COD collected by rider — pending settlement".equals(note)) {
+        if ("COD collected by rider - pending settlement".equals(note)) {
             return false;
         }
         return true;
@@ -980,6 +1306,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
 
     private void audit(String action, String actorType, Long actorId, String entityType, Long entityId, Object payload) {
         try {
+            
             FinAuditLogEntity log = new FinAuditLogEntity();
             log.setAction(action);
             log.setActorType(actorType);

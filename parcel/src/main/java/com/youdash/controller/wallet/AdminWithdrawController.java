@@ -37,4 +37,13 @@ public class AdminWithdrawController {
             @RequestAttribute("userId") Long adminUserId) {
         return riderWalletService.adminApproveWithdrawal(adminUserId, dto);
     }
+
+    /** Explicit reject endpoint; equivalent to {@code POST /approve} with {@code approve: false}. */
+    @PostMapping("/reject")
+    public ApiResponse<RiderWithdrawalDTO> reject(
+            @RequestBody AdminWithdrawalApproveDTO dto,
+            @RequestAttribute("userId") Long adminUserId) {
+        dto.setApprove(Boolean.FALSE);
+        return riderWalletService.adminApproveWithdrawal(adminUserId, dto);
+    }
 }

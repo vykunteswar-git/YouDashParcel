@@ -15,9 +15,11 @@ import com.youdash.entity.wallet.OrderRiderFinancialEntity;
 @Repository
 public interface OrderRiderFinancialRepository extends JpaRepository<OrderRiderFinancialEntity, Long> {
 
-    Optional<OrderRiderFinancialEntity> findByOrderId(Long orderId);
+    List<OrderRiderFinancialEntity> findAllByOrderId(Long orderId);
 
-    boolean existsByOrderId(Long orderId);
+    Optional<OrderRiderFinancialEntity> findByOrderIdAndRiderId(Long orderId, Long riderId);
+
+    long countByOrderId(Long orderId);
 
     List<OrderRiderFinancialEntity> findByOrderIdIn(Collection<Long> orderIds);
 
