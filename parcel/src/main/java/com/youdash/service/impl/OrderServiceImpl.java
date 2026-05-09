@@ -1749,6 +1749,7 @@ public class OrderServiceImpl implements OrderService {
                 .vehicleImageUrl(vehicleImageUrl)
                 .vehicleNumber(vehicleNumber)
                 .deliveryType(o.getDeliveryType())
+                .legTypeForRider(resolveLegTypeForRider(o, riderOrderApi, viewerRiderId))
                 .originHubId(o.getOriginHubId())
                 .destinationHubId(o.getDestinationHubId())
                 .originHubName(originHub != null ? originHub.getName() : null)
@@ -1788,6 +1789,8 @@ public class OrderServiceImpl implements OrderService {
                 .codCollectedAmount(o.getCodCollectedAmount())
                 .codCollectionMode(o.getCodCollectionMode())
                 .codSettlementStatus(o.getCodSettlementStatus())
+                .codAlreadyCollected(nz(o.getCodCollectedAmount()) > 0.0)
+                .showCollectCodAction(resolveShowCollectCodAction(o, riderOrderApi, viewerRiderId))
                 .canRateRider(Boolean.FALSE)
                 .riderRatingSubmitted(Boolean.FALSE)
                 .riderRating(null)
@@ -1796,8 +1799,85 @@ public class OrderServiceImpl implements OrderService {
                 .timelineEvents(orderTimelineService.timelineForOrder(o.getId()))
                 .createdAt(o.getCreatedAt() != null ? o.getCreatedAt().toString() : null)
                 .build();
+        applyOutstationLegAmounts(dto, o, riderOrderApi, viewerRiderId);
         applyOutstationRiderFacingAddresses(dto, o, riderOrderApi, viewerRiderId, originHub, destinationHub);
+        applyOutstationRiderContactVisibility(dto, o, riderOrderApi, viewerRiderId);
         return dto;
+    }
+
+    private static String resolveLegTypeForRider(OrderEntity order, boolean riderOrderApi, Long viewerRiderId) {
+        if (!riderOrderApi || order == null) {
+            return "INCITY";
+        }
+        if (order.getServiceMode() != ServiceMode.OUTSTATION) {
+            return "INCITY";
+        }
+        Long riderId = viewerRiderId != null ? viewerRiderId : order.getRiderId();
+        if (riderId != null && order.getDeliveryRiderId() != null && Objects.equals(riderId, order.getDeliveryRiderId())
+                && !Objects.equals(order.getPickupRiderId(), order.getDeliveryRiderId())) {
+            return "DROP";
+        }
+        return "PICKUP";
+    }
+
+    private static boolean resolveShowCollectCodAction(OrderEntity order, boolean riderOrderApi, Long viewerRiderId) {
+        if (!riderOrderApi || order == null || order.getPaymentType() != PaymentType.COD) {
+            return false;
+        }
+        if (nz(order.getCodCollectedAmount()) > 0.0) {
+            return false;
+        }
+        if (order.getServiceMode() != ServiceMode.OUTSTATION) {
+            return true;
+        }
+        Long riderId = viewerRiderId != null ? viewerRiderId : order.getRiderId();
+        if (riderId == null) {
+            return false;
+        }
+        return Objects.equals(riderId, order.getPickupRiderId()) || Objects.equals(riderId, order.getRiderId());
+    }
+
+    private void applyOutstationLegAmounts(OrderResponseDTO dto, OrderEntity order, boolean riderOrderApi, Long viewerRiderId) {
+        if (dto == null || order == null || order.getServiceMode() != ServiceMode.OUTSTATION) {
+            return;
+        }
+        double pickupKm = Math.max(0.0, nz(order.getPickupDistanceKm()));
+        double hubKm = Math.max(0.0, nz(order.getHubDistanceKm()));
+        double dropKm = Math.max(0.0, nz(order.getDropDistanceKm()));
+        double den = pickupKm + hubKm + dropKm;
+        if (den <= 0.0) {
+            return;
+        }
+        double payable = Math.max(0.0, nz(order.getTotalAmount()));
+        double pickupAmount = round2(payable * (pickupKm / den));
+        double hubAmount = round2(payable * (hubKm / den));
+        double lastMileAmount = round2(payable - pickupAmount - hubAmount);
+        dto.setPickupAmount(pickupAmount);
+        dto.setHubToHubAmount(hubAmount);
+        dto.setLastMileAmount(lastMileAmount);
+        if (riderOrderApi) {
+            String legType = resolveLegTypeForRider(order, true, viewerRiderId);
+            dto.setLegTypeForRider(legType);
+            dto.setLegAmountForRider("DROP".equals(legType) ? lastMileAmount : pickupAmount);
+        }
+    }
+
+    private static void applyOutstationRiderContactVisibility(
+            OrderResponseDTO dto,
+            OrderEntity order,
+            boolean riderOrderApi,
+            Long viewerRiderId) {
+        if (!riderOrderApi || dto == null || order == null || order.getServiceMode() != ServiceMode.OUTSTATION) {
+            return;
+        }
+        String legType = resolveLegTypeForRider(order, true, viewerRiderId);
+        if ("DROP".equals(legType)) {
+            dto.setSenderName(null);
+            dto.setSenderPhone(null);
+        } else {
+            dto.setReceiverName(null);
+            dto.setReceiverPhone(null);
+        }
     }
 
     private static void applyOutstationRiderFacingAddresses(
@@ -1818,6 +1898,7 @@ public class OrderServiceImpl implements OrderService {
         if (split && riderId != null && Objects.equals(riderId, order.getDeliveryRiderId())
                 && !Objects.equals(riderId, order.getPickupRiderId())
                 && destinationHub != null) {
+            // Delivery rider: pickup starts from destination hub.
             String hubLine = formatHubAddressLine(destinationHub);
             dto.setPickupAddress(hubLine);
             dto.setPickupTag("HUB");
@@ -1825,15 +1906,14 @@ public class OrderServiceImpl implements OrderService {
             dto.setPickupLandmark(null);
             dto.setPickupLat(destinationHub.getLat());
             dto.setPickupLng(destinationHub.getLng());
-            if (order.getDropDistanceKm() != null) {
-                dto.setDistanceKm(order.getDropDistanceKm());
-            }
+            dto.setDistanceKm(order.getDropDistanceKm());
         }
 
         boolean pickupOnlyRider = riderId != null
                 && Objects.equals(riderId, order.getPickupRiderId())
                 && !Objects.equals(order.getPickupRiderId(), order.getDeliveryRiderId());
         if (pickupOnlyRider && originHub != null) {
+            // Pickup rider: drop target is origin hub handover.
             String hubLine = formatHubAddressLine(originHub);
             dto.setDropAddress(hubLine);
             dto.setDropTag("HUB");
@@ -1841,9 +1921,7 @@ public class OrderServiceImpl implements OrderService {
             dto.setDropLandmark(null);
             dto.setDropLat(originHub.getLat());
             dto.setDropLng(originHub.getLng());
-            if (order.getPickupDistanceKm() != null) {
-                dto.setDistanceKm(order.getPickupDistanceKm());
-            }
+            dto.setDistanceKm(order.getPickupDistanceKm());
         }
     }
 

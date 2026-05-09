@@ -10,7 +10,7 @@ import lombok.Data;
 /**
  * Per rider per order: one row for INCITY / single rider; two rows for
  * OUTSTATION pickup + delivery riders.
- * COD collection fields are set only on the delivery-rider row.
+ * COD collection fields are set on the rider row that performs COD collection.
  */
 @Entity
 @Table(name = "youdash_order_rider_financials", indexes = {

@@ -48,6 +48,16 @@ public class OrderResponseDTO {
     /** Assigned rider's registration / plate when a rider is set. */
     private String vehicleNumber;
     private String deliveryType;
+    /** Rider-facing leg discriminator for operational screens: INCITY | PICKUP | DROP. */
+    private String legTypeForRider;
+    /** Amount allocated to the rider's current leg (outstation), when available. */
+    private Double legAmountForRider;
+    /** Outstation split of payable total for first-mile pickup leg. */
+    private Double pickupAmount;
+    /** Outstation split of payable total for middle inter-hub leg. */
+    private Double hubToHubAmount;
+    /** Outstation split of payable total for last-mile delivery leg. */
+    private Double lastMileAmount;
     private Long originHubId;
     private Long destinationHubId;
     private String originHubName;
@@ -102,6 +112,10 @@ public class OrderResponseDTO {
     private Double codCollectedAmount;
     private CodCollectionMode codCollectionMode;
     private CodSettlementStatus codSettlementStatus;
+    /** True when COD was already collected earlier in the workflow. */
+    private Boolean codAlreadyCollected;
+    /** Rider UI helper: false when COD is already collected by another stage. */
+    private Boolean showCollectCodAction;
     /** True when user can rate rider for this delivered order. */
     private Boolean canRateRider;
     /** True when rider rating already exists for this order. */

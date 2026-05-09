@@ -691,22 +691,18 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             throw new RuntimeException("OUTSTATION split settlement requires distinct pickup and delivery riders");
         }
 
-        double pickKm = nz(order.getPickupDistanceKm());
-        double dropKm = nz(order.getDropDistanceKm());
-        double den = pickKm + dropKm;
-        double pickShare = den > 0.0 ? pickKm / den : 0.5;
-
-        double basePick = round2(baseRiderEarning * pickShare);
-        double baseDrop = round2(baseRiderEarning - basePick);
-        double peakPick = round2(peakBonusTotal * pickShare);
+        OutstationLegAllocation leg = outstationLegAllocation(orderAmount, order);
+        double oaPick = leg.pickupAmount();
+        double oaDrop = leg.lastMileAmount();
+        double commPick = round2(oaPick * (commissionPercent / 100.0));
+        double commDrop = round2(oaDrop * (commissionPercent / 100.0));
+        double basePick = round2(Math.max(0.0, oaPick - commPick));
+        double baseDrop = round2(Math.max(0.0, oaDrop - commDrop));
+        double riderLegDen = oaPick + oaDrop;
+        double peakPick = riderLegDen > 0.0 ? round2(peakBonusTotal * (oaPick / riderLegDen)) : 0.0;
         double peakDrop = round2(peakBonusTotal - peakPick);
         double earnPick = round2(Math.max(0.0, basePick + peakPick));
         double earnDrop = round2(Math.max(0.0, baseDrop + peakDrop));
-
-        double oaPick = round2(orderAmount * pickShare);
-        double oaDrop = round2(orderAmount - oaPick);
-        double commPick = round2(commissionAmount * pickShare);
-        double commDrop = round2(commissionAmount - commPick);
 
         if (payType == PaymentType.ONLINE && !"PAID".equalsIgnoreCase(nzStr(order.getPaymentStatus()))) {
             throw new RuntimeException("ONLINE order must be PAID before settlement");
@@ -746,9 +742,20 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             finD.setCodSettlementStatus(CodSettlementStatus.SETTLED);
             finD.setSettledAt(Instant.now());
         } else {
-            finD.setCodCollectedAmount(collected);
-            finD.setCodCollectionMode(codMode);
-            finD.setCodSettlementStatus(CodSettlementStatus.PENDING);
+            Long codCollectorRiderId = resolveCodCollectorRiderId(order);
+            boolean pickupCollectsCod = codCollectorRiderId != null && Objects.equals(codCollectorRiderId, pickupId);
+            if (pickupCollectsCod) {
+                finP.setCodCollectedAmount(collected);
+                finP.setCodCollectionMode(codMode);
+                finP.setCodSettlementStatus(CodSettlementStatus.PENDING);
+                finD.setCodCollectedAmount(null);
+                finD.setCodCollectionMode(null);
+                finD.setCodSettlementStatus(CodSettlementStatus.SETTLED);
+            } else {
+                finD.setCodCollectedAmount(collected);
+                finD.setCodCollectionMode(codMode);
+                finD.setCodSettlementStatus(CodSettlementStatus.PENDING);
+            }
         }
 
         try {
@@ -766,11 +773,21 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop,
                     peakDrop);
         } else {
-            creditOnlineEarningToWallet(order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick,
-                    peakPick);
-            creditCodEarningAndCollectionToWallet(
-                    order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop, codMode,
-                    collected);
+            Long codCollectorRiderId = resolveCodCollectorRiderId(order);
+            boolean pickupCollectsCod = codCollectorRiderId != null && Objects.equals(codCollectorRiderId, pickupId);
+            if (pickupCollectsCod) {
+                creditCodEarningAndCollectionToWallet(
+                        order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick, peakPick, codMode,
+                        collected);
+                creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop,
+                        peakDrop);
+            } else {
+                creditOnlineEarningToWallet(order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick,
+                        peakPick);
+                creditCodEarningAndCollectionToWallet(
+                        order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop, codMode,
+                        collected);
+            }
         }
 
         log.info(
@@ -932,6 +949,16 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         double orderAmount = nz(order.getTotalAmount());
         CodCollectionMode codMode = payType == PaymentType.COD ? order.getCodCollectionMode() : null;
         double commissionPercent = resolveCommissionPercent(cfg, payType, codMode);
+        if (order.getServiceMode() == com.youdash.model.ServiceMode.OUTSTATION
+                && order.getPickupRiderId() != null
+                && order.getDeliveryRiderId() != null
+                && !order.getPickupRiderId().equals(order.getDeliveryRiderId())) {
+            OutstationLegAllocation leg = outstationLegAllocation(orderAmount, order);
+            double pickupNet = round2(Math.max(0.0, leg.pickupAmount() - (leg.pickupAmount() * (commissionPercent / 100.0))));
+            double dropNet = round2(Math.max(0.0,
+                    leg.lastMileAmount() - (leg.lastMileAmount() * (commissionPercent / 100.0))));
+            return round2(pickupNet + dropNet);
+        }
         double commissionAmount = round2(orderAmount * (commissionPercent / 100.0));
         return round2(Math.max(0.0, orderAmount - commissionAmount));
     }
@@ -968,46 +995,78 @@ public class RiderWalletServiceImpl implements RiderWalletService {
     }
 
     private double estimateLegEarningForRider(OrderEntity order, Long riderId) {
-        double full = estimateRiderEarningForOrder(order);
-        return allocateOutstationFirstLastMileEarningShare(full, order, riderId);
+        if (order == null || riderId == null) {
+            return 0.0;
+        }
+        RiderCommissionConfigEntity cfg = riderCommissionConfigRepository.findById(COMMISSION_CONFIG_ID).orElse(null);
+        if (cfg == null) {
+            return 0.0;
+        }
+        PaymentType payType = order.getPaymentType();
+        if (payType == null) {
+            return 0.0;
+        }
+        double orderAmount = nz(order.getTotalAmount());
+        CodCollectionMode codMode = payType == PaymentType.COD ? order.getCodCollectionMode() : null;
+        double commissionPercent = resolveCommissionPercent(cfg, payType, codMode);
+        return estimateLegEarningFromOrderAmount(orderAmount, order, riderId, commissionPercent);
     }
 
-    private static double allocateOutstationFirstLastMileEarningShare(double totalNetEstimate, OrderEntity order,
-            Long riderId) {
-        if (totalNetEstimate <= 0.0 || order == null || riderId == null) {
+    private static double estimateLegEarningFromOrderAmount(
+            double orderAmount,
+            OrderEntity order,
+            Long riderId,
+            double commissionPercent) {
+        if (orderAmount <= 0.0 || order == null || riderId == null) {
             return 0.0;
         }
         if (order.getServiceMode() != com.youdash.model.ServiceMode.OUTSTATION) {
-            return Objects.equals(riderId, order.getRiderId()) ? round2(totalNetEstimate) : 0.0;
+            if (!Objects.equals(riderId, order.getRiderId())) {
+                return 0.0;
+            }
+            return round2(Math.max(0.0, orderAmount - (orderAmount * (commissionPercent / 100.0))));
         }
         Long pRid = order.getPickupRiderId();
         Long dRid = order.getDeliveryRiderId();
         boolean split = pRid != null && dRid != null && !pRid.equals(dRid);
         if (!split) {
             if (Objects.equals(riderId, order.getRiderId())) {
-                return round2(totalNetEstimate);
+                return round2(Math.max(0.0, orderAmount - (orderAmount * (commissionPercent / 100.0))));
             }
             if (Objects.equals(riderId, order.getPickupRiderId())) {
-                return round2(totalNetEstimate);
+                return round2(Math.max(0.0, orderAmount - (orderAmount * (commissionPercent / 100.0))));
             }
             if (Objects.equals(riderId, order.getDeliveryRiderId())) {
-                return round2(totalNetEstimate);
+                return round2(Math.max(0.0, orderAmount - (orderAmount * (commissionPercent / 100.0))));
             }
             return 0.0;
         }
-        double pickKm = nz(order.getPickupDistanceKm());
-        double dropKm = nz(order.getDropDistanceKm());
-        double den = pickKm + dropKm;
-        if (den <= 0.0) {
-            return 0.0;
-        }
+        OutstationLegAllocation leg = outstationLegAllocation(orderAmount, order);
         if (Objects.equals(riderId, order.getPickupRiderId())) {
-            return round2(totalNetEstimate * (pickKm / den));
+            return round2(Math.max(0.0, leg.pickupAmount() - (leg.pickupAmount() * (commissionPercent / 100.0))));
         }
         if (Objects.equals(riderId, order.getDeliveryRiderId())) {
-            return round2(totalNetEstimate * (dropKm / den));
+            return round2(Math.max(0.0,
+                    leg.lastMileAmount() - (leg.lastMileAmount() * (commissionPercent / 100.0))));
         }
         return 0.0;
+    }
+
+    private record OutstationLegAllocation(double pickupAmount, double hubToHubAmount, double lastMileAmount) {
+    }
+
+    private static OutstationLegAllocation outstationLegAllocation(double orderAmount, OrderEntity order) {
+        double pickupKm = Math.max(0.0, nz(order.getPickupDistanceKm()));
+        double hubKm = Math.max(0.0, nz(order.getHubDistanceKm()));
+        double dropKm = Math.max(0.0, nz(order.getDropDistanceKm()));
+        double den = pickupKm + hubKm + dropKm;
+        if (den <= 0.0) {
+            return new OutstationLegAllocation(round2(orderAmount), 0.0, 0.0);
+        }
+        double pickupAmount = round2(orderAmount * (pickupKm / den));
+        double hubAmount = round2(orderAmount * (hubKm / den));
+        double dropAmount = round2(orderAmount - pickupAmount - hubAmount);
+        return new OutstationLegAllocation(pickupAmount, hubAmount, dropAmount);
     }
 
     private static double resolveCommissionPercent(RiderCommissionConfigEntity cfg, PaymentType payType,
@@ -1034,6 +1093,20 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             throw new RuntimeException("Commission percent must be between 0 and 100");
         }
         return v;
+    }
+
+    private static Long resolveCodCollectorRiderId(OrderEntity order) {
+        if (order == null) {
+            return null;
+        }
+        if (order.getServiceMode() == com.youdash.model.ServiceMode.OUTSTATION) {
+            String deliveryType = nzStr(order.getDeliveryType()).trim().toUpperCase();
+            if ("DOOR_TO_DOOR".equals(deliveryType) || "HUB_TO_DOOR".equals(deliveryType)) {
+                return order.getPickupRiderId() != null ? order.getPickupRiderId() : order.getRiderId();
+            }
+            return order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
+        }
+        return order.getRiderId();
     }
 
     private static void validateCommissionPercent(String field, Double value) {
@@ -1106,9 +1179,9 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             if (order.getPaymentType() != PaymentType.COD) {
                 throw new RuntimeException("Order is not COD");
             }
-            Long codRiderId = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
+            Long codRiderId = resolveCodCollectorRiderId(order);
             if (codRiderId == null) {
-                throw new RuntimeException("Order has no delivery rider for COD settlement");
+                throw new RuntimeException("Order has no COD collector rider for settlement");
             }
 
             Optional<OrderRiderFinancialEntity> finRow = orderRiderFinancialRepository

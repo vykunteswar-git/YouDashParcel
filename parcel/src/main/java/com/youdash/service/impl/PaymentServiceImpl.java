@@ -760,14 +760,27 @@ public class PaymentServiceImpl implements PaymentService {
 
             OrderEntity order = orderRepository.findById(dto.getOrderId())
                     .orElseThrow(() -> new RuntimeException("Order not found"));
-            if (!Objects.equals(order.getRiderId(), riderId)) {
-                throw new RuntimeException("Access denied");
-            }
             if (order.getPaymentType() != PaymentType.COD) {
                 throw new RuntimeException("collectPayment is only applicable for COD orders");
             }
             if (order.getStatus() == OrderStatus.DELIVERED || order.getStatus() == OrderStatus.CANCELLED) {
                 throw new RuntimeException("Order already finalized");
+            }
+            if (order.getCodCollectedAmount() != null && order.getCodCollectedAmount() > 0.0) {
+                throw new RuntimeException("COD already collected for this order");
+            }
+
+            Long collectorRiderId;
+            if (order.getServiceMode() == ServiceMode.OUTSTATION) {
+                collectorRiderId = order.getPickupRiderId() != null ? order.getPickupRiderId() : order.getRiderId();
+                if (collectorRiderId == null || !Objects.equals(collectorRiderId, riderId)) {
+                    throw new RuntimeException("Access denied");
+                }
+            } else {
+                collectorRiderId = order.getRiderId();
+                if (!Objects.equals(collectorRiderId, riderId)) {
+                    throw new RuntimeException("Access denied");
+                }
             }
 
             double collected = order.getTotalAmount() != null ? order.getTotalAmount() : 0.0;
