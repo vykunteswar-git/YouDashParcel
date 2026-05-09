@@ -1029,25 +1029,38 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         Long pRid = order.getPickupRiderId();
         Long dRid = order.getDeliveryRiderId();
         boolean split = pRid != null && dRid != null && !pRid.equals(dRid);
+        OutstationLegAllocation leg = outstationLegAllocation(orderAmount, order);
+        double pickupNet = round2(Math.max(0.0, leg.pickupAmount() - (leg.pickupAmount() * (commissionPercent / 100.0))));
+        double dropNet = round2(Math.max(0.0,
+                leg.lastMileAmount() - (leg.lastMileAmount() * (commissionPercent / 100.0))));
         if (!split) {
+            // During phased assignment (only pickup rider assigned first, delivery rider later),
+            // keep earnings leg-based for whichever role is currently assigned.
+            if (pRid != null && Objects.equals(riderId, pRid)) {
+                return pickupNet;
+            }
+            if (dRid != null && Objects.equals(riderId, dRid)) {
+                return dropNet;
+            }
             if (Objects.equals(riderId, order.getRiderId())) {
-                return round2(Math.max(0.0, orderAmount - (orderAmount * (commissionPercent / 100.0))));
+                if (dRid == null) {
+                    return pickupNet;
+                }
+                return dropNet;
             }
             if (Objects.equals(riderId, order.getPickupRiderId())) {
-                return round2(Math.max(0.0, orderAmount - (orderAmount * (commissionPercent / 100.0))));
+                return pickupNet;
             }
             if (Objects.equals(riderId, order.getDeliveryRiderId())) {
-                return round2(Math.max(0.0, orderAmount - (orderAmount * (commissionPercent / 100.0))));
+                return dropNet;
             }
             return 0.0;
         }
-        OutstationLegAllocation leg = outstationLegAllocation(orderAmount, order);
         if (Objects.equals(riderId, order.getPickupRiderId())) {
-            return round2(Math.max(0.0, leg.pickupAmount() - (leg.pickupAmount() * (commissionPercent / 100.0))));
+            return pickupNet;
         }
         if (Objects.equals(riderId, order.getDeliveryRiderId())) {
-            return round2(Math.max(0.0,
-                    leg.lastMileAmount() - (leg.lastMileAmount() * (commissionPercent / 100.0))));
+            return dropNet;
         }
         return 0.0;
     }
