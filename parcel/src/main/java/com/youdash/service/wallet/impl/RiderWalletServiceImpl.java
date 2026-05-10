@@ -60,7 +60,6 @@ import com.youdash.service.PeakIncentiveService;
 import com.youdash.service.wallet.RiderWalletService;
 import com.youdash.util.OutstationPayableLegSplit;
 
-
 /**
  * Wallet, withdrawals, per-order settlement (including split OUTSTATION legs).
  */
@@ -146,8 +145,10 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             dto.setTotalWithdrawn(round2(w.getTotalWithdrawn()));
             dto.setCodPendingAmount(round2(w.getCodPendingAmount()));
             dto.setWithdrawalPendingAmount(round2(w.getWithdrawalPendingAmount()));
-            // currentBalance only includes rider earning credits (not full COD cash). codPending tracks
-            // liability separately; subtracting it here made netAvailable negative and blocked withdrawals.
+            // currentBalance only includes rider earning credits (not full COD cash).
+            // codPending tracks
+            // liability separately; subtracting it here made netAvailable negative and
+            // blocked withdrawals.
             double netAvailable = w.getCurrentBalance() - w.getWithdrawalPendingAmount();
             if (netAvailable < -0.0001) {
                 log.warn("NEGATIVE_NET_AVAILABLE -> riderId={}, net={}", riderId, round2(netAvailable));
@@ -951,12 +952,14 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         double orderAmount = nz(order.getTotalAmount());
         CodCollectionMode codMode = payType == PaymentType.COD ? order.getCodCollectionMode() : null;
         double commissionPercent = resolveCommissionPercent(cfg, payType, codMode);
+        Long deliveryEffEst = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
         if (order.getServiceMode() == com.youdash.model.ServiceMode.OUTSTATION
                 && order.getPickupRiderId() != null
-                && order.getDeliveryRiderId() != null
-                && !order.getPickupRiderId().equals(order.getDeliveryRiderId())) {
+                && deliveryEffEst != null
+                && !order.getPickupRiderId().equals(deliveryEffEst)) {
             OutstationPayableLegSplit leg = OutstationPayableLegSplit.fromOrder(order);
-            double pickupNet = round2(Math.max(0.0, leg.pickupAmount() - (leg.pickupAmount() * (commissionPercent / 100.0))));
+            double pickupNet = round2(
+                    Math.max(0.0, leg.pickupAmount() - (leg.pickupAmount() * (commissionPercent / 100.0))));
             double dropNet = round2(Math.max(0.0,
                     leg.lastMileAmount() - (leg.lastMileAmount() * (commissionPercent / 100.0))));
             return round2(pickupNet + dropNet);
@@ -1029,14 +1032,16 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             return round2(Math.max(0.0, orderAmount - (orderAmount * (commissionPercent / 100.0))));
         }
         Long pRid = order.getPickupRiderId();
-        Long dRid = order.getDeliveryRiderId();
+        Long dRid = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
         boolean split = pRid != null && dRid != null && !pRid.equals(dRid);
         OutstationPayableLegSplit leg = OutstationPayableLegSplit.fromOrder(order);
-        double pickupNet = round2(Math.max(0.0, leg.pickupAmount() - (leg.pickupAmount() * (commissionPercent / 100.0))));
+        double pickupNet = round2(
+                Math.max(0.0, leg.pickupAmount() - (leg.pickupAmount() * (commissionPercent / 100.0))));
         double dropNet = round2(Math.max(0.0,
                 leg.lastMileAmount() - (leg.lastMileAmount() * (commissionPercent / 100.0))));
         if (!split) {
-            // During phased assignment (only pickup rider assigned first, delivery rider later),
+            // During phased assignment (only pickup rider assigned first, delivery rider
+            // later),
             // keep earnings leg-based for whichever role is currently assigned.
             if (pRid != null && Objects.equals(riderId, pRid)) {
                 return pickupNet;
@@ -1053,7 +1058,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             if (Objects.equals(riderId, order.getPickupRiderId())) {
                 return pickupNet;
             }
-            if (Objects.equals(riderId, order.getDeliveryRiderId())) {
+            if (Objects.equals(riderId, dRid)) {
                 return dropNet;
             }
             return 0.0;
@@ -1061,7 +1066,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (Objects.equals(riderId, order.getPickupRiderId())) {
             return pickupNet;
         }
-        if (Objects.equals(riderId, order.getDeliveryRiderId())) {
+        if (Objects.equals(riderId, dRid)) {
             return dropNet;
         }
         return 0.0;
@@ -1375,9 +1380,10 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         return m;
     }
 
-    private void audit(String action, String actorType, Long actorId, String entityType, Long entityId, Object payload) {
+    private void audit(String action, String actorType, Long actorId, String entityType, Long entityId,
+            Object payload) {
         try {
-            
+
             FinAuditLogEntity log = new FinAuditLogEntity();
             log.setAction(action);
             log.setActorType(actorType);

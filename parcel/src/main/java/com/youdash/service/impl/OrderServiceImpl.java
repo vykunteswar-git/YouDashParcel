@@ -134,7 +134,8 @@ public class OrderServiceImpl implements OrderService {
     public ApiResponse<FinalPriceResponseDTO> calculateFinal(Long userId, FinalPriceRequestDTO dto) {
         ApiResponse<FinalPriceResponseDTO> response = new ApiResponse<>();
         try {
-            validateCoordsWeight(dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng(), dto.getWeight());
+            validateCoordsWeight(dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng(),
+                    dto.getWeight());
             if (dto.getOriginHubId() == null || dto.getDestinationHubId() == null) {
                 throw new RuntimeException("originHubId and destinationHubId are required");
             }
@@ -200,7 +201,8 @@ public class OrderServiceImpl implements OrderService {
     public ApiResponse<OrderResponseDTO> createOrder(Long userId, CreateOrderRequestDTO dto) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         try {
-            validateCoordsWeight(dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng(), dto.getWeight());
+            validateCoordsWeight(dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng(),
+                    dto.getWeight());
             validateContactFields(dto);
             if (dto.getCategoryId() == null) {
                 throw new RuntimeException("categoryId is required");
@@ -216,8 +218,10 @@ public class OrderServiceImpl implements OrderService {
             AppConfigEntity checkoutConfig = requireConfig();
             validatePaymentModeEnabled(paymentType, checkoutConfig);
 
-            Optional<com.youdash.entity.ZoneEntity> pz = zoneService.findZoneContaining(dto.getPickupLat(), dto.getPickupLng());
-            Optional<com.youdash.entity.ZoneEntity> dz = zoneService.findZoneContaining(dto.getDropLat(), dto.getDropLng());
+            Optional<com.youdash.entity.ZoneEntity> pz = zoneService.findZoneContaining(dto.getPickupLat(),
+                    dto.getPickupLng());
+            Optional<com.youdash.entity.ZoneEntity> dz = zoneService.findZoneContaining(dto.getDropLat(),
+                    dto.getDropLng());
             boolean sameZone = pz.isPresent() && dz.isPresent()
                     && pz.get().getId().equals(dz.get().getId());
 
@@ -229,9 +233,11 @@ public class OrderServiceImpl implements OrderService {
             order.setReceiverName(trimToNull(dto.getReceiverName()));
             order.setReceiverPhone(trimToNull(dto.getReceiverPhone()));
             String normalizedPickupAddress = resolveDisplayAddress(
-                    dto.getPickupAddress(), dto.getPickupDoorNo(), dto.getPickupLandmark(), dto.getPickupLat(), dto.getPickupLng());
+                    dto.getPickupAddress(), dto.getPickupDoorNo(), dto.getPickupLandmark(), dto.getPickupLat(),
+                    dto.getPickupLng());
             String normalizedDropAddress = resolveDisplayAddress(
-                    dto.getDropAddress(), dto.getDropDoorNo(), dto.getDropLandmark(), dto.getDropLat(), dto.getDropLng());
+                    dto.getDropAddress(), dto.getDropDoorNo(), dto.getDropLandmark(), dto.getDropLat(),
+                    dto.getDropLng());
             order.setPickupAddress(normalizedPickupAddress);
             order.setPickupTag(trimToNull(dto.getPickupTag()));
             order.setPickupDoorNo(trimToNull(dto.getPickupDoorNo()));
@@ -355,7 +361,8 @@ public class OrderServiceImpl implements OrderService {
                 order.setPickupDistanceKm(legs.pickupKm());
                 order.setHubDistanceKm(legs.hubKm());
                 order.setDropDistanceKm(legs.dropKm());
-                order.setDistanceKm(round4(nz(order.getPickupDistanceKm()) + nz(order.getHubDistanceKm()) + nz(order.getDropDistanceKm())));
+                order.setDistanceKm(round4(nz(order.getPickupDistanceKm()) + nz(order.getHubDistanceKm())
+                        + nz(order.getDropDistanceKm())));
 
                 AppConfigEntity cfgOs = checkoutConfig;
                 double routeRateOs = resolveRouteRate(dto.getOriginHubId(), dto.getDestinationHubId(), cfgOs);
@@ -402,7 +409,8 @@ public class OrderServiceImpl implements OrderService {
 
             OrderEntity saved = orderRepository.save(order);
             saved.setDisplayOrderId("YP-" + saved.getId() + System.currentTimeMillis());
-            if (saved.getPaymentType() == PaymentType.ONLINE && (saved.getPaymentStatus() == null || saved.getPaymentStatus().isBlank())) {
+            if (saved.getPaymentType() == PaymentType.ONLINE
+                    && (saved.getPaymentStatus() == null || saved.getPaymentStatus().isBlank())) {
                 saved.setPaymentStatus("UNPAID");
             }
             saved = orderRepository.save(saved);
@@ -419,7 +427,8 @@ public class OrderServiceImpl implements OrderService {
                 notificationService.sendToUser(
                         userId,
                         "Coupon applied",
-                        promo.normalizedCode() + " saved you ₹" + String.format("%.2f", promo.discountAmount()) + " on order " + saved.getId() + ".",
+                        promo.normalizedCode() + " saved you ₹" + String.format("%.2f", promo.discountAmount())
+                                + " on order " + saved.getId() + ".",
                         couponData,
                         NotificationType.USER_COUPON_APPLIED);
             }
@@ -486,7 +495,8 @@ public class OrderServiceImpl implements OrderService {
             List<OrderEntity> orders = orderRepository.findByPickupRiderIdOrDeliveryRiderIdOrderByCreatedAtDesc(
                     riderId, riderId, PageRequest.of(0, 200));
             Set<Long> riderIds = orders.stream()
-                    .flatMap(o -> java.util.stream.Stream.of(o.getRiderId(), o.getPickupRiderId(), o.getDeliveryRiderId()))
+                    .flatMap(o -> java.util.stream.Stream.of(o.getRiderId(), o.getPickupRiderId(),
+                            o.getDeliveryRiderId()))
                     .filter(Objects::nonNull)
                     .collect(Collectors.toSet());
             Map<Long, RiderEntity> riderMap = riderIds.isEmpty()
@@ -699,7 +709,8 @@ public class OrderServiceImpl implements OrderService {
                     prefByKey,
                     o.getCreatedAt());
         }
-        out.sort(Comparator.comparing(OrderAddressSuggestionDTO::getLastUsedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+        out.sort(Comparator
+                .comparing(OrderAddressSuggestionDTO::getLastUsedAt, Comparator.nullsLast(Comparator.naturalOrder()))
                 .reversed());
         return out;
     }
@@ -754,7 +765,8 @@ public class OrderServiceImpl implements OrderService {
     public ApiResponse<ManualOrderRequestResponseDTO> manualRequest(Long userId, ManualOrderRequestDTO dto) {
         ApiResponse<ManualOrderRequestResponseDTO> response = new ApiResponse<>();
         try {
-            validateCoordsWeight(dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng(), dto.getWeight());
+            validateCoordsWeight(dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng(),
+                    dto.getWeight());
             ManualOrderRequestEntity e = new ManualOrderRequestEntity();
             e.setUserId(userId);
             e.setPickupLat(dto.getPickupLat());
@@ -863,7 +875,8 @@ public class OrderServiceImpl implements OrderService {
             }
             o.setRiderId(primaryRiderId);
             transitionStatus(o, OrderStatus.CONFIRMED);
-            // OUTSTATION assignment or manual assignment: treat as confirmed (ready to proceed).
+            // OUTSTATION assignment or manual assignment: treat as confirmed (ready to
+            // proceed).
             if (o.getDeliveryOtp() == null || o.getDeliveryOtp().isBlank()) {
                 o.setDeliveryOtp(DeliveryOtpGenerator.generate());
                 o.setDeliveryOtpGeneratedAt(Instant.now());
@@ -882,7 +895,8 @@ public class OrderServiceImpl implements OrderService {
                             pickupRiderId,
                             "New pickup assigned",
                             "Order #" + saved.getId() + " assigned for pickup stage.",
-                            NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(), NotificationType.RIDER_JOB_ASSIGNED),
+                            NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(),
+                                    NotificationType.RIDER_JOB_ASSIGNED),
                             NotificationType.RIDER_JOB_ASSIGNED);
                 }
                 if (deliveryRiderId != null && !Objects.equals(deliveryRiderId, pickupRiderId)) {
@@ -890,7 +904,8 @@ public class OrderServiceImpl implements OrderService {
                             deliveryRiderId,
                             "New delivery assigned",
                             "Order #" + saved.getId() + " assigned for delivery stage.",
-                            NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(), NotificationType.RIDER_JOB_ASSIGNED),
+                            NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(),
+                                    NotificationType.RIDER_JOB_ASSIGNED),
                             NotificationType.RIDER_JOB_ASSIGNED);
                 }
             } catch (Exception ignored) {
@@ -901,7 +916,8 @@ public class OrderServiceImpl implements OrderService {
                         saved.getUserId(),
                         "Rider assigned",
                         "A rider has been assigned to order #" + saved.getId() + ".",
-                        NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(), NotificationType.RIDER_ASSIGNED),
+                        NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(),
+                                NotificationType.RIDER_ASSIGNED),
                         NotificationType.RIDER_ASSIGNED);
             } catch (Exception ignored) {
                 // Keep assignment successful even if one notification channel fails.
@@ -1000,7 +1016,8 @@ public class OrderServiceImpl implements OrderService {
             o.setDeliveryOtpAttempts(0);
         }
         OrderEntity saved = orderRepository.save(o);
-        appendTimeline(saved, status, "status_updated", saved.getDestinationHubId(), saved.getRiderId(), "Admin status update");
+        appendTimeline(saved, status, "status_updated", saved.getDestinationHubId(), saved.getRiderId(),
+                "Admin status update");
         UserOrderEventDTO evt = new UserOrderEventDTO();
         evt.setOrderId(saved.getId());
         evt.setEvent("status_updated");
@@ -1048,7 +1065,8 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public ApiResponse<OrderResponseDTO> completeOrderForRider(Long tokenUserId, String tokenType, OrderCompleteRequestDTO dto) {
+    public ApiResponse<OrderResponseDTO> completeOrderForRider(Long tokenUserId, String tokenType,
+            OrderCompleteRequestDTO dto) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         if (!"RIDER".equals(tokenType)) {
             throw new BadRequestException("Rider token required");
@@ -1096,7 +1114,8 @@ public class OrderServiceImpl implements OrderService {
         }
 
         if (o.getPaymentType() == PaymentType.ONLINE) {
-            // Amount was settled at payment gateway; order row holds totalAmount + PAID — body only needs orderId.
+            // Amount was settled at payment gateway; order row holds totalAmount + PAID —
+            // body only needs orderId.
             if (!alreadyDelivered && !isOrderPaidOnline(o)) {
                 throw new BadRequestException("Online order must be paid before marking delivered");
             }
@@ -1126,7 +1145,8 @@ public class OrderServiceImpl implements OrderService {
             transitionStatus(o, OrderStatus.DELIVERED);
         }
         OrderEntity saved = orderRepository.save(o);
-        appendTimeline(saved, OrderStatus.DELIVERED, "order_completed", saved.getDestinationHubId(), actingRiderId, "Delivery completed");
+        appendTimeline(saved, OrderStatus.DELIVERED, "order_completed", saved.getDestinationHubId(), actingRiderId,
+                "Delivery completed");
 
         riderWalletService.settleOrderDelivered(
                 saved,
@@ -1213,7 +1233,8 @@ public class OrderServiceImpl implements OrderService {
         o.setIsOtpVerified(true);
         o.setDeliveryOtpAttempts((o.getDeliveryOtpAttempts() == null ? 0 : o.getDeliveryOtpAttempts()) + 1);
         OrderEntity saved = orderRepository.save(o);
-        appendTimeline(saved, saved.getStatus(), "otp_verified", saved.getDestinationHubId(), saved.getRiderId(), "Delivery OTP verified");
+        appendTimeline(saved, saved.getStatus(), "otp_verified", saved.getDestinationHubId(), saved.getRiderId(),
+                "Delivery OTP verified");
 
         UserOrderEventDTO evt = new UserOrderEventDTO();
         evt.setOrderId(saved.getId());
@@ -1314,9 +1335,11 @@ public class OrderServiceImpl implements OrderService {
         order.setDeliveryOtpGeneratedAt(Instant.now());
         order.setIsOtpVerified(false);
         order = orderRepository.save(order);
-        appendTimeline(order, order.getStatus(), "otp_resent", order.getDestinationHubId(), order.getRiderId(), "Delivery OTP regenerated");
+        appendTimeline(order, order.getStatus(), "otp_resent", order.getDestinationHubId(), order.getRiderId(),
+                "Delivery OTP regenerated");
 
-        response.setData(toOrderDto(order, null, null, "RIDER".equals(tokenType), "RIDER".equals(tokenType) ? tokenUserId : null));
+        response.setData(toOrderDto(order, null, null, "RIDER".equals(tokenType),
+                "RIDER".equals(tokenType) ? tokenUserId : null));
         response.setMessage("Delivery OTP resent");
         response.setMessageKey("SUCCESS");
         response.setSuccess(true);
@@ -1373,7 +1396,8 @@ public class OrderServiceImpl implements OrderService {
             }
             dispatchService.closeRequest(o.getId(), "cancelled", null);
             userActiveOrderTopicPublisher.publishReleased(o.getUserId(), o.getId());
-            // Match payment-timeout path: user tracking + banner also listen on order-events.
+            // Match payment-timeout path: user tracking + banner also listen on
+            // order-events.
             sendUserOrderCancelledSocketEvent(o.getUserId(), o.getId());
             OrderEntity refreshedForPush = orderRepository.findById(o.getId()).orElse(o);
             Map<String, String> closedData = new HashMap<>(
@@ -1477,7 +1501,8 @@ public class OrderServiceImpl implements OrderService {
                             NotificationType.ADMIN_OUTSTATION_PENDING_ASSIGNMENT),
                     NotificationType.ADMIN_OUTSTATION_PENDING_ASSIGNMENT);
         }
-        // INCITY: dispatch service handles rider notifications (socket/push). No auto-assign here.
+        // INCITY: dispatch service handles rider notifications (socket/push). No
+        // auto-assign here.
     }
 
     private void notifyOrderCreationFailed(Long userId, String message) {
@@ -1530,7 +1555,8 @@ public class OrderServiceImpl implements OrderService {
 
     private AppConfigEntity requireConfig() {
         return appConfigRepository.findById(1L)
-                .orElseThrow(() -> new RuntimeException("Global config missing — ensure youdash_price_config row id=1 exists"));
+                .orElseThrow(() -> new RuntimeException(
+                        "Global config missing — ensure youdash_price_config row id=1 exists"));
     }
 
     private double resolveRouteRate(Long originHubId, Long destHubId, AppConfigEntity config) {
@@ -1550,7 +1576,8 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    private void validateCoordsWeight(Double pickupLat, Double pickupLng, Double dropLat, Double dropLng, Double weight) {
+    private void validateCoordsWeight(Double pickupLat, Double pickupLng, Double dropLat, Double dropLng,
+            Double weight) {
         if (pickupLat == null || pickupLng == null || dropLat == null || dropLng == null) {
             throw new RuntimeException("pickup and drop coordinates are required");
         }
@@ -1648,7 +1675,8 @@ public class OrderServiceImpl implements OrderService {
         return null;
     }
 
-    private Map<Long, VehicleEntity> buildVehicleBatchForOrders(List<OrderEntity> orders, Map<Long, RiderEntity> riderMap) {
+    private Map<Long, VehicleEntity> buildVehicleBatchForOrders(List<OrderEntity> orders,
+            Map<Long, RiderEntity> riderMap) {
         if (orders == null || orders.isEmpty()) {
             return Map.of();
         }
@@ -1667,7 +1695,10 @@ public class OrderServiceImpl implements OrderService {
                 .collect(Collectors.toMap(VehicleEntity::getId, Function.identity()));
     }
 
-    /** Rider's catalog vehicle when assigned; otherwise the order's booked vehicle (INCITY). */
+    /**
+     * Rider's catalog vehicle when assigned; otherwise the order's booked vehicle
+     * (INCITY).
+     */
     private static Long resolveEffectiveVehicleId(OrderEntity o, RiderEntity rider) {
         if (rider != null && rider.getVehicleId() != null) {
             return rider.getVehicleId();
@@ -1679,7 +1710,9 @@ public class OrderServiceImpl implements OrderService {
         return toOrderDto(o, null, null, false, null);
     }
 
-    /** Full mapping for rider apps: narrower OTP rules + strips GST/platform fields. */
+    /**
+     * Full mapping for rider apps: narrower OTP rules + strips GST/platform fields.
+     */
     OrderResponseDTO toOrderDtoForRider(OrderEntity o) {
         Long viewer = o != null ? o.getRiderId() : null;
         OrderResponseDTO dto = stripCommercialDetailsForRider(toOrderDto(o, null, null, true, viewer));
@@ -1689,7 +1722,10 @@ public class OrderServiceImpl implements OrderService {
         return dto;
     }
 
-    /** Full mapping for rider apps with explicit viewer rider context for OUTSTATION hub masking. */
+    /**
+     * Full mapping for rider apps with explicit viewer rider context for OUTSTATION
+     * hub masking.
+     */
     OrderResponseDTO toOrderDtoForRider(OrderEntity o, Long viewerRiderId) {
         OrderResponseDTO dto = stripCommercialDetailsForRider(toOrderDto(o, null, null, true, viewerRiderId));
         if (dto != null && o != null && viewerRiderId != null) {
@@ -1699,12 +1735,17 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * @param riderBatch      optional map of rider id → entity for batch APIs; {@code null} loads rider individually.
-     * @param vehicleBatch    optional map of vehicle id → entity; {@code null} loads vehicle individually when needed.
-     * @param riderOrderApi   {@code true} for rider-facing endpoints (OTP only in {@code IN_TRANSIT} until verified).
-     *                        {@code false} for customer/admin — OTP shown from accept/payment through trip until verified.
+     * @param riderBatch    optional map of rider id → entity for batch APIs;
+     *                      {@code null} loads rider individually.
+     * @param vehicleBatch  optional map of vehicle id → entity; {@code null} loads
+     *                      vehicle individually when needed.
+     * @param riderOrderApi {@code true} for rider-facing endpoints (OTP only in
+     *                      {@code IN_TRANSIT} until verified).
+     *                      {@code false} for customer/admin — OTP shown from
+     *                      accept/payment through trip until verified.
      */
-    OrderResponseDTO toOrderDto(OrderEntity o, Map<Long, RiderEntity> riderBatch, Map<Long, VehicleEntity> vehicleBatch, boolean riderOrderApi, Long viewerRiderId) {
+    OrderResponseDTO toOrderDto(OrderEntity o, Map<Long, RiderEntity> riderBatch, Map<Long, VehicleEntity> vehicleBatch,
+            boolean riderOrderApi, Long viewerRiderId) {
         RiderEntity rider = resolveRiderForOrderDto(o.getRiderId(), riderBatch);
         String riderName = rider != null ? rider.getName() : null;
         String riderPhone = rider != null ? rider.getPhone() : null;
@@ -1773,7 +1814,8 @@ public class OrderServiceImpl implements OrderService {
                 .paymentType(o.getPaymentType())
                 .status(o.getStatus())
                 .allowedNextStatuses(orderStatusTransitionGuard.allowedNextStatuses(o.getServiceMode(), o.getStatus()))
-                .adminSelectableNextStatuses(orderStatusTransitionGuard.adminSelectableNextStatuses(o.getServiceMode(), o.getStatus()))
+                .adminSelectableNextStatuses(
+                        orderStatusTransitionGuard.adminSelectableNextStatuses(o.getServiceMode(), o.getStatus()))
                 .riderId(o.getRiderId())
                 .pickupRiderId(o.getPickupRiderId())
                 .deliveryRiderId(o.getDeliveryRiderId())
@@ -1782,7 +1824,8 @@ public class OrderServiceImpl implements OrderService {
                 .deliveryOtp(deliveryOtp)
                 .pickupOtp(o.getPickupOtp())
                 .isOtpVerified(o.getIsOtpVerified())
-                .deliveryOtpGeneratedAt(o.getDeliveryOtpGeneratedAt() != null ? o.getDeliveryOtpGeneratedAt().toString() : null)
+                .deliveryOtpGeneratedAt(
+                        o.getDeliveryOtpGeneratedAt() != null ? o.getDeliveryOtpGeneratedAt().toString() : null)
                 .deliveryOtpAttempts(o.getDeliveryOtpAttempts())
                 .subtotal(o.getSubtotal())
                 .gstAmount(o.getGstAmount())
@@ -1802,7 +1845,8 @@ public class OrderServiceImpl implements OrderService {
                 .canRateRider(Boolean.FALSE)
                 .riderRatingSubmitted(Boolean.FALSE)
                 .riderRating(null)
-                .estimatedDeliveryTime(o.getEstimatedDeliveryTime() != null ? o.getEstimatedDeliveryTime().toString() : null)
+                .estimatedDeliveryTime(
+                        o.getEstimatedDeliveryTime() != null ? o.getEstimatedDeliveryTime().toString() : null)
                 .cutoffApplied(o.getCutoffApplied())
                 .timelineEvents(orderTimelineService.timelineForOrder(o.getId()))
                 .createdAt(o.getCreatedAt() != null ? o.getCreatedAt().toString() : null)
@@ -1813,6 +1857,11 @@ public class OrderServiceImpl implements OrderService {
         return dto;
     }
 
+    /**
+     * Rider-facing outstation leg: {@code PICKUP} (first mile), {@code DROP} (last
+     * mile), or {@code FULL}
+     * when one rider does both. Inter-hub is never a rider leg for display.
+     */
     private static String resolveLegTypeForRider(OrderEntity order, boolean riderOrderApi, Long viewerRiderId) {
         if (!riderOrderApi || order == null) {
             return "INCITY";
@@ -1820,10 +1869,21 @@ public class OrderServiceImpl implements OrderService {
         if (order.getServiceMode() != ServiceMode.OUTSTATION) {
             return "INCITY";
         }
-        Long riderId = viewerRiderId != null ? viewerRiderId : order.getRiderId();
-        if (riderId != null && order.getDeliveryRiderId() != null && Objects.equals(riderId, order.getDeliveryRiderId())
-                && !Objects.equals(order.getPickupRiderId(), order.getDeliveryRiderId())) {
+        Long view = viewerRiderId != null ? viewerRiderId : order.getRiderId();
+        if (view == null) {
+            return "INCITY";
+        }
+        Long pickupId = order.getPickupRiderId();
+        Long deliveryEff = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
+        boolean split = pickupId != null && deliveryEff != null && !pickupId.equals(deliveryEff);
+        if (!split) {
+            return "FULL";
+        }
+        if (Objects.equals(view, deliveryEff)) {
             return "DROP";
+        }
+        if (pickupId != null && Objects.equals(view, pickupId)) {
+            return "PICKUP";
         }
         return "PICKUP";
     }
@@ -1842,10 +1902,14 @@ public class OrderServiceImpl implements OrderService {
         if (riderId == null) {
             return false;
         }
-        return Objects.equals(riderId, order.getPickupRiderId()) || Objects.equals(riderId, order.getRiderId());
+        Long deliveryEff = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
+        return Objects.equals(riderId, order.getPickupRiderId())
+                || Objects.equals(riderId, order.getRiderId())
+                || Objects.equals(riderId, deliveryEff);
     }
 
-    private void applyOutstationLegAmounts(OrderResponseDTO dto, OrderEntity order, boolean riderOrderApi, Long viewerRiderId) {
+    private void applyOutstationLegAmounts(OrderResponseDTO dto, OrderEntity order, boolean riderOrderApi,
+            Long viewerRiderId) {
         if (dto == null || order == null || order.getServiceMode() != ServiceMode.OUTSTATION) {
             return;
         }
@@ -1856,7 +1920,12 @@ public class OrderServiceImpl implements OrderService {
         if (riderOrderApi) {
             String legType = resolveLegTypeForRider(order, true, viewerRiderId);
             dto.setLegTypeForRider(legType);
-            dto.setLegAmountForRider("DROP".equals(legType) ? leg.lastMileAmount() : leg.pickupAmount());
+            double legAmt = switch (legType) {
+                case "DROP" -> leg.lastMileAmount();
+                case "FULL" -> round2(leg.pickupAmount() + leg.lastMileAmount());
+                default -> leg.pickupAmount();
+            };
+            dto.setLegAmountForRider(legAmt);
         }
     }
 
@@ -1882,10 +1951,11 @@ public class OrderServiceImpl implements OrderService {
         if ("DROP".equals(legType)) {
             dto.setSenderName(null);
             dto.setSenderPhone(null);
-        } else {
+        } else if ("PICKUP".equals(legType)) {
             dto.setReceiverName(null);
             dto.setReceiverPhone(null);
         }
+        // FULL: one rider — keep both contacts.
     }
 
     private static void applyOutstationRiderFacingAddresses(
@@ -1899,11 +1969,12 @@ public class OrderServiceImpl implements OrderService {
             return;
         }
         Long riderId = viewerRiderId != null ? viewerRiderId : order.getRiderId();
+        Long deliveryEff = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
         boolean split = order.getPickupRiderId() != null
-                && order.getDeliveryRiderId() != null
-                && !Objects.equals(order.getPickupRiderId(), order.getDeliveryRiderId());
+                && deliveryEff != null
+                && !Objects.equals(order.getPickupRiderId(), deliveryEff);
 
-        if (split && riderId != null && Objects.equals(riderId, order.getDeliveryRiderId())
+        if (split && riderId != null && Objects.equals(riderId, deliveryEff)
                 && !Objects.equals(riderId, order.getPickupRiderId())
                 && destinationHub != null) {
             // Delivery rider: pickup starts from destination hub.
@@ -1919,7 +1990,7 @@ public class OrderServiceImpl implements OrderService {
 
         boolean pickupOnlyRider = riderId != null
                 && Objects.equals(riderId, order.getPickupRiderId())
-                && !Objects.equals(order.getPickupRiderId(), order.getDeliveryRiderId());
+                && !Objects.equals(order.getPickupRiderId(), deliveryEff);
         if (pickupOnlyRider && originHub != null) {
             // Pickup rider: drop target is origin hub handover.
             String hubLine = formatHubAddressLine(originHub);
@@ -2017,7 +2088,8 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * Riders do not need GST, platform fee, coupon, or gateway pricing components — only operational fields
+     * Riders do not need GST, platform fee, coupon, or gateway pricing components —
+     * only operational fields
      * (e.g. {@code totalAmount}, {@code distanceKm}, addresses, status).
      */
     private static OrderResponseDTO stripCommercialDetailsForRider(OrderResponseDTO dto) {
@@ -2030,13 +2102,15 @@ public class OrderServiceImpl implements OrderService {
         dto.setCouponAmount(null);
         dto.setVehiclePricePerKm(null);
         dto.setRazorpayOrderId(null);
-        // Rider should primarily see earnings; keep totalAmount only for COD collection context.
+        // Rider should primarily see earnings; keep totalAmount only for COD collection
+        // context.
         if (dto.getPaymentType() != PaymentType.COD) {
             dto.setTotalAmount(null);
             dto.setCodCollectedAmount(null);
             dto.setCodCollectionMode(null);
             dto.setCodSettlementStatus(null);
-            // OUTSTATION ONLINE: show this rider's leg fare (pickup-to-hub or hub-to-door), not full trip total.
+            // OUTSTATION ONLINE: show this rider's leg fare (pickup-to-hub or hub-to-door),
+            // not full trip total.
             if (dto.getServiceMode() == ServiceMode.OUTSTATION && dto.getLegAmountForRider() != null) {
                 dto.setTotalAmount(dto.getLegAmountForRider());
             }
