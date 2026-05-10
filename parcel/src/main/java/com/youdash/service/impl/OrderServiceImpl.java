@@ -1059,7 +1059,12 @@ public class OrderServiceImpl implements OrderService {
         Long actingRiderId = riderAccessVerifier.resolveActingRiderIdFromToken(tokenUserId, tokenType);
 
         OrderEntity o = resolveOrderByIdOrReference(dto.getOrderId().trim());
-        if (o.getRiderId() == null || !Objects.equals(o.getRiderId(), actingRiderId)) {
+        boolean canCompleteDelivery = Objects.equals(o.getRiderId(), actingRiderId)
+                || Objects.equals(o.getDeliveryRiderId(), actingRiderId);
+        if (o.getRiderId() == null && o.getDeliveryRiderId() == null) {
+            throw new BadRequestException("Access denied");
+        }
+        if (!canCompleteDelivery) {
             throw new BadRequestException("Access denied");
         }
 
@@ -2031,6 +2036,10 @@ public class OrderServiceImpl implements OrderService {
             dto.setCodCollectedAmount(null);
             dto.setCodCollectionMode(null);
             dto.setCodSettlementStatus(null);
+            // OUTSTATION ONLINE: show this rider's leg fare (pickup-to-hub or hub-to-door), not full trip total.
+            if (dto.getServiceMode() == ServiceMode.OUTSTATION && dto.getLegAmountForRider() != null) {
+                dto.setTotalAmount(dto.getLegAmountForRider());
+            }
         }
         return dto;
     }

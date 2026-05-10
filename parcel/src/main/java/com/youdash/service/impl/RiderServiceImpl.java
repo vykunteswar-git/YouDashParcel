@@ -846,7 +846,7 @@ public class RiderServiceImpl implements RiderService {
             dto.setWalletCodPendingAmount(round2(w.getCodPendingAmount()));
             dto.setWalletWithdrawalPendingAmount(round2(w.getWithdrawalPendingAmount()));
             dto.setWalletNetAvailable(
-                    round2(w.getCurrentBalance() - w.getCodPendingAmount() - w.getWithdrawalPendingAmount()));
+                    round2(w.getCurrentBalance() - w.getWithdrawalPendingAmount()));
         }
 
         var page = PageRequest.of(0, 10);

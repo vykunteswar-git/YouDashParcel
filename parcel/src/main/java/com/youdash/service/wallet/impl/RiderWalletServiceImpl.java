@@ -146,7 +146,9 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             dto.setTotalWithdrawn(round2(w.getTotalWithdrawn()));
             dto.setCodPendingAmount(round2(w.getCodPendingAmount()));
             dto.setWithdrawalPendingAmount(round2(w.getWithdrawalPendingAmount()));
-            double netAvailable = w.getCurrentBalance() - w.getCodPendingAmount() - w.getWithdrawalPendingAmount();
+            // currentBalance only includes rider earning credits (not full COD cash). codPending tracks
+            // liability separately; subtracting it here made netAvailable negative and blocked withdrawals.
+            double netAvailable = w.getCurrentBalance() - w.getWithdrawalPendingAmount();
             if (netAvailable < -0.0001) {
                 log.warn("NEGATIVE_NET_AVAILABLE -> riderId={}, net={}", riderId, round2(netAvailable));
             }
@@ -286,9 +288,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 throw new RuntimeException("Wallet in invalid negative state");
             }
 
-            double netAvail = wallet.getCurrentBalance() - wallet.getCodPendingAmount() - wallet.getWithdrawalPendingAmount();
+            double netAvail = wallet.getCurrentBalance() - wallet.getWithdrawalPendingAmount();
             if (amount > netAvail + 0.0001) {
-                    
                 throw new RuntimeException("Insufficient wallet balance for withdrawal");
             }
 
