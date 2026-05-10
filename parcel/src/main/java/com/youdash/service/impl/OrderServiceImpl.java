@@ -1857,11 +1857,6 @@ public class OrderServiceImpl implements OrderService {
         return dto;
     }
 
-    /**
-     * Rider-facing outstation leg: {@code PICKUP} (first mile), {@code DROP} (last
-     * mile), or {@code FULL}
-     * when one rider does both. Inter-hub is never a rider leg for display.
-     */
     private static String resolveLegTypeForRider(OrderEntity order, boolean riderOrderApi, Long viewerRiderId) {
         if (!riderOrderApi || order == null) {
             return "INCITY";
@@ -1869,21 +1864,10 @@ public class OrderServiceImpl implements OrderService {
         if (order.getServiceMode() != ServiceMode.OUTSTATION) {
             return "INCITY";
         }
-        Long view = viewerRiderId != null ? viewerRiderId : order.getRiderId();
-        if (view == null) {
-            return "INCITY";
-        }
-        Long pickupId = order.getPickupRiderId();
-        Long deliveryEff = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
-        boolean split = pickupId != null && deliveryEff != null && !pickupId.equals(deliveryEff);
-        if (!split) {
-            return "FULL";
-        }
-        if (Objects.equals(view, deliveryEff)) {
+        Long riderId = viewerRiderId != null ? viewerRiderId : order.getRiderId();
+        if (riderId != null && order.getDeliveryRiderId() != null && Objects.equals(riderId, order.getDeliveryRiderId())
+                && !Objects.equals(order.getPickupRiderId(), order.getDeliveryRiderId())) {
             return "DROP";
-        }
-        if (pickupId != null && Objects.equals(view, pickupId)) {
-            return "PICKUP";
         }
         return "PICKUP";
     }
@@ -1902,10 +1886,7 @@ public class OrderServiceImpl implements OrderService {
         if (riderId == null) {
             return false;
         }
-        Long deliveryEff = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
-        return Objects.equals(riderId, order.getPickupRiderId())
-                || Objects.equals(riderId, order.getRiderId())
-                || Objects.equals(riderId, deliveryEff);
+        return Objects.equals(riderId, order.getPickupRiderId()) || Objects.equals(riderId, order.getRiderId());
     }
 
     private void applyOutstationLegAmounts(OrderResponseDTO dto, OrderEntity order, boolean riderOrderApi,
@@ -1920,12 +1901,7 @@ public class OrderServiceImpl implements OrderService {
         if (riderOrderApi) {
             String legType = resolveLegTypeForRider(order, true, viewerRiderId);
             dto.setLegTypeForRider(legType);
-            double legAmt = switch (legType) {
-                case "DROP" -> leg.lastMileAmount();
-                case "FULL" -> round2(leg.pickupAmount() + leg.lastMileAmount());
-                default -> leg.pickupAmount();
-            };
-            dto.setLegAmountForRider(legAmt);
+            dto.setLegAmountForRider("DROP".equals(legType) ? leg.lastMileAmount() : leg.pickupAmount());
         }
     }
 
@@ -1951,11 +1927,10 @@ public class OrderServiceImpl implements OrderService {
         if ("DROP".equals(legType)) {
             dto.setSenderName(null);
             dto.setSenderPhone(null);
-        } else if ("PICKUP".equals(legType)) {
+        } else {
             dto.setReceiverName(null);
             dto.setReceiverPhone(null);
         }
-        // FULL: one rider — keep both contacts.
     }
 
     private static void applyOutstationRiderFacingAddresses(
@@ -1969,12 +1944,11 @@ public class OrderServiceImpl implements OrderService {
             return;
         }
         Long riderId = viewerRiderId != null ? viewerRiderId : order.getRiderId();
-        Long deliveryEff = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
         boolean split = order.getPickupRiderId() != null
-                && deliveryEff != null
-                && !Objects.equals(order.getPickupRiderId(), deliveryEff);
+                && order.getDeliveryRiderId() != null
+                && !Objects.equals(order.getPickupRiderId(), order.getDeliveryRiderId());
 
-        if (split && riderId != null && Objects.equals(riderId, deliveryEff)
+        if (split && riderId != null && Objects.equals(riderId, order.getDeliveryRiderId())
                 && !Objects.equals(riderId, order.getPickupRiderId())
                 && destinationHub != null) {
             // Delivery rider: pickup starts from destination hub.
@@ -1990,7 +1964,7 @@ public class OrderServiceImpl implements OrderService {
 
         boolean pickupOnlyRider = riderId != null
                 && Objects.equals(riderId, order.getPickupRiderId())
-                && !Objects.equals(order.getPickupRiderId(), deliveryEff);
+                && !Objects.equals(order.getPickupRiderId(), order.getDeliveryRiderId());
         if (pickupOnlyRider && originHub != null) {
             // Pickup rider: drop target is origin hub handover.
             String hubLine = formatHubAddressLine(originHub);
@@ -2046,7 +2020,8 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * Customer/admin: OTP from post-accept job states until verified. Rider app: only {@code IN_TRANSIT} (handover).
+     * Customer/admin: OTP from post-accept job states until verified. Rider app:
+     * only {@code IN_TRANSIT} (handover).
      */
     private static String resolveDeliveryOtpForResponse(OrderEntity o, boolean riderOrderApi) {
         if (Boolean.TRUE.equals(o.getIsOtpVerified())) {
@@ -2138,7 +2113,10 @@ public class OrderServiceImpl implements OrderService {
         });
     }
 
-    /** ONLINE pre-paid orders: wallet settlement uses {@code order.totalAmount}; gateway payment is reflected as PAID. */
+    /**
+     * ONLINE pre-paid orders: wallet settlement uses {@code order.totalAmount};
+     * gateway payment is reflected as PAID.
+     */
     private static boolean isOrderPaidOnline(OrderEntity o) {
         String ps = o.getPaymentStatus();
         return ps != null && "PAID".equalsIgnoreCase(ps.trim());
@@ -2159,7 +2137,8 @@ public class OrderServiceImpl implements OrderService {
             n++;
         }
         if (n > 0 && n < 4) {
-            throw new RuntimeException("Send all of subtotal, gstAmount, platformFee, totalAmount, or omit all for server pricing");
+            throw new RuntimeException(
+                    "Send all of subtotal, gstAmount, platformFee, totalAmount, or omit all for server pricing");
         }
     }
 
@@ -2190,7 +2169,8 @@ public class OrderServiceImpl implements OrderService {
         return round2(nz(dto.getTotalAmount()));
     }
 
-    private record LegKm(double pickupKm, double hubKm, double dropKm) {}
+    private record LegKm(double pickupKm, double hubKm, double dropKm) {
+    }
 
     private static LegKm outstationLegKm(
             double pickupDist, double hubDist, double dropDist, OutstationDeliveryType dtype) {

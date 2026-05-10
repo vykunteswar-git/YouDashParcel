@@ -952,11 +952,10 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         double orderAmount = nz(order.getTotalAmount());
         CodCollectionMode codMode = payType == PaymentType.COD ? order.getCodCollectionMode() : null;
         double commissionPercent = resolveCommissionPercent(cfg, payType, codMode);
-        Long deliveryEffEst = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
         if (order.getServiceMode() == com.youdash.model.ServiceMode.OUTSTATION
                 && order.getPickupRiderId() != null
-                && deliveryEffEst != null
-                && !order.getPickupRiderId().equals(deliveryEffEst)) {
+                && order.getDeliveryRiderId() != null
+                && !order.getPickupRiderId().equals(order.getDeliveryRiderId())) {
             OutstationPayableLegSplit leg = OutstationPayableLegSplit.fromOrder(order);
             double pickupNet = round2(
                     Math.max(0.0, leg.pickupAmount() - (leg.pickupAmount() * (commissionPercent / 100.0))));
@@ -1032,7 +1031,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             return round2(Math.max(0.0, orderAmount - (orderAmount * (commissionPercent / 100.0))));
         }
         Long pRid = order.getPickupRiderId();
-        Long dRid = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
+        Long dRid = order.getDeliveryRiderId();
         boolean split = pRid != null && dRid != null && !pRid.equals(dRid);
         OutstationPayableLegSplit leg = OutstationPayableLegSplit.fromOrder(order);
         double pickupNet = round2(
@@ -1058,7 +1057,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             if (Objects.equals(riderId, order.getPickupRiderId())) {
                 return pickupNet;
             }
-            if (Objects.equals(riderId, dRid)) {
+            if (Objects.equals(riderId, order.getDeliveryRiderId())) {
                 return dropNet;
             }
             return 0.0;
@@ -1066,7 +1065,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (Objects.equals(riderId, order.getPickupRiderId())) {
             return pickupNet;
         }
-        if (Objects.equals(riderId, dRid)) {
+        if (Objects.equals(riderId, order.getDeliveryRiderId())) {
             return dropNet;
         }
         return 0.0;
