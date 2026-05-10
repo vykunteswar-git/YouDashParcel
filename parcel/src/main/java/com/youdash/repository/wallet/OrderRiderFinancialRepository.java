@@ -21,6 +21,8 @@ public interface OrderRiderFinancialRepository extends JpaRepository<OrderRiderF
 
     long countByOrderId(Long orderId);
 
+    long countByRiderId(Long riderId);
+
     List<OrderRiderFinancialEntity> findByOrderIdIn(Collection<Long> orderIds);
 
     @Query("""

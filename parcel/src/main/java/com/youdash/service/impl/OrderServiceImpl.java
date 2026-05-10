@@ -489,11 +489,22 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public ApiResponse<List<OrderResponseDTO>> listRiderOrders(Long riderId) {
+    public ApiResponse<List<OrderResponseDTO>> listRiderOrders(Long riderId, int page, int size, String date) {
         ApiResponse<List<OrderResponseDTO>> response = new ApiResponse<>();
         try {
-            List<OrderEntity> orders = orderRepository.findByPickupRiderIdOrDeliveryRiderIdOrderByCreatedAtDesc(
-                    riderId, riderId, PageRequest.of(0, 200));
+            int safePage = Math.max(0, page);
+            int safeSize = Math.min(Math.max(1, size), 100);
+            java.time.Instant startDate = null;
+            java.time.Instant endDate = null;
+            if (date != null && !date.isBlank()) {
+                java.time.LocalDate ld = java.time.LocalDate.parse(date.trim());
+                java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+                startDate = ld.atStartOfDay(zone).toInstant();
+                endDate = ld.plusDays(1).atStartOfDay(zone).toInstant();
+            }
+            List<OrderEntity> orders = orderRepository.findRiderOrdersPaged(
+                    riderId, startDate, endDate, PageRequest.of(safePage, safeSize));
+            long totalCount = orderRepository.countRiderOrdersPaged(riderId, startDate, endDate);
             Set<Long> riderIds = orders.stream()
                     .flatMap(o -> java.util.stream.Stream.of(o.getRiderId(), o.getPickupRiderId(),
                             o.getDeliveryRiderId()))
@@ -515,7 +526,7 @@ public class OrderServiceImpl implements OrderService {
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
             response.setStatus(200);
-            response.setTotalCount(list.size());
+            response.setTotalCount((int) totalCount);
         } catch (Exception e) {
             setError(response, e.getMessage());
         }
@@ -1092,7 +1103,9 @@ public class OrderServiceImpl implements OrderService {
         if (alreadyDelivered && financialExists) {
             OrderEntity refreshed = orderRepository.findById(o.getId()).orElse(o);
             markRiderAvailableAfterDelivery(refreshed.getRiderId());
-            response.setData(stripCommercialDetailsForRider(toOrderDto(refreshed, null, null, true, actingRiderId)));
+            OrderResponseDTO earlyDto = stripCommercialDetailsForRider(toOrderDto(refreshed, null, null, true, actingRiderId));
+            earlyDto.setEarnedAmount(riderWalletService.resolveRiderEarningForOrder(refreshed, actingRiderId));
+            response.setData(earlyDto);
             response.setMessage("Order completed");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
@@ -1185,7 +1198,9 @@ public class OrderServiceImpl implements OrderService {
         riderActiveOrderTopicPublisher.publish(actingRiderId, saved.getId(), OrderStatus.DELIVERED, "delivered");
 
         OrderEntity refreshed = orderRepository.findById(saved.getId()).orElse(saved);
-        response.setData(stripCommercialDetailsForRider(toOrderDto(refreshed, null, null, true, actingRiderId)));
+        OrderResponseDTO completedDto = stripCommercialDetailsForRider(toOrderDto(refreshed, null, null, true, actingRiderId));
+        completedDto.setEarnedAmount(riderWalletService.resolveRiderEarningForOrder(refreshed, actingRiderId));
+        response.setData(completedDto);
         response.setMessage("Order completed");
         response.setMessageKey("SUCCESS");
         response.setSuccess(true);
@@ -1854,7 +1869,31 @@ public class OrderServiceImpl implements OrderService {
         applyOutstationLegAmounts(dto, o, riderOrderApi, viewerRiderId);
         applyOutstationRiderFacingAddresses(dto, o, riderOrderApi, viewerRiderId, originHub, destinationHub);
         applyOutstationRiderContactVisibility(dto, o, riderOrderApi, viewerRiderId);
+        // Pickup rider's job ends at AT_ORIGIN_HUB — show as DELIVERED to them.
+        if (riderOrderApi && isPickupRiderHubTransit(o, viewerRiderId)) {
+            dto.setStatus(OrderStatus.DELIVERED);
+            dto.setAllowedNextStatuses(java.util.Set.of());
+            dto.setAdminSelectableNextStatuses(java.util.Set.of());
+        }
         return dto;
+    }
+
+    private static final java.util.Set<OrderStatus> HUB_TRANSIT_STATUSES = java.util.Set.of(
+            OrderStatus.AT_ORIGIN_HUB,
+            OrderStatus.DEPARTED_ORIGIN_HUB,
+            OrderStatus.IN_TRANSIT,
+            OrderStatus.AT_DESTINATION_HUB,
+            OrderStatus.SORTED_AT_DESTINATION);
+
+    private static boolean isPickupRiderHubTransit(OrderEntity o, Long viewerRiderId) {
+        if (o == null || viewerRiderId == null) return false;
+        if (o.getServiceMode() != ServiceMode.OUTSTATION) return false;
+        if (!HUB_TRANSIT_STATUSES.contains(o.getStatus())) return false;
+        // Must be the pickup rider (not the delivery rider)
+        Long pickupId = o.getPickupRiderId() != null ? o.getPickupRiderId() : o.getRiderId();
+        if (!Objects.equals(viewerRiderId, pickupId)) return false;
+        // If same rider handles both legs, they're not done yet
+        return !Objects.equals(o.getPickupRiderId(), o.getDeliveryRiderId());
     }
 
     private static String resolveLegTypeForRider(OrderEntity order, boolean riderOrderApi, Long viewerRiderId) {

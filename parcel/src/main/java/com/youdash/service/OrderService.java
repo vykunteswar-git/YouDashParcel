@@ -31,7 +31,7 @@ public interface OrderService {
     ApiResponse<String> hideUserOrderAddressSuggestion(
             Long userId, Long tokenUserId, boolean admin, OrderAddressSuggestionHideRequestDTO dto);
 
-    ApiResponse<List<OrderResponseDTO>> listRiderOrders(Long riderId);
+    ApiResponse<List<OrderResponseDTO>> listRiderOrders(Long riderId, int page, int size, String date);
 
     ApiResponse<ManualOrderRequestResponseDTO> manualRequest(Long userId, ManualOrderRequestDTO dto);
 

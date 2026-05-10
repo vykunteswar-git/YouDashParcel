@@ -40,6 +40,7 @@ import com.youdash.entity.wallet.RiderWalletTransactionEntity;
 import com.youdash.entity.wallet.RiderWithdrawalEntity;
 import com.youdash.model.OrderStatus;
 import com.youdash.model.PaymentType;
+import com.youdash.model.ServiceMode;
 import com.youdash.model.wallet.CodCollectionMode;
 import com.youdash.model.wallet.CodSettlementStatus;
 import com.youdash.model.wallet.WalletTxnReferenceType;
@@ -171,7 +172,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             dto.setThisWeekEarnings(sumRiderEarningsBetween(riderId, startOfWeek, nowTs));
             dto.setThisMonthEarnings(sumRiderEarningsBetween(riderId, startOfMonth, nowTs));
             dto.setNetAvailable(round2(netAvailable));
-            dto.setTotalOrdersDelivered(orderRepository.countByRiderIdAndStatus(riderId, OrderStatus.DELIVERED));
+            // Each financial row = one completed leg (pickup-at-hub or full delivery)
+            dto.setTotalOrdersDelivered(orderRiderFinancialRepository.countByRiderId(riderId));
             response.setData(dto);
             response.setMessage("OK");
             response.setMessageKey("SUCCESS");
@@ -589,6 +591,77 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 actorType);
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class, propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void settlePickupLegAtOriginHub(OrderEntity order, Long pickupRiderId) {
+        if (order == null || order.getId() == null || pickupRiderId == null) return;
+        if (order.getStatus() != OrderStatus.AT_ORIGIN_HUB) return;
+        if (order.getServiceMode() != ServiceMode.OUTSTATION) return;
+
+        // Idempotent: skip if already settled for this rider
+        if (orderRiderFinancialRepository.findByOrderIdAndRiderId(order.getId(), pickupRiderId).isPresent()) return;
+
+        ensureDefaultCommissionConfig();
+        RiderCommissionConfigEntity cfg = riderCommissionConfigRepository.findById(COMMISSION_CONFIG_ID).orElseThrow();
+
+        // Guard: outstation*Cost fields must be set for an accurate split.
+        // Without them, OutstationPayableLegSplit falls back to full totalAmount as
+        // pickupAmount which would over-credit the pickup rider.
+        if (order.getOutstationPickupCost() == null
+                || order.getOutstationHubCost() == null
+                || order.getOutstationDropCost() == null) {
+            log.warn("PICKUP_LEG_SETTLE_SKIP orderId={} pickupRider={}: outstation leg costs not persisted on order",
+                    order.getId(), pickupRiderId);
+            return;
+        }
+
+        OutstationPayableLegSplit leg = OutstationPayableLegSplit.fromOrder(order);
+        double oaPick = leg.pickupAmount();
+        double oaDrop = leg.lastMileAmount();
+        log.info("PICKUP_LEG_SETTLE orderId={} pickupRider={} oaPick={} oaDrop={} totalAmount={}",
+                order.getId(), pickupRiderId, oaPick, oaDrop, order.getTotalAmount());
+
+        PaymentType payType = order.getPaymentType();
+        // Pickup rider never collects COD (cash collected by drop rider at delivery)
+        double commissionPercent = resolveCommissionPercent(cfg, PaymentType.ONLINE, null);
+        double commPick = round2(oaPick * (commissionPercent / 100.0));
+        double basePick = round2(Math.max(0.0, oaPick - commPick));
+        double peakBonusTotal = peakIncentiveService.resolveBonusForDeliveredOrder(order, Instant.now());
+        double riderLegDen = oaPick + oaDrop;
+        double peakPick = riderLegDen > 0.0 ? round2(peakBonusTotal * (oaPick / riderLegDen)) : 0.0;
+        double earnPick = round2(Math.max(0.0, basePick + peakPick));
+
+        OrderRiderFinancialEntity finP = new OrderRiderFinancialEntity();
+        finP.setOrderId(order.getId());
+        finP.setRiderId(pickupRiderId);
+        finP.setOrderAmount(oaPick);
+        finP.setCommissionPercentApplied(commissionPercent);
+        finP.setCommissionAmount(commPick);
+        finP.setSurgeBonusAmount(peakPick);
+        finP.setRiderEarningAmount(earnPick);
+        finP.setCodCollectedAmount(null);
+        finP.setCodCollectionMode(null);
+        finP.setCodSettlementStatus(CodSettlementStatus.SETTLED);
+        finP.setSettledAt(Instant.now());
+
+        try {
+            orderRiderFinancialRepository.saveAndFlush(finP);
+        } catch (DataIntegrityViolationException ex) {
+            log.info("PICKUP_LEG_SETTLE_RACE orderId={} pickupRider={} - row already exists, skipping",
+                    order.getId(), pickupRiderId);
+            return;
+        }
+
+        creditOnlineEarningToWallet(order, pickupRiderId, earnPick, oaPick, commissionPercent, commPick, basePick, peakPick);
+
+        log.info("PICKUP_LEG_SETTLED -> orderId={}, pickupRider={}, earnPick={}", order.getId(), pickupRiderId, earnPick);
+        audit("ORDER_SETTLE_PICKUP_LEG", "RIDER", pickupRiderId, "ORDER", order.getId(), Map.of(
+                "pickupRiderId", pickupRiderId,
+                "pickupEarning", earnPick,
+                "paymentType", payType.name()));
+        sendRiderEarningCreditedNotification(order.getId(), pickupRiderId, earnPick, payType);
+    }
+
     private void settleSingleRiderOrderDelivered(
             OrderEntity order,
             PaymentType payType,
@@ -761,45 +834,49 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             }
         }
 
-        try {
-            orderRiderFinancialRepository.saveAndFlush(finP);
-            orderRiderFinancialRepository.saveAndFlush(finD);
-        } catch (DataIntegrityViolationException ex) {
-            log.info("ORDER_SETTLE_RACE orderId={} - financial rows already exist, skipping wallet mutations",
-                    order.getId());
-            return;
-        }
+        // Pickup leg may already be settled when the pickup rider marked AT_ORIGIN_HUB.
+        boolean pickupAlreadySettled = orderRiderFinancialRepository
+                .findByOrderIdAndRiderId(order.getId(), pickupId).isPresent();
 
-        if (payType == PaymentType.ONLINE) {
-            creditOnlineEarningToWallet(order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick,
-                    peakPick);
-            creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop,
-                    peakDrop);
-        } else {
-            Long codCollectorRiderId = resolveCodCollectorRiderId(order);
-            boolean pickupCollectsCod = codCollectorRiderId != null && Objects.equals(codCollectorRiderId, pickupId);
-            if (pickupCollectsCod) {
-                creditCodEarningAndCollectionToWallet(
-                        order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick, peakPick, codMode,
-                        collected);
-                creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop,
-                        peakDrop);
-            } else {
-                creditOnlineEarningToWallet(order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick,
-                        peakPick);
-                creditCodEarningAndCollectionToWallet(
-                        order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop, codMode,
-                        collected);
+        if (!pickupAlreadySettled) {
+            try {
+                orderRiderFinancialRepository.saveAndFlush(finP);
+            } catch (DataIntegrityViolationException ex) {
+                log.info("ORDER_SETTLE_RACE orderId={} pickupRider={} - row already exists", order.getId(), pickupId);
+                pickupAlreadySettled = true;
             }
         }
 
+        try {
+            orderRiderFinancialRepository.saveAndFlush(finD);
+        } catch (DataIntegrityViolationException ex) {
+            log.info("ORDER_SETTLE_RACE orderId={} deliveryRider={} - row already exists, skipping",
+                    order.getId(), deliveryId);
+            return;
+        }
+
+        Long codCollectorRiderId = payType == PaymentType.COD ? resolveCodCollectorRiderId(order) : null;
+        boolean pickupCollectsCod = codCollectorRiderId != null && Objects.equals(codCollectorRiderId, pickupId);
+
+        if (!pickupAlreadySettled) {
+            if (payType == PaymentType.ONLINE || !pickupCollectsCod) {
+                creditOnlineEarningToWallet(order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick, peakPick);
+            } else {
+                creditCodEarningAndCollectionToWallet(
+                        order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick, peakPick, codMode, collected);
+            }
+        }
+
+        if (payType == PaymentType.ONLINE || pickupCollectsCod) {
+            creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop);
+        } else {
+            creditCodEarningAndCollectionToWallet(
+                    order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop, codMode, collected);
+        }
+
         log.info(
-                "EARNING_SPLIT -> orderId={}, pickupRider={}, pickupEarning={}, deliveryRider={}, deliveryEarning={}",
-                order.getId(),
-                pickupId,
-                earnPick,
-                deliveryId,
-                earnDrop);
+                "EARNING_SPLIT -> orderId={}, pickupRider={}, pickupEarning={} (preSettled={}), deliveryRider={}, deliveryEarning={}",
+                order.getId(), pickupId, earnPick, pickupAlreadySettled, deliveryId, earnDrop);
 
         audit("ORDER_SETTLE_DELIVERED_SPLIT", actorType, actorUserId, "ORDER", order.getId(), Map.of(
                 "pickupRiderId", pickupId,
@@ -808,7 +885,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 "deliveryEarning", earnDrop,
                 "paymentType", payType.name()));
 
-        sendRiderEarningCreditedNotification(order.getId(), pickupId, earnPick, payType);
+        if (!pickupAlreadySettled) sendRiderEarningCreditedNotification(order.getId(), pickupId, earnPick, payType);
         sendRiderEarningCreditedNotification(order.getId(), deliveryId, earnDrop, payType);
     }
 
@@ -952,16 +1029,21 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         double orderAmount = nz(order.getTotalAmount());
         CodCollectionMode codMode = payType == PaymentType.COD ? order.getCodCollectionMode() : null;
         double commissionPercent = resolveCommissionPercent(cfg, payType, codMode);
-        if (order.getServiceMode() == com.youdash.model.ServiceMode.OUTSTATION
-                && order.getPickupRiderId() != null
-                && order.getDeliveryRiderId() != null
-                && !order.getPickupRiderId().equals(order.getDeliveryRiderId())) {
+        if (order.getServiceMode() == com.youdash.model.ServiceMode.OUTSTATION) {
             OutstationPayableLegSplit leg = OutstationPayableLegSplit.fromOrder(order);
+            Long pRid = order.getPickupRiderId();
+            Long dRid = order.getDeliveryRiderId();
+            boolean split = pRid != null && dRid != null && !pRid.equals(dRid);
             double pickupNet = round2(
                     Math.max(0.0, leg.pickupAmount() - (leg.pickupAmount() * (commissionPercent / 100.0))));
-            double dropNet = round2(Math.max(0.0,
-                    leg.lastMileAmount() - (leg.lastMileAmount() * (commissionPercent / 100.0))));
-            return round2(pickupNet + dropNet);
+            double dropNet = round2(
+                    Math.max(0.0, leg.lastMileAmount() - (leg.lastMileAmount() * (commissionPercent / 100.0))));
+            if (split) {
+                // Both legs assigned to different riders: report combined for admin/summary use
+                return round2(pickupNet + dropNet);
+            }
+            // Pre-assignment or single rider: show pickup leg earning as the dispatch estimate
+            return pickupNet;
         }
         double commissionAmount = round2(orderAmount * (commissionPercent / 100.0));
         return round2(Math.max(0.0, orderAmount - commissionAmount));

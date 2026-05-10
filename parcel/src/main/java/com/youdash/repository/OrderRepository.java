@@ -26,14 +26,46 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
 
     long countByRiderIdAndStatus(Long riderId, OrderStatus status);
 
+    /** Counts DELIVERED orders for a rider across incity (riderId) and outstation split (pickupRiderId / deliveryRiderId). */
+    @Query("""
+            SELECT COUNT(o) FROM OrderEntity o
+            WHERE o.status = :status
+              AND (o.riderId = :riderId OR o.pickupRiderId = :riderId OR o.deliveryRiderId = :riderId)
+            """)
+    long countDeliveredByRiderAnyField(@Param("riderId") Long riderId, @Param("status") OrderStatus status);
+
     List<OrderEntity> findByRiderIdOrderByCreatedAtDesc(Long riderId);
 
     List<OrderEntity> findByRiderIdOrderByCreatedAtDesc(Long riderId, Pageable pageable);
 
     /**
-     * Rider feed should include OUTSTATION split assignments where rider is either pickup or delivery rider.
-     * Using both columns keeps compatibility with existing INCITY rows where {@code riderId} is primary.
+     * Rider feed: incity (riderId) + outstation split (pickupRiderId / deliveryRiderId), newest first.
+     * Supports optional date range and pagination.
      */
+    @Query("""
+            SELECT o FROM OrderEntity o
+            WHERE (o.riderId = :riderId OR o.pickupRiderId = :riderId OR o.deliveryRiderId = :riderId)
+              AND (:startDate IS NULL OR o.createdAt >= :startDate)
+              AND (:endDate IS NULL OR o.createdAt < :endDate)
+            ORDER BY o.createdAt DESC
+            """)
+    List<OrderEntity> findRiderOrdersPaged(
+            @Param("riderId") Long riderId,
+            @Param("startDate") java.time.Instant startDate,
+            @Param("endDate") java.time.Instant endDate,
+            Pageable pageable);
+
+    @Query("""
+            SELECT COUNT(o) FROM OrderEntity o
+            WHERE (o.riderId = :riderId OR o.pickupRiderId = :riderId OR o.deliveryRiderId = :riderId)
+              AND (:startDate IS NULL OR o.createdAt >= :startDate)
+              AND (:endDate IS NULL OR o.createdAt < :endDate)
+            """)
+    long countRiderOrdersPaged(
+            @Param("riderId") Long riderId,
+            @Param("startDate") java.time.Instant startDate,
+            @Param("endDate") java.time.Instant endDate);
+
     List<OrderEntity> findByPickupRiderIdOrDeliveryRiderIdOrderByCreatedAtDesc(
             Long pickupRiderId, Long deliveryRiderId, Pageable pageable);
 

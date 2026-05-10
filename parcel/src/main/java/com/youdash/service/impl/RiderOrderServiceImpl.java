@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -32,7 +33,9 @@ import com.youdash.service.NotificationService;
 import com.youdash.service.OrderStatusTransitionGuard;
 import com.youdash.service.OrderTimelineService;
 import com.youdash.service.RiderOrderService;
+import com.youdash.service.wallet.RiderWalletService;
 
+@Slf4j
 @Service
 public class RiderOrderServiceImpl implements RiderOrderService {
 
@@ -68,6 +71,9 @@ public class RiderOrderServiceImpl implements RiderOrderService {
 
     @Autowired
     private OrderStatusTransitionGuard orderStatusTransitionGuard;
+
+    @Autowired
+    private RiderWalletService riderWalletService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -301,6 +307,16 @@ public class RiderOrderServiceImpl implements RiderOrderService {
             throw new BadRequestException("Order must be IN_TRANSIT to record destination arrival");
         }
         OrderEntity saved = orderRepository.save(order);
+        // REQUIRES_NEW ensures wallet settlement is its own transaction — a wallet
+        // failure never rolls back the AT_ORIGIN_HUB status update.
+        if (saved.getServiceMode() == ServiceMode.OUTSTATION) {
+            try {
+                riderWalletService.settlePickupLegAtOriginHub(saved, riderId);
+            } catch (Exception e) {
+                log.error("Pickup leg wallet settlement failed orderId={} riderId={}: {}",
+                        saved.getId(), riderId, e.getMessage(), e);
+            }
+        }
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "reach_destination", saved.getStatus(), riderId);
         adminOrderTopicPublisher.publish("reach_destination", saved);
         appendTimeline(saved, saved.getStatus(), "reach_destination", saved.getDestinationHubId(), riderId, "Rider reached destination");

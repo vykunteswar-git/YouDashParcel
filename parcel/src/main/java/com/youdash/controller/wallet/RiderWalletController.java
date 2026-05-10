@@ -85,9 +85,13 @@ public class RiderWalletController {
     }
 
     @GetMapping("/orders")
-    public ApiResponse<List<OrderResponseDTO>> myOrders(HttpServletRequest request) {
+    public ApiResponse<List<OrderResponseDTO>> myOrders(
+            HttpServletRequest request,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size,
+            @RequestParam(name = "date", required = false) String date) {
         Long riderId = riderAccessVerifier.resolveActingRiderId(request);
-        return orderService.listRiderOrders(riderId);
+        return orderService.listRiderOrders(riderId, page, size, date);
     }
 
     @GetMapping("/incentives/progress")

@@ -29,6 +29,12 @@ public interface RiderWalletService {
     void settleOrderDelivered(OrderEntity order, CodCollectionMode codMode, Double codCollectedAmount, Long actorUserId, String actorType);
 
     /**
+     * Settle the pickup leg for an OUTSTATION split order when the pickup rider
+     * marks AT_ORIGIN_HUB. Idempotent — safe to call multiple times.
+     */
+    void settlePickupLegAtOriginHub(OrderEntity order, Long pickupRiderId);
+
+    /**
      * True when all expected per-rider financial rows exist for this order (one for INCITY / single rider,
      * two for OUTSTATION with different pickup and delivery riders).
      */
