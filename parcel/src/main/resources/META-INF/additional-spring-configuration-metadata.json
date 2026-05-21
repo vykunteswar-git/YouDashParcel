@@ -61,6 +61,26 @@
       "description": "Whether generated OTP is echoed in API response for QA flows (AuthServiceImpl)."
     },
     {
+      "name": "msg91.enabled",
+      "type": "java.lang.Boolean",
+      "description": "When true, send OTP via MSG91 SMS API (Msg91SmsService / AuthServiceImpl). Override via MSG91_ENABLED."
+    },
+    {
+      "name": "msg91.authkey",
+      "type": "java.lang.String",
+      "description": "MSG91 API auth key. Set via MSG91_AUTHKEY env; never commit production keys."
+    },
+    {
+      "name": "msg91.otp.template.id",
+      "type": "java.lang.String",
+      "description": "MSG91 DLT-approved OTP template id (##numeric## variable). Override via MSG91_OTP_TEMPLATE_ID."
+    },
+    {
+      "name": "msg91.sender.id",
+      "type": "java.lang.String",
+      "description": "MSG91 sender id (6-char, DLT). Override via MSG91_SENDER_ID."
+    },
+    {
       "name": "payments.test-bypass.enabled",
       "type": "java.lang.Boolean",
       "description": "Enable payment bypass for whitelisted phones during QA/review (PaymentServiceImpl)."
