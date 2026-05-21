@@ -1,0 +1,104 @@
+{
+  "info": {
+    "name": "YouDash OTP (MSG91)",
+    "description": "Test customer OTP flow. MSG91 off (default): OTP may appear in response. MSG91 on + AUTH_OTP_EXPOSE_OTP=false: OTP only via SMS.\n\nVariables: baseUrl, phone (10-digit), otp",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "phone", "value": "9876543210" },
+    { "key": "otp", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "a. Send OTP (dev — OTP in response)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phoneNumber\": \"{{phone}}\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/send-otp",
+        "description": "MSG91_ENABLED=false (default). Expect: success=true, data.otp present when AUTH_OTP_EXPOSE_OTP=true"
+      }
+    },
+    {
+      "name": "b. Send OTP (prod — no OTP in response)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phoneNumber\": \"{{phone}}\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/send-otp",
+        "description": "MSG91_ENABLED=true, MSG91_AUTHKEY set, AUTH_OTP_EXPOSE_OTP=false.\nExpect: success=true, data.otp null; SMS on phone"
+      }
+    },
+    {
+      "name": "c. Verify OTP (correct)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phoneNumber\": \"{{phone}}\",\n  \"otp\": \"{{otp}}\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/verify-otp",
+        "description": "Set {{otp}} from send-otp response (dev) or SMS (prod)"
+      }
+    },
+    {
+      "name": "d. Verify OTP (wrong)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phoneNumber\": \"{{phone}}\",\n  \"otp\": \"0000\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/verify-otp",
+        "description": "Expect: success=false, message Invalid OTP"
+      }
+    },
+    {
+      "name": "e. Resend OTP",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phoneNumber\": \"{{phone}}\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/send-otp",
+        "description": "Same as send-otp; generates new OTP and invalidates previous for that phone"
+      }
+    },
+    {
+      "name": "Rider — Send OTP (delegates to AuthService)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phoneNumber\": \"{{phone}}\"\n}"
+        },
+        "url": "{{baseUrl}}/rider-auth/send-otp"
+      }
+    },
+    {
+      "name": "Send OTP — invalid mobile",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phoneNumber\": \"12345\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/send-otp",
+        "description": "Expect: Invalid mobile number"
+      }
+    }
+  ]
+}

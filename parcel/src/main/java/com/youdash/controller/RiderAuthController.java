@@ -18,12 +18,17 @@ import com.youdash.entity.OtpEntity;
 import com.youdash.entity.RiderEntity;
 import com.youdash.repository.OtpRepository;
 import com.youdash.repository.RiderRepository;
+import com.youdash.service.AuthService;
 import com.youdash.service.RiderService;
+import com.youdash.service.sms.PhoneNumberUtil;
 import com.youdash.util.JwtUtil;
 
 @RestController
 @RequestMapping({"/rider-auth", "/rider/auth"})
 public class RiderAuthController {
+
+    @Autowired
+    private AuthService authService;
 
     @Autowired
     private OtpRepository otpRepository;
@@ -39,36 +44,15 @@ public class RiderAuthController {
 
     @PostMapping("/send-otp")
     public ApiResponse<OtpResponseDTO> sendOtp(@RequestBody OtpRequestDTO request) {
-        // Reuse the same persistence model as /auth/send-otp (OtpEntity).
-        // For consistency, we allow OTP sending even if rider doesn't exist yet.
-        ApiResponse<OtpResponseDTO> response = new ApiResponse<>();
-        try {
-            if (request == null || request.getPhoneNumber() == null || request.getPhoneNumber().trim().isEmpty()) {
-                throw new RuntimeException("phoneNumber is required");
-            }
-            String phone = request.getPhoneNumber().trim();
-
-            // Use the same dummy OTP behavior as AuthServiceImpl (keeps client behavior predictable).
-            String otp = phone.equals("9999999999") ? "1234" : String.valueOf((int) (Math.random() * 9000) + 1000);
-
-            OtpEntity otpEntity = otpRepository.findByPhoneNumber(phone).orElse(new OtpEntity());
-            otpEntity.setPhoneNumber(phone);
-            otpEntity.setOtp(otp);
-            otpEntity.setExpiryTime(LocalDateTime.now().plusMinutes(5));
-            otpRepository.save(otpEntity);
-
-            response.setData(new OtpResponseDTO(phone, otp));
-            response.setMessage("OTP sent successfully");
-            response.setMessageKey("SUCCESS");
-            response.setStatus(200);
-            response.setSuccess(true);
-        } catch (Exception e) {
-            response.setMessage(e.getMessage());
+        if (request == null || request.getPhoneNumber() == null || request.getPhoneNumber().trim().isEmpty()) {
+            ApiResponse<OtpResponseDTO> response = new ApiResponse<>();
+            response.setMessage("phoneNumber is required");
             response.setMessageKey("ERROR");
             response.setStatus(400);
             response.setSuccess(false);
+            return response;
         }
-        return response;
+        return authService.sendOtp(request);
     }
 
     @PostMapping("/verify-otp")
@@ -81,7 +65,7 @@ public class RiderAuthController {
             if (request.getOtp() == null || request.getOtp().trim().isEmpty()) {
                 throw new RuntimeException("otp is required");
             }
-            String phone = request.getPhoneNumber().trim();
+            String phone = PhoneNumberUtil.normalizeNational(request.getPhoneNumber());
 
             OtpEntity otpEntity = otpRepository
                     .findTopByPhoneNumberOrderByIdDesc(phone)
@@ -143,4 +127,3 @@ public class RiderAuthController {
         return r;
     }
 }
-

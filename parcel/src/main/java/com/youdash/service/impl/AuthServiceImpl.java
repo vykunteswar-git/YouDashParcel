@@ -3,6 +3,8 @@ package com.youdash.service.impl;
 import java.time.LocalDateTime;
 import java.util.Random;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -18,9 +20,14 @@ import com.youdash.repository.OtpRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.repository.UserRepository;
 import com.youdash.service.AuthService;
+import com.youdash.service.sms.PhoneNumberUtil;
+import com.youdash.service.sms.SmsDeliveryException;
+import com.youdash.service.sms.SmsService;
 
 @Service
 public class AuthServiceImpl implements AuthService {
+
+  private static final Logger log = LoggerFactory.getLogger(AuthServiceImpl.class);
 
   @Value("${auth.test-login.enabled:false}")
   private boolean testLoginEnabled;
@@ -35,6 +42,9 @@ public class AuthServiceImpl implements AuthService {
   @Value("${auth.otp.expose-in-response:true}")
   private boolean exposeOtpInResponse;
 
+  @Value("${msg91.enabled:false}")
+  private boolean msg91Enabled;
+
   @Autowired
   private OtpRepository otpRepository;
 
@@ -47,16 +57,20 @@ public class AuthServiceImpl implements AuthService {
   @Autowired
   private com.youdash.util.JwtUtil jwtUtil;
 
+  @Autowired
+  private SmsService smsService;
+
   // SEND OTP
   @Override
   public ApiResponse<OtpResponseDTO> sendOtp(OtpRequestDTO request) {
     ApiResponse<OtpResponseDTO> response = new ApiResponse<>();
     try {
-      String phone = request.getPhoneNumber();
-      boolean isTestPhone = testLoginEnabled
-          && testLoginPhone != null
-          && !testLoginPhone.isBlank()
-          && testLoginPhone.trim().equals(phone);
+      if (request == null || request.getPhoneNumber() == null || request.getPhoneNumber().isBlank()) {
+        throw new RuntimeException("phoneNumber is required");
+      }
+
+      String phone = PhoneNumberUtil.normalizeNational(request.getPhoneNumber());
+      boolean isTestPhone = isTestLoginPhone(phone);
 
       String otp = isTestPhone
           ? testLoginOtp
@@ -69,19 +83,50 @@ public class AuthServiceImpl implements AuthService {
       otpEntity.setExpiryTime(LocalDateTime.now().plusMinutes(5));
       otpRepository.save(otpEntity);
 
-      System.out.println("OTP for " + phone + " = " + otp);
+      if (isTestPhone) {
+        log.info("Test-login OTP for {} (SMS skipped)", phone);
+      } else if (msg91Enabled) {
+        smsService.sendOtp(PhoneNumberUtil.toMsg91Mobile(phone), otp);
+      } else {
+        System.out.println("OTP for " + phone + " = " + otp);
+      }
 
       String responseOtp = (exposeOtpInResponse || isTestPhone) ? otp : null;
+      if (msg91Enabled && !isTestPhone && !exposeOtpInResponse) {
+        responseOtp = null;
+      }
       response.setData(new OtpResponseDTO(phone, responseOtp));
       response.setMessage("OTP sent successfully");
       response.setMessageKey("SUCCESS");
       response.setStatus(200);
       response.setSuccess(true);
+    } catch (SmsDeliveryException e) {
+      response.setMessage(e.getMessage());
+      response.setMessageKey("ERROR");
+      response.setStatus(400);
+      response.setSuccess(false);
+    } catch (RuntimeException e) {
+      response.setMessage(e.getMessage() != null ? e.getMessage() : "Failed to send OTP");
+      response.setMessageKey("ERROR");
+      response.setStatus(400);
+      response.setSuccess(false);
     } catch (Exception e) {
+      log.error("sendOtp failed", e);
       response.setMessage("Failed to send OTP");
       response.setSuccess(false);
     }
     return response;
+  }
+
+  private boolean isTestLoginPhone(String nationalPhone) {
+    if (!testLoginEnabled || testLoginPhone == null || testLoginPhone.isBlank()) {
+      return false;
+    }
+    try {
+      return PhoneNumberUtil.normalizeNational(testLoginPhone).equals(nationalPhone);
+    } catch (SmsDeliveryException e) {
+      return testLoginPhone.trim().replaceAll("\\D", "").equals(nationalPhone);
+    }
   }
 
   // VERIFY OTP
@@ -91,11 +136,8 @@ public class AuthServiceImpl implements AuthService {
     try {
       System.out.println("Verifying OTP for " + request.getPhoneNumber() + " (Entered: " + request.getOtp() + ")");
 
-      String phone = request.getPhoneNumber();
-      boolean isTestPhone = testLoginEnabled
-          && testLoginPhone != null
-          && !testLoginPhone.isBlank()
-          && testLoginPhone.trim().equals(phone);
+      String phone = PhoneNumberUtil.normalizeNational(request.getPhoneNumber());
+      boolean isTestPhone = isTestLoginPhone(phone);
 
       if (isTestPhone && testLoginOtp.equals(request.getOtp())) {
         // Test-login fast path: skip DB OTP lookup and expiry check.
