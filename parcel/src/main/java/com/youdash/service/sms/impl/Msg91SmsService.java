@@ -36,6 +36,10 @@ public class Msg91SmsService implements SmsService {
     @Value("${msg91.authkey:}")
     private String authkey;
 
+    /** MSG91 Template ID from OTP → Templates (NOT the numeric DLT Template ID). */
+    @Value("${msg91.otp.template.id:}")
+    private String templateId;
+
     @Value("${msg91.country:91}")
     private String countryCode;
 
@@ -52,15 +56,31 @@ public class Msg91SmsService implements SmsService {
                     SmsDeliveryException.Reason.SERVICE_UNAVAILABLE,
                     "SMS service unavailable, try again");
         }
+        if (templateId == null || templateId.isBlank()) {
+            log.error("MSG91 template id is not configured (msg91.otp.template.id / MSG91_OTP_TEMPLATE_ID)");
+            throw new SmsDeliveryException(
+                    SmsDeliveryException.Reason.SERVICE_UNAVAILABLE,
+                    "SMS service unavailable, try again");
+        }
+        if (looksLikeDltTemplateId(templateId)) {
+            log.error(
+                    "MSG91_OTP_TEMPLATE_ID looks like a DLT id (numeric). Use MSG91 Template ID from OTP → Templates, "
+                            + "e.g. 6a0c2283686518230d080bf2");
+            throw new SmsDeliveryException(
+                    SmsDeliveryException.Reason.DLT_REJECTED,
+                    "SMS service unavailable, try again");
+        }
 
         String national10 = PhoneNumberUtil.normalizeNational(
                 mobile91.startsWith("91") ? mobile91.substring(2) : mobile91);
+        String cc = countryCode != null ? countryCode.trim() : "91";
+        String mobileInternational = cc + national10;
 
         SmsDeliveryException lastFailure = null;
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
-                dispatch(national10, otp);
-                log.info("MSG91 OTP sent successfully to {}{}", countryCode, maskNational(national10));
+                dispatch(mobileInternational, otp);
+                log.info("MSG91 OTP accepted for {}", maskMobile(mobileInternational));
                 return;
             } catch (SmsDeliveryException e) {
                 lastFailure = e;
@@ -77,11 +97,10 @@ public class Msg91SmsService implements SmsService {
         }
     }
 
-    /** MSG91 v5 OTP: country + 10-digit mobile + otp only (no template_id or sender in request). */
-    private void dispatch(String national10, String otp) {
+    private void dispatch(String mobileInternational, String otp) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("country", countryCode != null ? countryCode.trim() : "91");
-        body.put("mobile", national10);
+        body.put("template_id", templateId.trim());
+        body.put("mobile", mobileInternational);
         body.put("otp", otp);
 
         HttpHeaders headers = new HttpHeaders();
@@ -93,7 +112,9 @@ public class Msg91SmsService implements SmsService {
                     OTP_URL,
                     new HttpEntity<>(body, headers),
                     String.class);
-            parseResponse(response.getStatusCode(), response.getBody());
+            String responseBody = response.getBody();
+            log.info("MSG91 response HTTP {} body={}", response.getStatusCode().value(), responseBody);
+            parseResponse(response.getStatusCode(), responseBody);
         } catch (ResourceAccessException e) {
             log.error("MSG91 unreachable: {}", e.getMessage());
             throw new SmsDeliveryException(
@@ -115,15 +136,18 @@ public class Msg91SmsService implements SmsService {
     }
 
     private void parseResponse(HttpStatusCode status, String body) {
-        if (status.is2xxSuccessful() && isSuccessBody(body)) {
-            return;
+        if (!status.is2xxSuccessful()) {
+            throw mapHttpFailure(status, body, null);
         }
-        throw mapHttpFailure(status, body, null);
+        if (!isSuccessBody(body)) {
+            throw mapHttpFailure(status, body, null);
+        }
     }
 
     private boolean isSuccessBody(String body) {
         if (body == null || body.isBlank()) {
-            return true;
+            log.warn("MSG91 returned empty body on HTTP 2xx — treating as failure");
+            return false;
         }
         try {
             JsonNode root = objectMapper.readTree(body);
@@ -134,14 +158,18 @@ public class Msg91SmsService implements SmsService {
             if ("error".equalsIgnoreCase(type)) {
                 return false;
             }
-            String message = text(root, "message");
-            if (message != null && message.toLowerCase(Locale.ROOT).contains("success")) {
+            if (root.has("request_id") && !root.get("request_id").isNull()) {
                 return true;
             }
-            return !root.has("errors");
+            String message = text(root, "message");
+            if (message != null) {
+                String m = message.toLowerCase(Locale.ROOT);
+                return m.contains("otp") && (m.contains("sent") || m.contains("success"));
+            }
+            return false;
         } catch (Exception e) {
-            log.debug("Could not parse MSG91 body as JSON, treating HTTP 2xx as success: {}", body);
-            return true;
+            log.warn("MSG91 response not JSON, treating as failure: {}", body);
+            return false;
         }
     }
 
@@ -152,6 +180,13 @@ public class Msg91SmsService implements SmsService {
             log.error("MSG91 ALERT: insufficient balance — {}", body);
             return new SmsDeliveryException(
                     SmsDeliveryException.Reason.INSUFFICIENT_BALANCE,
+                    "SMS service unavailable, try again",
+                    cause);
+        }
+        if (combined.contains("invalid template") || combined.contains("template id missing")) {
+            log.error("MSG91 invalid template_id — {}", body);
+            return new SmsDeliveryException(
+                    SmsDeliveryException.Reason.DLT_REJECTED,
                     "SMS service unavailable, try again",
                     cause);
         }
@@ -202,11 +237,19 @@ public class Msg91SmsService implements SmsService {
                 || e.getReason() == SmsDeliveryException.Reason.PROVIDER_ERROR;
     }
 
-    private static String maskNational(String national10) {
-        if (national10 == null || national10.length() < 4) {
+    private static boolean looksLikeDltTemplateId(String id) {
+        if (id == null) {
+            return false;
+        }
+        String t = id.trim();
+        return t.length() >= 15 && t.matches("\\d+");
+    }
+
+    private static String maskMobile(String mobileInternational) {
+        if (mobileInternational == null || mobileInternational.length() < 6) {
             return "****";
         }
-        return "******" + national10.substring(national10.length() - 4);
+        return mobileInternational.substring(0, 4) + "******" + mobileInternational.substring(mobileInternational.length() - 2);
     }
 
     private static void sleepQuietly(long ms) {
