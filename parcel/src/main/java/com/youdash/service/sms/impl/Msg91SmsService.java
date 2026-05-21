@@ -36,11 +36,8 @@ public class Msg91SmsService implements SmsService {
     @Value("${msg91.authkey:}")
     private String authkey;
 
-    @Value("${msg91.otp.template.id:}")
-    private String templateId;
-
-    @Value("${msg91.sender.id:}")
-    private String senderId;
+    @Value("${msg91.country:91}")
+    private String countryCode;
 
     public Msg91SmsService(RestTemplate restTemplate, ObjectMapper objectMapper) {
         this.restTemplate = restTemplate;
@@ -55,21 +52,15 @@ public class Msg91SmsService implements SmsService {
                     SmsDeliveryException.Reason.SERVICE_UNAVAILABLE,
                     "SMS service unavailable, try again");
         }
-        if (templateId == null || templateId.isBlank()) {
-            log.error("MSG91 template id is not configured");
-            throw new SmsDeliveryException(
-                    SmsDeliveryException.Reason.SERVICE_UNAVAILABLE,
-                    "SMS service unavailable, try again");
-        }
 
-        String mobile = PhoneNumberUtil.toMsg91Mobile(
+        String national10 = PhoneNumberUtil.normalizeNational(
                 mobile91.startsWith("91") ? mobile91.substring(2) : mobile91);
 
         SmsDeliveryException lastFailure = null;
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
-                dispatch(mobile, otp);
-                log.info("MSG91 OTP sent successfully to {}", maskMobile(mobile));
+                dispatch(national10, otp);
+                log.info("MSG91 OTP sent successfully to {}{}", countryCode, maskNational(national10));
                 return;
             } catch (SmsDeliveryException e) {
                 lastFailure = e;
@@ -86,15 +77,12 @@ public class Msg91SmsService implements SmsService {
         }
     }
 
-    private void dispatch(String mobile91, String otp) {
+    /** MSG91 v5 OTP: country + 10-digit mobile + otp only (no template_id or sender in request). */
+    private void dispatch(String national10, String otp) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("template_id", templateId);
-        body.put("mobile", mobile91);
-        body.put("authkey", authkey);
+        body.put("country", countryCode != null ? countryCode.trim() : "91");
+        body.put("mobile", national10);
         body.put("otp", otp);
-        if (senderId != null && !senderId.isBlank()) {
-            body.put("sender", senderId);
-        }
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -146,7 +134,6 @@ public class Msg91SmsService implements SmsService {
             if ("error".equalsIgnoreCase(type)) {
                 return false;
             }
-            // Some MSG91 responses use message only
             String message = text(root, "message");
             if (message != null && message.toLowerCase(Locale.ROOT).contains("success")) {
                 return true;
@@ -215,11 +202,11 @@ public class Msg91SmsService implements SmsService {
                 || e.getReason() == SmsDeliveryException.Reason.PROVIDER_ERROR;
     }
 
-    private static String maskMobile(String mobile91) {
-        if (mobile91 == null || mobile91.length() < 6) {
+    private static String maskNational(String national10) {
+        if (national10 == null || national10.length() < 4) {
             return "****";
         }
-        return mobile91.substring(0, 4) + "******" + mobile91.substring(mobile91.length() - 2);
+        return "******" + national10.substring(national10.length() - 4);
     }
 
     private static void sleepQuietly(long ms) {

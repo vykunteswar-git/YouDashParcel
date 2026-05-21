@@ -71,14 +71,9 @@
       "description": "MSG91 API auth key. Set via MSG91_AUTHKEY env; never commit production keys."
     },
     {
-      "name": "msg91.otp.template.id",
+      "name": "msg91.country",
       "type": "java.lang.String",
-      "description": "MSG91 DLT-approved OTP template id (##numeric## variable). Override via MSG91_OTP_TEMPLATE_ID."
-    },
-    {
-      "name": "msg91.sender.id",
-      "type": "java.lang.String",
-      "description": "MSG91 sender id (6-char, DLT). Override via MSG91_SENDER_ID."
+      "description": "Country code sent to MSG91 OTP API (India: 91). Mobile is sent as 10-digit national number."
     },
     {
       "name": "payments.test-bypass.enabled",
