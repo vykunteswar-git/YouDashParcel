@@ -1141,7 +1141,7 @@ public class OrderServiceImpl implements OrderService {
                 if (dto.getCodCollectionMode() == null || dto.getCodCollectionMode().isBlank()) {
                     throw new BadRequestException("codCollectionMode is required for COD (CASH or QR)");
                 }
-                CodCollectionMode mode = CodCollectionMode.valueOf(dto.getCodCollectionMode().trim().toUpperCase());
+                CodCollectionMode mode = CodCollectionMode.parseClientValue(dto.getCodCollectionMode());
                 double collected = round2(nz(o.getTotalAmount()));
                 if (collected <= 0) {
                     throw new BadRequestException("Invalid order total for COD settlement");

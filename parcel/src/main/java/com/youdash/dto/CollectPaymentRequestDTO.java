@@ -10,6 +10,6 @@ public class CollectPaymentRequestDTO {
     @Schema(description = "Numeric internal order id", requiredMode = Schema.RequiredMode.REQUIRED)
     private Long orderId;
 
-    @Schema(description = "CASH or QR", example = "CASH", requiredMode = Schema.RequiredMode.REQUIRED)
+    @Schema(description = "CASH, QR, or UPI (UPI is treated as QR)", example = "CASH", requiredMode = Schema.RequiredMode.REQUIRED)
     private String mode;
 }

@@ -756,7 +756,7 @@ public class PaymentServiceImpl implements PaymentService {
             if (dto.getMode() == null || dto.getMode().isBlank()) {
                 throw new RuntimeException("mode is required (CASH or QR)");
             }
-            CodCollectionMode mode = CodCollectionMode.valueOf(dto.getMode().trim().toUpperCase());
+            CodCollectionMode mode = CodCollectionMode.parseClientValue(dto.getMode());
 
             OrderEntity order = orderRepository.findById(dto.getOrderId())
                     .orElseThrow(() -> new RuntimeException("Order not found"));
@@ -770,17 +770,8 @@ public class PaymentServiceImpl implements PaymentService {
                 throw new RuntimeException("COD already collected for this order");
             }
 
-            Long collectorRiderId;
-            if (order.getServiceMode() == ServiceMode.OUTSTATION) {
-                collectorRiderId = order.getPickupRiderId() != null ? order.getPickupRiderId() : order.getRiderId();
-                if (collectorRiderId == null || !Objects.equals(collectorRiderId, riderId)) {
-                    throw new RuntimeException("Access denied");
-                }
-            } else {
-                collectorRiderId = order.getRiderId();
-                if (!Objects.equals(collectorRiderId, riderId)) {
-                    throw new RuntimeException("Access denied");
-                }
+            if (!isCodCollectorRider(order, riderId)) {
+                throw new RuntimeException("Access denied");
             }
 
             double collected = order.getTotalAmount() != null ? order.getTotalAmount() : 0.0;
@@ -818,7 +809,7 @@ public class PaymentServiceImpl implements PaymentService {
             }
             OrderEntity order = orderRepository.findById(orderId)
                     .orElseThrow(() -> new RuntimeException("Order not found"));
-            if (!Objects.equals(order.getRiderId(), riderId)) {
+            if (!isCodCollectorRider(order, riderId)) {
                 throw new RuntimeException("Access denied");
             }
             if (order.getPaymentType() != PaymentType.COD) {
@@ -904,6 +895,18 @@ public class PaymentServiceImpl implements PaymentService {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private static boolean isCodCollectorRider(OrderEntity order, Long riderId) {
+        if (order == null || riderId == null) {
+            return false;
+        }
+        if (order.getServiceMode() == ServiceMode.OUTSTATION) {
+            Long collector = order.getPickupRiderId() != null ? order.getPickupRiderId() : order.getRiderId();
+            return collector != null && Objects.equals(collector, riderId);
+        }
+        Long deliveryRider = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
+        return deliveryRider != null && Objects.equals(deliveryRider, riderId);
     }
 
     private void ensureRazorpayConfigured() {
