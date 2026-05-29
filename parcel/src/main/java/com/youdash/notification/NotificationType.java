@@ -54,6 +54,12 @@ public enum NotificationType {
     RIDER_WITHDRAWAL_REJECTED,
     /** Rider: admin settled COD collected line for an order. */
     RIDER_COD_SETTLED_ADMIN,
+    /** Rider: COD commission handover nearing limit. */
+    RIDER_COD_HANDOVER_WARNING,
+    /** Rider: COD commission handover limit exceeded; dispatch paused. */
+    RIDER_COD_HANDOVER_BLOCKED,
+    /** Rider: bulk commission deposit confirmed at hub. */
+    RIDER_COD_DEPOSIT_CONFIRMED,
     /** Rider: earning credited to wallet after delivery settlement. */
     RIDER_WALLET_EARNING_CREDITED,
     /** Admin devices: rider requested a wallet withdrawal. */

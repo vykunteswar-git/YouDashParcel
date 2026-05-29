@@ -83,6 +83,10 @@ public class RiderEntity {
     @Column(name = "approval_status", length = 24)
     private String approvalStatus;
 
+    /** Max COD commission (cash) rider may hold before dispatch is paused. */
+    @Column(name = "cod_handover_limit")
+    private Double codHandoverLimit;
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
@@ -92,6 +96,9 @@ public class RiderEntity {
         }
         if (this.isBlocked == null) {
             this.isBlocked = false;
+        }
+        if (this.codHandoverLimit == null || this.codHandoverLimit <= 0) {
+            this.codHandoverLimit = 1000.0;
         }
         if (this.publicId == null || this.publicId.isBlank()) {
             this.publicId = generatePublicId();

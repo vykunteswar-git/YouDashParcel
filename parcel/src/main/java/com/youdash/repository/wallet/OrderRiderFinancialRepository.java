@@ -11,9 +11,15 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import com.youdash.entity.wallet.OrderRiderFinancialEntity;
+import com.youdash.model.wallet.CodSettlementStatus;
 
 @Repository
 public interface OrderRiderFinancialRepository extends JpaRepository<OrderRiderFinancialEntity, Long> {
+
+    List<OrderRiderFinancialEntity> findByRiderIdAndCodSettlementStatusOrderByCreatedAtAsc(
+            Long riderId, CodSettlementStatus codSettlementStatus);
+
+    long countByRiderIdAndCodSettlementStatus(Long riderId, CodSettlementStatus codSettlementStatus);
 
     List<OrderRiderFinancialEntity> findAllByOrderId(Long orderId);
 

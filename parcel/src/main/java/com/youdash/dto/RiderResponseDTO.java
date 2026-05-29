@@ -45,6 +45,8 @@ public class RiderResponseDTO {
     private Double walletCodPendingAmount;
     private Double walletWithdrawalPendingAmount;
     private Double walletNetAvailable;
+    private Double codHandoverLimit;
+    private Boolean dispatchBlocked;
 
     private List<RiderWalletTransactionDTO> recentWalletTransactions;
     private List<RiderWithdrawalDTO> recentWithdrawals;

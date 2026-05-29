@@ -874,6 +874,9 @@ public class OrderServiceImpl implements OrderService {
                 if (!RiderApprovalStatus.APPROVED.equals(pickupRider.getApprovalStatus())) {
                     throw new RuntimeException("Pickup rider is not approved");
                 }
+                if (riderWalletService.isRiderDispatchBlocked(pickupRiderId)) {
+                    throw new RuntimeException("Pickup rider must deposit COD commission at hub before new orders");
+                }
                 o.setPickupRiderId(pickupRiderId);
             }
             if (deliveryRiderId != null) {
@@ -881,6 +884,9 @@ public class OrderServiceImpl implements OrderService {
                         .orElseThrow(() -> new RuntimeException("Delivery rider not found"));
                 if (!RiderApprovalStatus.APPROVED.equals(deliveryRider.getApprovalStatus())) {
                     throw new RuntimeException("Delivery rider is not approved");
+                }
+                if (riderWalletService.isRiderDispatchBlocked(deliveryRiderId)) {
+                    throw new RuntimeException("Delivery rider must deposit COD commission at hub before new orders");
                 }
                 o.setDeliveryRiderId(deliveryRiderId);
             }

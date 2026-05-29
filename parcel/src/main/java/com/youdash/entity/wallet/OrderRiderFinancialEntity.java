@@ -59,6 +59,9 @@ public class OrderRiderFinancialEntity {
     @Column(name = "settled_at")
     private Instant settledAt;
 
+    @Column(name = "cod_deposit_id")
+    private Long codDepositId;
+
     @Column(name = "created_at")
     private Instant createdAt;
 

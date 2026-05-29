@@ -12,9 +12,14 @@ public class RiderWalletSummaryDTO {
     private Double thisMonthEarnings;
     private Double totalEarnings;
     private Double totalWithdrawn;
+    /** COD commission (cash) to deposit at hub — not full order value. */
     private Double codPendingAmount;
     private Double withdrawalPendingAmount;
     /** Spendable for withdrawal: currentBalance - withdrawalPendingAmount (COD liability is in codPendingAmount only). */
     private Double netAvailable;
     private Long totalOrdersDelivered;
+    private Double codHandoverLimit;
+    /** OK | WARNING | BLOCKED */
+    private String codHandoverStatus;
+    private Boolean dispatchBlocked;
 }

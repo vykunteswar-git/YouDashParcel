@@ -225,6 +225,7 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
                 .filter(r -> r.getCurrentLat() != null && r.getCurrentLng() != null)
                 .filter(r -> !alreadyNotified.contains(r.getId()))
                 .filter(r -> !hasActiveIncityAssignment(r.getId()))
+                .filter(r -> !riderWalletService.isRiderDispatchBlocked(r.getId()))
                 .sorted(Comparator.comparingDouble(r -> GeoUtils.haversineKm(
                         pickupLat, pickupLng, r.getCurrentLat(), r.getCurrentLng())))
                 .limit(limit)

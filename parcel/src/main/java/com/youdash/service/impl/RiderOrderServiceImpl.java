@@ -101,6 +101,10 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         if (!dispatchService.wasRiderDispatched(orderId, riderId)) {
             throw new RuntimeException("Rider was not dispatched for this order");
         }
+        if (riderWalletService.isRiderDispatchBlocked(riderId)) {
+            throw new RuntimeException(
+                    "Deposit COD commission at hub to accept new orders. All order types are paused until deposit.");
+        }
 
         // 1) Lock rider immediately (reserve).
         int reserved = riderRepository.reserveIfAvailable(riderId);

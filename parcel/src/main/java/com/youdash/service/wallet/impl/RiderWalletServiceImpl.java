@@ -24,9 +24,18 @@ import org.springframework.transaction.annotation.Transactional;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.RiderResponseDTO;
+import com.youdash.dto.wallet.AdminCodDepositHistoryDTO;
+import com.youdash.dto.wallet.AdminCodDepositRequestDTO;
+import com.youdash.dto.wallet.AdminCodHandoverLimitRequestDTO;
+import com.youdash.dto.wallet.AdminCodOpenLineDTO;
+import com.youdash.dto.wallet.AdminCodRiderDetailDTO;
+import com.youdash.dto.wallet.AdminCodRiderSummaryDTO;
 import com.youdash.dto.wallet.AdminWithdrawalApproveDTO;
 import com.youdash.dto.wallet.AdminCodSettleRequestDTO;
 import com.youdash.dto.wallet.RiderCommissionConfigDTO;
+import com.youdash.entity.RiderEntity;
+import com.youdash.entity.wallet.CodDepositEntity;
 import com.youdash.dto.wallet.RiderWalletSummaryDTO;
 import com.youdash.dto.wallet.RiderWalletTransactionDTO;
 import com.youdash.dto.wallet.RiderWithdrawalDTO;
@@ -49,6 +58,8 @@ import com.youdash.model.wallet.WalletTxnType;
 import com.youdash.model.wallet.WithdrawalStatus;
 import com.youdash.notification.NotificationType;
 import com.youdash.repository.OrderRepository;
+import com.youdash.repository.RiderRepository;
+import com.youdash.repository.wallet.CodDepositRepository;
 import com.youdash.repository.wallet.FinAuditLogRepository;
 import com.youdash.repository.wallet.OrderRiderFinancialRepository;
 import com.youdash.repository.wallet.RiderCommissionConfigRepository;
@@ -71,8 +82,18 @@ public class RiderWalletServiceImpl implements RiderWalletService {
 
     private static final long COMMISSION_CONFIG_ID = 1L;
 
+    private static final double DEFAULT_COD_HANDOVER_LIMIT = 1000.0;
+
+    private static final double COD_HANDOVER_WARNING_RATIO = 0.8;
+
     @Autowired
     private RiderWalletRepository riderWalletRepository;
+
+    @Autowired
+    private RiderRepository riderRepository;
+
+    @Autowired
+    private CodDepositRepository codDepositRepository;
 
     @Autowired
     private RiderWalletTransactionRepository riderWalletTransactionRepository;
@@ -174,6 +195,11 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             dto.setNetAvailable(round2(netAvailable));
             // Each financial row = one completed leg (pickup-at-hub or full delivery)
             dto.setTotalOrdersDelivered(orderRiderFinancialRepository.countByRiderId(riderId));
+            double handoverLimit = resolveHandoverLimit(riderId);
+            double commissionPending = round2(w.getCodPendingAmount());
+            dto.setCodHandoverLimit(handoverLimit);
+            dto.setCodHandoverStatus(resolveHandoverStatus(commissionPending, handoverLimit));
+            dto.setDispatchBlocked(isDispatchBlocked(commissionPending, handoverLimit));
             response.setData(dto);
             response.setMessage("OK");
             response.setMessageKey("SUCCESS");
@@ -711,7 +737,12 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             }
             fin.setCodCollectedAmount(collected);
             fin.setCodCollectionMode(codMode);
-            fin.setCodSettlementStatus(CodSettlementStatus.PENDING);
+            if (codMode == CodCollectionMode.QR) {
+                fin.setCodSettlementStatus(CodSettlementStatus.SETTLED);
+                fin.setSettledAt(Instant.now());
+            } else {
+                fin.setCodSettlementStatus(CodSettlementStatus.PENDING);
+            }
         } else {
             throw new RuntimeException("Unsupported payment type: " + payType);
         }
@@ -733,8 +764,13 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (payType == PaymentType.ONLINE) {
             creditOnlineEarningToWallet(order, riderId, riderEarning, orderAmount, commissionPercent, commissionAmount,
                     baseRiderEarning, peakBonus);
-        } else {
-            creditCodEarningAndCollectionToWallet(
+            sendRiderEarningCreditedNotification(order.getId(), riderId, riderEarning, payType);
+        } else if (payType == PaymentType.COD && codMode == CodCollectionMode.QR) {
+            creditOnlineEarningToWallet(order, riderId, riderEarning, orderAmount, commissionPercent, commissionAmount,
+                    baseRiderEarning, peakBonus);
+            sendRiderEarningCreditedNotification(order.getId(), riderId, riderEarning, payType);
+        } else if (payType == PaymentType.COD) {
+            recordCodCashCommissionPending(
                     order, riderId, riderEarning, orderAmount, commissionPercent, commissionAmount, baseRiderEarning,
                     peakBonus, codMode, collected);
         }
@@ -744,7 +780,9 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 "paymentType", payType.name(),
                 "riderEarning", riderEarning));
 
-        sendRiderEarningCreditedNotification(order.getId(), riderId, riderEarning, payType);
+        if (payType == PaymentType.COD && codMode != CodCollectionMode.QR) {
+            notifyCodEarningRecorded(order.getId(), riderId, riderEarning);
+        }
     }
 
     private void settleSplitOutstationOrderDelivered(
@@ -861,16 +899,31 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (!pickupAlreadySettled) {
             if (payType == PaymentType.ONLINE || !pickupCollectsCod) {
                 creditOnlineEarningToWallet(order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick, peakPick);
+            } else if (codMode == CodCollectionMode.QR) {
+                creditOnlineEarningToWallet(order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick, peakPick);
             } else {
-                creditCodEarningAndCollectionToWallet(
-                        order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick, peakPick, codMode, collected);
+                double combinedEarn = round2(earnPick + earnDrop);
+                double combinedComm = round2(commPick + commDrop);
+                double combinedBase = round2(basePick + baseDrop);
+                double combinedPeak = round2(peakPick + peakDrop);
+                recordCodCashCommissionPending(
+                        order, pickupId, combinedEarn, orderAmount, commissionPercent, combinedComm, combinedBase,
+                        combinedPeak, codMode, collected);
             }
         }
 
-        if (payType == PaymentType.ONLINE || pickupCollectsCod) {
+        if (payType == PaymentType.ONLINE) {
+            creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop);
+        } else if (pickupCollectsCod) {
+            if (codMode == CodCollectionMode.QR) {
+                creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop);
+            } else if (pickupAlreadySettled) {
+                creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop);
+            }
+        } else if (codMode == CodCollectionMode.QR) {
             creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop);
         } else {
-            creditCodEarningAndCollectionToWallet(
+            recordCodCashCommissionPending(
                     order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop, codMode, collected);
         }
 
@@ -928,7 +981,11 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         riderWalletTransactionRepository.save(earnTxn);
     }
 
-    private void creditCodEarningAndCollectionToWallet(
+    /**
+     * COD cash: rider keeps earnings in pocket; only platform commission is tracked for hub deposit.
+     * Does not credit withdrawable wallet balance.
+     */
+    private void recordCodCashCommissionPending(
             OrderEntity order,
             Long riderId,
             double riderEarning,
@@ -939,57 +996,76 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             double peakPortion,
             CodCollectionMode codMode,
             double collected) {
+        if (commissionAmountPortion <= 0.0001) {
+            return;
+        }
         RiderWalletEntity wallet = riderWalletRepository.lockByRiderId(riderId)
                 .orElseGet(() -> riderWalletRepository.save(newWallet(riderId)));
-        if (wallet.getCurrentBalance() < -0.0001) {
-            throw new RuntimeException("Wallet in invalid negative state");
-        }
+        double pendingBefore = round2(nz(wallet.getCodPendingAmount()));
         wallet.setTotalEarnings(round2(wallet.getTotalEarnings() + riderEarning));
-        wallet.setCurrentBalance(round2(wallet.getCurrentBalance() + riderEarning));
-        wallet.setCodPendingAmount(round2(wallet.getCodPendingAmount() + collected));
+        wallet.setCodPendingAmount(round2(pendingBefore + commissionAmountPortion));
         riderWalletRepository.save(wallet);
 
         log.info(
-                "COD_FLOW -> orderId={}, riderId={}, codCollectedAmount={}, codPending={}, riderBalance={}",
+                "COD_COMMISSION_PENDING -> orderId={}, riderId={}, commission={}, codPending={}, collectedCash={}",
                 order.getId(),
                 riderId,
-                collected,
-                wallet.getCodPendingAmount(),
-                wallet.getCurrentBalance());
-
-        RiderWalletTransactionEntity earnTxn = new RiderWalletTransactionEntity();
-        earnTxn.setRiderId(riderId);
-        earnTxn.setType(WalletTxnType.CREDIT);
-        earnTxn.setAmount(riderEarning);
-        earnTxn.setReferenceType(WalletTxnReferenceType.ORDER);
-        earnTxn.setReferenceId(order.getId());
-        earnTxn.setStatus(WalletTxnStatus.COMPLETED);
-        earnTxn.setNote("Order delivered - rider earning credit (COD)");
-        earnTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(
-                orderAmountPortion,
-                PaymentType.COD,
-                commissionPercent,
                 commissionAmountPortion,
-                basePortion,
-                peakPortion,
-                riderEarning,
-                codMode,
-                collected)));
-        riderWalletTransactionRepository.save(earnTxn);
+                wallet.getCodPendingAmount(),
+                collected);
 
-        RiderWalletTransactionEntity codTxn = new RiderWalletTransactionEntity();
-        codTxn.setRiderId(riderId);
-        codTxn.setType(WalletTxnType.CREDIT);
-        codTxn.setAmount(collected);
-        codTxn.setReferenceType(WalletTxnReferenceType.ORDER);
-        codTxn.setReferenceId(order.getId());
-        codTxn.setStatus(WalletTxnStatus.COMPLETED);
-        codTxn.setNote("COD collected by rider - pending settlement");
-        Map<String, Object> codMeta = new HashMap<>();
-        codMeta.put("codCollectionMode", codMode.name());
-        codMeta.put("codCollectedAmount", collected);
-        codTxn.setMetadataJson(writeJson(codMeta));
-        riderWalletTransactionRepository.save(codTxn);
+        maybeNotifyCodHandoverThresholds(riderId, pendingBefore, wallet.getCodPendingAmount());
+    }
+
+    private void notifyCodEarningRecorded(Long orderId, Long riderId, double riderEarning) {
+        if (!notificationDedupService.tryAcquire("rider-cod-earning-recorded:" + orderId + ":" + riderId)) {
+            return;
+        }
+        Map<String, String> data = new HashMap<>(
+                NotificationService.baseData(orderId, OrderStatus.DELIVERED.name(), NotificationType.RIDER_WALLET_EARNING_CREDITED));
+        data.put("riderEarning", String.valueOf(riderEarning));
+        data.put("paymentType", PaymentType.COD.name());
+        data.put("cashInHand", "true");
+        String body = "Rs. " + String.format("%.2f", riderEarning)
+                + " recorded for order " + orderId + " (cash — keep in pocket).";
+        notificationService.sendToRider(riderId, "Earning recorded", body, data, NotificationType.RIDER_WALLET_EARNING_CREDITED);
+    }
+
+    private void maybeNotifyCodHandoverThresholds(Long riderId, double pendingBefore, double pendingAfter) {
+        double limit = resolveHandoverLimit(riderId);
+        if (limit <= 0) {
+            return;
+        }
+        double warnAt = round2(limit * COD_HANDOVER_WARNING_RATIO);
+        if (pendingBefore + 0.0001 < warnAt && pendingAfter + 0.0001 >= warnAt && pendingAfter + 0.0001 < limit) {
+            sendCodHandoverNotification(riderId, pendingAfter, limit, NotificationType.RIDER_COD_HANDOVER_WARNING,
+                    "COD deposit reminder",
+                    "Rs. " + String.format("%.2f", pendingAfter) + " commission to deposit at hub (limit Rs. "
+                            + String.format("%.2f", limit) + ").");
+        }
+        if (pendingBefore + 0.0001 < limit && pendingAfter + 0.0001 >= limit) {
+            sendCodHandoverNotification(riderId, pendingAfter, limit, NotificationType.RIDER_COD_HANDOVER_BLOCKED,
+                    "Orders paused — deposit COD commission",
+                    "Deposit Rs. " + String.format("%.2f", pendingAfter)
+                            + " at hub to receive new orders (COD and online).");
+        }
+    }
+
+    private void sendCodHandoverNotification(
+            Long riderId,
+            double pending,
+            double limit,
+            NotificationType type,
+            String title,
+            String body) {
+        String dedupeKey = type.name() + ":" + riderId + ":" + (long) pending + ":" + (long) limit;
+        if (!notificationDedupService.tryAcquire(dedupeKey)) {
+            return;
+        }
+        Map<String, String> data = new HashMap<>(NotificationService.baseData(null, null, type));
+        data.put("commissionPending", String.valueOf(pending));
+        data.put("handoverLimit", String.valueOf(limit));
+        notificationService.sendToRider(riderId, title, body, data, type);
     }
 
     private void sendRiderEarningCreditedNotification(Long orderId, Long riderId, double riderEarning,
@@ -1275,13 +1351,13 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             }
             OrderRiderFinancialEntity fin = finRow.get();
 
-            double expected = nz(fin.getCodCollectedAmount());
+            double expected = round2(nz(fin.getCommissionAmount()));
             double amt = round2(dto.getAmount());
             if (expected <= 0) {
-                throw new RuntimeException("No COD amount recorded for this order");
+                throw new RuntimeException("No COD commission recorded for this order");
             }
             if (Math.abs(expected - amt) > 0.01) {
-                throw new RuntimeException("amount must match collected COD for this order");
+                throw new RuntimeException("amount must match commission for this order");
             }
             if (fin.getCodSettlementStatus() == CodSettlementStatus.SETTLED) {
                 response.setData("OK");
@@ -1297,61 +1373,26 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 throw new RuntimeException("Wallet not found");
             }
             RiderWalletEntity wallet = walletOpt.get();
-            if (wallet.getCurrentBalance() < -0.0001) {
-                throw new RuntimeException("Wallet in invalid negative state");
-            }
             if (wallet.getCodPendingAmount() + 0.0001 < amt) {
-                throw new RuntimeException("COD pending mismatch");
+                throw new RuntimeException("COD commission pending mismatch");
             }
 
-            wallet.setCurrentBalance(round2(wallet.getCurrentBalance() - amt));
             wallet.setCodPendingAmount(round2(wallet.getCodPendingAmount() - amt));
             riderWalletRepository.save(wallet);
-
-            RiderWalletTransactionEntity txn = new RiderWalletTransactionEntity();
-            txn.setRiderId(codRiderId);
-            txn.setType(WalletTxnType.DEBIT);
-            txn.setAmount(amt);
-            txn.setReferenceType(WalletTxnReferenceType.ORDER);
-            txn.setReferenceId(order.getId());
-            txn.setStatus(WalletTxnStatus.COMPLETED);
-            txn.setNote("COD settled to admin");
-            Map<String, Object> settleMeta = new HashMap<>();
-            settleMeta.put("orderId", order.getId());
-            txn.setMetadataJson(writeJson(settleMeta));
-            riderWalletTransactionRepository.save(txn);
 
             fin.setCodSettlementStatus(CodSettlementStatus.SETTLED);
             fin.setSettledAt(Instant.now());
             orderRiderFinancialRepository.save(fin);
 
-            order.setCodSettlementStatus(CodSettlementStatus.SETTLED);
-            orderRepository.save(order);
+            settleOrderCodStatusIfComplete(order);
 
             Map<String, Object> codAudit = new HashMap<>();
             codAudit.put("riderId", codRiderId);
             codAudit.put("amount", amt);
             audit("COD_SETTLE", "ADMIN", adminUserId, "ORDER", order.getId(), codAudit);
 
-            if (notificationDedupService.tryAcquire("rider-cod-settled:" + order.getId())) {
-                Map<String, String> codData = new HashMap<>(
-                        NotificationService.baseData(
-                                order.getId(),
-                                order.getStatus() != null ? order.getStatus().name() : null,
-                                NotificationType.RIDER_COD_SETTLED_ADMIN));
-                codData.put("settledAmount", String.valueOf(amt));
-                String codBody = "Rs. " + String.format("%.2f", amt) + " COD for order " + order.getId()
-                        + " was settled.";
-                notificationService.sendToRider(
-                        codRiderId,
-                        "COD settled",
-                        codBody,
-                        codData,
-                        NotificationType.RIDER_COD_SETTLED_ADMIN);
-            }
-
             response.setData("OK");
-            response.setMessage("COD settled");
+            response.setMessage("COD commission settled");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
             response.setStatus(200);
@@ -1359,6 +1400,306 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             setErr(response, e.getMessage());
         }
         return response;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isRiderDispatchBlocked(Long riderId) {
+        if (riderId == null) {
+            return false;
+        }
+        RiderWalletEntity w = riderWalletRepository.findByRiderId(riderId).orElse(null);
+        double pending = w != null ? round2(nz(w.getCodPendingAmount())) : 0.0;
+        return isDispatchBlocked(pending, resolveHandoverLimit(riderId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ApiResponse<List<AdminCodRiderSummaryDTO>> adminListCodRiders(String statusFilter, String search) {
+        ApiResponse<List<AdminCodRiderSummaryDTO>> response = new ApiResponse<>();
+        try {
+            String q = search != null ? search.trim().toLowerCase() : "";
+            String status = statusFilter != null ? statusFilter.trim().toUpperCase() : "";
+            List<AdminCodRiderSummaryDTO> rows = riderWalletRepository.findAll().stream()
+                    .filter(w -> w.getRiderId() != null)
+                    .map(w -> buildAdminCodRiderSummary(w.getRiderId(), w))
+                    .filter(s -> s.getCommissionPending() > 0.0001)
+                    .filter(s -> status.isEmpty()
+                            || "ALL".equals(status)
+                            || status.equals(s.getHandoverStatus()))
+                    .filter(s -> q.isEmpty() || matchesCodRiderSearch(s, q))
+                    .sorted((a, b) -> Double.compare(b.getCommissionPending(), a.getCommissionPending()))
+                    .collect(Collectors.toList());
+            response.setData(rows);
+            response.setMessage("OK");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+            response.setTotalCount(rows.size());
+        } catch (Exception e) {
+            setErr(response, e.getMessage());
+        }
+        return response;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ApiResponse<AdminCodRiderDetailDTO> adminGetCodRiderDetail(Long riderId) {
+        ApiResponse<AdminCodRiderDetailDTO> response = new ApiResponse<>();
+        try {
+            if (riderId == null) {
+                throw new RuntimeException("riderId is required");
+            }
+            RiderWalletEntity wallet = getOrCreateWallet(riderId);
+            AdminCodRiderDetailDTO detail = new AdminCodRiderDetailDTO();
+            detail.setSummary(buildAdminCodRiderSummary(riderId, wallet));
+            detail.setOpenLines(loadOpenCodLines(riderId));
+            detail.setRecentDeposits(loadRecentDeposits(riderId, 20));
+            response.setData(detail);
+            response.setMessage("OK");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            setErr(response, e.getMessage());
+        }
+        return response;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ApiResponse<String> adminConfirmCodDeposit(Long adminUserId, AdminCodDepositRequestDTO dto) {
+        ApiResponse<String> response = new ApiResponse<>();
+        try {
+            if (dto == null || dto.getRiderId() == null) {
+                throw new RuntimeException("riderId is required");
+            }
+            if (dto.getAmount() == null || dto.getAmount() <= 0) {
+                throw new RuntimeException("amount is required");
+            }
+            Long riderId = dto.getRiderId();
+            double amt = round2(dto.getAmount());
+            RiderWalletEntity wallet = riderWalletRepository.lockByRiderId(riderId)
+                    .orElseThrow(() -> new RuntimeException("Wallet not found"));
+            double pending = round2(nz(wallet.getCodPendingAmount()));
+            if (pending <= 0) {
+                throw new RuntimeException("No commission pending for this rider");
+            }
+            if (amt - pending > 0.01) {
+                throw new RuntimeException("amount cannot exceed pending commission (" + pending + ")");
+            }
+
+            CodDepositEntity deposit = new CodDepositEntity();
+            deposit.setRiderId(riderId);
+            deposit.setHubId(dto.getHubId());
+            deposit.setAmount(amt);
+            deposit.setAdminUserId(adminUserId);
+            deposit.setNote(dto.getNote());
+            codDepositRepository.saveAndFlush(deposit);
+
+            double remaining = amt;
+            List<OrderRiderFinancialEntity> openLines = orderRiderFinancialRepository
+                    .findByRiderIdAndCodSettlementStatusOrderByCreatedAtAsc(riderId, CodSettlementStatus.PENDING);
+            for (OrderRiderFinancialEntity fin : openLines) {
+                if (remaining <= 0.0001) {
+                    break;
+                }
+                double lineComm = round2(nz(fin.getCommissionAmount()));
+                if (lineComm <= 0) {
+                    continue;
+                }
+                if (remaining + 0.0001 < lineComm) {
+                    break;
+                }
+                fin.setCodSettlementStatus(CodSettlementStatus.SETTLED);
+                fin.setSettledAt(Instant.now());
+                fin.setCodDepositId(deposit.getId());
+                orderRiderFinancialRepository.save(fin);
+                remaining = round2(remaining - lineComm);
+                OrderEntity order = orderRepository.findById(fin.getOrderId()).orElse(null);
+                if (order != null) {
+                    settleOrderCodStatusIfComplete(order);
+                }
+            }
+
+            wallet.setCodPendingAmount(round2(pending - amt));
+            riderWalletRepository.save(wallet);
+
+            audit("COD_DEPOSIT", "ADMIN", adminUserId, "RIDER", riderId, Map.of(
+                    "depositId", deposit.getId(),
+                    "amount", amt,
+                    "hubId", dto.getHubId()));
+
+            if (notificationDedupService.tryAcquire("rider-cod-deposit:" + deposit.getId())) {
+                Map<String, String> codData = new HashMap<>(
+                        NotificationService.baseData(null, null, NotificationType.RIDER_COD_DEPOSIT_CONFIRMED));
+                codData.put("settledAmount", String.valueOf(amt));
+                codData.put("commissionPending", String.valueOf(wallet.getCodPendingAmount()));
+                String body = "Rs. " + String.format("%.2f", amt) + " commission received at hub.";
+                if (wallet.getCodPendingAmount() <= resolveHandoverLimit(riderId) - 0.0001) {
+                    body += " You can accept orders again.";
+                }
+                notificationService.sendToRider(
+                        riderId,
+                        "COD deposit confirmed",
+                        body,
+                        codData,
+                        NotificationType.RIDER_COD_DEPOSIT_CONFIRMED);
+            }
+
+            response.setData("OK");
+            response.setMessage("Deposit recorded");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            setErr(response, e.getMessage());
+            response.setStatus(400);
+        }
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public ApiResponse<RiderResponseDTO> adminUpdateCodHandoverLimit(Long riderId, AdminCodHandoverLimitRequestDTO dto) {
+        ApiResponse<RiderResponseDTO> response = new ApiResponse<>();
+        try {
+            if (riderId == null) {
+                throw new RuntimeException("riderId is required");
+            }
+            if (dto == null || dto.getCodHandoverLimit() == null || dto.getCodHandoverLimit() <= 0) {
+                throw new RuntimeException("codHandoverLimit must be positive");
+            }
+            RiderEntity rider = riderRepository.findById(riderId)
+                    .orElseThrow(() -> new RuntimeException("Rider not found"));
+            rider.setCodHandoverLimit(round2(dto.getCodHandoverLimit()));
+            riderRepository.save(rider);
+            response.setMessage("COD handover limit updated");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            setErr(response, e.getMessage());
+            response.setStatus(400);
+        }
+        return response;
+    }
+
+    private void settleOrderCodStatusIfComplete(OrderEntity order) {
+        if (order == null || order.getId() == null) {
+            return;
+        }
+        List<OrderRiderFinancialEntity> rows = orderRiderFinancialRepository.findAllByOrderId(order.getId());
+        boolean anyCodPending = rows.stream()
+                .anyMatch(r -> r.getCodSettlementStatus() == CodSettlementStatus.PENDING
+                        && nz(r.getCommissionAmount()) > 0);
+        if (!anyCodPending) {
+            order.setCodSettlementStatus(CodSettlementStatus.SETTLED);
+            orderRepository.save(order);
+        }
+    }
+
+    private AdminCodRiderSummaryDTO buildAdminCodRiderSummary(Long riderId, RiderWalletEntity wallet) {
+        RiderEntity rider = riderRepository.findById(riderId).orElse(null);
+        double pending = round2(nz(wallet.getCodPendingAmount()));
+        double limit = resolveHandoverLimit(riderId);
+        AdminCodRiderSummaryDTO s = new AdminCodRiderSummaryDTO();
+        s.setRiderId(riderId);
+        if (rider != null) {
+            s.setRiderName(rider.getName());
+            s.setRiderPhone(rider.getPhone());
+            s.setRiderPublicId(rider.getPublicId());
+        }
+        s.setCommissionPending(pending);
+        s.setHandoverLimit(limit);
+        s.setHandoverStatus(resolveHandoverStatus(pending, limit));
+        s.setDispatchBlocked(isDispatchBlocked(pending, limit));
+        s.setOpenLineCount(orderRiderFinancialRepository.countByRiderIdAndCodSettlementStatus(
+                riderId, CodSettlementStatus.PENDING));
+        List<CodDepositEntity> last = codDepositRepository.findByRiderIdOrderByCreatedAtDesc(
+                riderId, PageRequest.of(0, 1));
+        if (!last.isEmpty()) {
+            CodDepositEntity d = last.get(0);
+            s.setLastDepositAmount(round2(d.getAmount()));
+            s.setLastDepositAt(d.getCreatedAt() != null ? d.getCreatedAt().toString() : null);
+        }
+        return s;
+    }
+
+    private List<AdminCodOpenLineDTO> loadOpenCodLines(Long riderId) {
+        return orderRiderFinancialRepository
+                .findByRiderIdAndCodSettlementStatusOrderByCreatedAtAsc(riderId, CodSettlementStatus.PENDING)
+                .stream()
+                .filter(f -> nz(f.getCommissionAmount()) > 0)
+                .map(f -> {
+                    AdminCodOpenLineDTO line = new AdminCodOpenLineDTO();
+                    line.setOrderId(f.getOrderId());
+                    OrderEntity o = orderRepository.findById(f.getOrderId()).orElse(null);
+                    if (o != null) {
+                        line.setDisplayOrderId(o.getDisplayOrderId());
+                    }
+                    line.setOrderAmount(f.getOrderAmount());
+                    line.setCommissionAmount(f.getCommissionAmount());
+                    line.setRiderEarningAmount(f.getRiderEarningAmount());
+                    line.setCommissionPercentApplied(f.getCommissionPercentApplied());
+                    line.setCodCollectionMode(
+                            f.getCodCollectionMode() != null ? f.getCodCollectionMode().name() : null);
+                    line.setDeliveredAt(f.getCreatedAt() != null ? f.getCreatedAt().toString() : null);
+                    return line;
+                })
+                .collect(Collectors.toList());
+    }
+
+    private List<AdminCodDepositHistoryDTO> loadRecentDeposits(Long riderId, int limit) {
+        return codDepositRepository.findByRiderIdOrderByCreatedAtDesc(riderId, PageRequest.of(0, limit)).stream()
+                .map(d -> {
+                    AdminCodDepositHistoryDTO h = new AdminCodDepositHistoryDTO();
+                    h.setDepositId(d.getId());
+                    h.setAmount(d.getAmount());
+                    h.setHubId(d.getHubId());
+                    h.setNote(d.getNote());
+                    h.setCreatedAt(d.getCreatedAt() != null ? d.getCreatedAt().toString() : null);
+                    return h;
+                })
+                .collect(Collectors.toList());
+    }
+
+    private static boolean matchesCodRiderSearch(AdminCodRiderSummaryDTO s, String q) {
+        return containsIgnoreCase(s.getRiderName(), q)
+                || containsIgnoreCase(s.getRiderPhone(), q)
+                || containsIgnoreCase(s.getRiderPublicId(), q)
+                || String.valueOf(s.getRiderId()).contains(q);
+    }
+
+    private static boolean containsIgnoreCase(String value, String q) {
+        return value != null && value.toLowerCase().contains(q);
+    }
+
+    private double resolveHandoverLimit(Long riderId) {
+        if (riderId == null) {
+            return DEFAULT_COD_HANDOVER_LIMIT;
+        }
+        return riderRepository.findById(riderId)
+                .map(RiderEntity::getCodHandoverLimit)
+                .filter(l -> l != null && l > 0)
+                .orElse(DEFAULT_COD_HANDOVER_LIMIT);
+    }
+
+    private static String resolveHandoverStatus(double pending, double limit) {
+        if (limit <= 0) {
+            return "OK";
+        }
+        if (pending + 0.0001 >= limit) {
+            return "BLOCKED";
+        }
+        if (pending + 0.0001 >= limit * COD_HANDOVER_WARNING_RATIO) {
+            return "WARNING";
+        }
+        return "OK";
+    }
+
+    private static boolean isDispatchBlocked(double pending, double limit) {
+        return limit > 0 && pending + 0.0001 >= limit;
     }
 
     private OrderEntity resolveOrderByIdOrReference(String raw) {

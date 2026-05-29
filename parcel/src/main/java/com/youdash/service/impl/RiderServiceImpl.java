@@ -48,6 +48,7 @@ import com.youdash.repository.wallet.RiderWithdrawalRepository;
 import com.youdash.service.NotificationDedupService;
 import com.youdash.service.NotificationService;
 import com.youdash.service.RiderService;
+import com.youdash.service.wallet.RiderWalletService;
 import com.youdash.realtime.UserActiveOrderTopicPublisher;
 import com.youdash.util.GeoUtils;
 import com.youdash.util.JwtUtil;
@@ -78,6 +79,9 @@ public class RiderServiceImpl implements RiderService {
 
     @Autowired
     private RiderWalletRepository riderWalletRepository;
+
+    @Autowired
+    private RiderWalletService riderWalletService;
 
     @Autowired
     private RiderWalletTransactionRepository riderWalletTransactionRepository;
@@ -625,6 +629,7 @@ public class RiderServiceImpl implements RiderService {
         try {
             List<RiderResponseDTO> dtos = riderRepository.findByIsAvailableTrue().stream()
                     .filter(this::isApprovedOrLegacy)
+                    .filter(r -> !riderWalletService.isRiderDispatchBlocked(r.getId()))
                     .map(this::mapToResponseDTO)
                     .collect(Collectors.toList());
             response.setData(dtos);
@@ -657,6 +662,7 @@ public class RiderServiceImpl implements RiderService {
 
             List<RiderResponseDTO> dtos = riderRepository.findByIsAvailableTrue().stream()
                     .filter(this::isApprovedOrLegacy)
+                    .filter(r -> !riderWalletService.isRiderDispatchBlocked(r.getId()))
                     .filter(r -> "ONLINE".equalsIgnoreCase(computeRiderStatus(r)))
                     .filter(r -> r.getCurrentLat() != null && r.getCurrentLng() != null)
                     .filter(r -> !orderRepository.existsByRiderIdAndStatusIn(r.getId(), ACTIVE_ASSIGNMENT_STATUSES))
@@ -847,6 +853,12 @@ public class RiderServiceImpl implements RiderService {
             dto.setWalletWithdrawalPendingAmount(round2(w.getWithdrawalPendingAmount()));
             dto.setWalletNetAvailable(
                     round2(w.getCurrentBalance() - w.getWithdrawalPendingAmount()));
+        }
+        if (riderId != null) {
+            RiderEntity riderRow = riderRepository.findById(riderId).orElse(null);
+            Double limit = riderRow != null ? riderRow.getCodHandoverLimit() : null;
+            dto.setCodHandoverLimit(limit != null && limit > 0 ? round2(limit) : 1000.0);
+            dto.setDispatchBlocked(riderWalletService.isRiderDispatchBlocked(riderId));
         }
 
         var page = PageRequest.of(0, 10);

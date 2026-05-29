@@ -31,7 +31,7 @@ public class RiderWalletEntity {
     @Column(name = "total_withdrawn", nullable = false)
     private Double totalWithdrawn;
 
-    /** COD cash held by rider pending settlement to admin. */
+    /** COD commission (cash) owed to hub — not full order value. */
     @Column(name = "cod_pending_amount", nullable = false)
     private Double codPendingAmount;
 

@@ -1,6 +1,7 @@
 package com.youdash.service.wallet;
 
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.RiderResponseDTO;
 import com.youdash.dto.wallet.*;
 import com.youdash.entity.OrderEntity;
 import com.youdash.model.wallet.CodCollectionMode;
@@ -43,6 +44,19 @@ public interface RiderWalletService {
     void ensureDefaultCommissionConfig();
 
     ApiResponse<String> adminSettleCod(Long adminUserId, AdminCodSettleRequestDTO dto);
+
+    /** True when COD commission pending is at or above the rider's handover limit. */
+    boolean isRiderDispatchBlocked(Long riderId);
+
+    ApiResponse<java.util.List<com.youdash.dto.wallet.AdminCodRiderSummaryDTO>> adminListCodRiders(
+            String statusFilter, String search);
+
+    ApiResponse<com.youdash.dto.wallet.AdminCodRiderDetailDTO> adminGetCodRiderDetail(Long riderId);
+
+    ApiResponse<String> adminConfirmCodDeposit(Long adminUserId, AdminCodDepositRequestDTO dto);
+
+    ApiResponse<com.youdash.dto.RiderResponseDTO> adminUpdateCodHandoverLimit(
+            Long riderId, com.youdash.dto.wallet.AdminCodHandoverLimitRequestDTO dto);
 
     /**
      * Rider earning from current commission config (percentage of order amount),
