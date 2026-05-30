@@ -138,6 +138,11 @@ public class HubCorridorSlaServiceImpl implements HubCorridorSlaService {
         }
         if (dto.getCutoffTime() != null) {
             e.setCutoffTime(dto.getCutoffTime().isBlank() ? null : parseTime(dto.getCutoffTime()));
+        } else if (create) {
+            throw new RuntimeException("cutoffTime (departure slot) is required");
+        }
+        if (dto.getSlotLabel() != null) {
+            e.setSlotLabel(dto.getSlotLabel().isBlank() ? null : dto.getSlotLabel().trim());
         }
         if (dto.getDeliveryType() != null) {
             String t = normalizeType(dto.getDeliveryType());
@@ -148,6 +153,11 @@ public class HubCorridorSlaServiceImpl implements HubCorridorSlaService {
         }
         if (dto.getDeliveryTime() != null) {
             e.setDeliveryTime(dto.getDeliveryTime().isBlank() ? null : parseTime(dto.getDeliveryTime()));
+        }
+        if (dto.getDeliveryDayOffset() != null) {
+            e.setDeliveryDayOffset(dto.getDeliveryDayOffset());
+        } else if (create && DELIVERY_NEXT_DAY.equals(normalizeType(e.getDeliveryType()))) {
+            e.setDeliveryDayOffset(1);
         }
         if (dto.getDeliveredWithinHours() != null) {
             e.setDeliveredWithinHours(dto.getDeliveredWithinHours());
@@ -166,8 +176,14 @@ public class HubCorridorSlaServiceImpl implements HubCorridorSlaService {
         if (type.isEmpty()) {
             throw new RuntimeException("deliveryType is required");
         }
+        if (e.getCutoffTime() == null) {
+            throw new RuntimeException("cutoffTime (departure slot) is required");
+        }
         if (DELIVERY_NEXT_DAY.equals(type) && e.getDeliveryTime() == null) {
             throw new RuntimeException("deliveryTime is required for NEXT_DAY");
+        }
+        if (DELIVERY_NEXT_DAY.equals(type) && e.getDeliveryDayOffset() == null) {
+            e.setDeliveryDayOffset(1);
         }
         if (DELIVERY_HOURS.equals(type)
                 && (e.getDeliveredWithinHours() == null || e.getDeliveredWithinHours() <= 0)) {
@@ -196,8 +212,10 @@ public class HubCorridorSlaServiceImpl implements HubCorridorSlaService {
                 .hubId(e.getHubId())
                 .destinationZoneId(e.getDestinationZoneId())
                 .cutoffTime(e.getCutoffTime() != null ? e.getCutoffTime().format(ISO_TIME) : null)
+                .slotLabel(e.getSlotLabel())
                 .deliveryType(e.getDeliveryType())
                 .deliveryTime(e.getDeliveryTime() != null ? e.getDeliveryTime().format(ISO_TIME) : null)
+                .deliveryDayOffset(e.getDeliveryDayOffset())
                 .deliveredWithinHours(e.getDeliveredWithinHours())
                 .priority(e.getPriority())
                 .isActive(e.getIsActive())

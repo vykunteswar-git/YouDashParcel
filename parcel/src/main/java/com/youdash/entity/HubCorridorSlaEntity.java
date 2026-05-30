@@ -26,14 +26,22 @@ public class HubCorridorSlaEntity {
     @Column(name = "destination_zone_id", nullable = false)
     private Long destinationZoneId;
 
+    /** Last handover / bus departure time for this slot (required for dispatch slots). */
     @Column(name = "cutoff_time")
     private LocalTime cutoffTime;
+
+    @Column(name = "slot_label", length = 80)
+    private String slotLabel;
 
     @Column(name = "delivery_type", nullable = false, length = 20)
     private String deliveryType;
 
     @Column(name = "delivery_time")
     private LocalTime deliveryTime;
+
+    /** Calendar days after handover date for delivery (0 = same day, 1 = next day). */
+    @Column(name = "delivery_day_offset")
+    private Integer deliveryDayOffset;
 
     @Column(name = "delivered_within_hours")
     private Integer deliveredWithinHours;
