@@ -1,7 +1,6 @@
 package com.youdash.service.wallet;
 
 import com.youdash.bean.ApiResponse;
-import com.youdash.dto.RiderResponseDTO;
 import com.youdash.dto.wallet.*;
 import com.youdash.entity.OrderEntity;
 import com.youdash.model.wallet.CodCollectionMode;

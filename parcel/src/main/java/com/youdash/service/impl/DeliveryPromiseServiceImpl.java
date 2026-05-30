@@ -266,8 +266,6 @@ public class DeliveryPromiseServiceImpl implements DeliveryPromiseService {
         final LocalTime deliveryTime;
         final Integer deliveryDayOffset;
         final Integer deliveredWithinHours;
-        final String slotLabel;
-
         SlaSlot(
                 String deliveryType,
                 LocalTime cutoffTime,
@@ -280,7 +278,6 @@ public class DeliveryPromiseServiceImpl implements DeliveryPromiseService {
             this.deliveryTime = deliveryTime;
             this.deliveryDayOffset = deliveryDayOffset;
             this.deliveredWithinHours = deliveredWithinHours;
-            this.slotLabel = slotLabel;
         }
 
         static SlaSlot fromZone(ZoneRouteSlaEntity e) {

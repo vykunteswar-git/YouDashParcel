@@ -80,9 +80,6 @@ public class OrderServiceImpl implements OrderService {
     private HubRepository hubRepository;
 
     @Autowired
-    private HubRouteRepository hubRouteRepository;
-
-    @Autowired
     private RouteRateResolver routeRateResolver;
 
     @Autowired
@@ -1152,7 +1149,7 @@ public class OrderServiceImpl implements OrderService {
         appendTimeline(saved, targetStatus, "hub_handover_" + handoverType.name().toLowerCase(),
                 handoverType == OutstationHubHandover.Type.DROP ? saved.getOriginHubId() : saved.getDestinationHubId(),
                 null, timelineNote);
-        publishAdminStatusEvent(saved);
+        publishAdminStatusEvent(saved, targetStatus);
         response.setData(toOrderDto(saved, null, null, false, null));
         response.setMessage("Hub handover recorded");
         response.setMessageKey("SUCCESS");

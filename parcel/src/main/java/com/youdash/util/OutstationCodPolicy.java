@@ -3,7 +3,6 @@ package com.youdash.util;
 import com.youdash.entity.OrderEntity;
 import com.youdash.model.ServiceMode;
 
-import java.util.Objects;
 
 /**
  * Outstation COD is always collected from the sender (booking user), never from the receiver.
