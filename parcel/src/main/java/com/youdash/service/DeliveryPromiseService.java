@@ -9,4 +9,13 @@ public interface DeliveryPromiseService {
      * @param deliveryTypeUI e.g. DOOR_TO_DOOR / DOOR_TO_HUB / HUB_TO_DOOR
      */
     DeliveryPromiseDTO getDeliveryPromise(Long hubRouteId, String deliveryTypeUI);
+
+    /**
+     * Zone corridor SLA + origin hub intake cutoff when hub ids are provided.
+     */
+    DeliveryPromiseDTO getOutstationDeliveryPromise(
+            Long originHubId,
+            Long destinationHubId,
+            Long hubRouteId,
+            String deliveryTypeUI);
 }

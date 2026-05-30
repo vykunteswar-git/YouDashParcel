@@ -13,5 +13,6 @@ public class HubResponseDTO {
     private Double lat;
     private Double lng;
     private Long zoneId;
+    private String intakeCutoff;
     private Boolean isActive;
 }

@@ -27,6 +27,7 @@ import com.youdash.service.DeliveryPromiseService;
 import com.youdash.service.DistanceService;
 import com.youdash.service.PricingService;
 import com.youdash.service.QuoteService;
+import com.youdash.service.RouteRateResolver;
 import com.youdash.service.ZoneService;
 import com.youdash.util.AppConfigPricing;
 import com.youdash.util.GeoUtils;
@@ -65,6 +66,9 @@ public class QuoteServiceImpl implements QuoteService {
 
     @Autowired
     private HubRouteRepository hubRouteRepository;
+
+    @Autowired
+    private RouteRateResolver routeRateResolver;
 
     @Autowired
     private DeliveryPromiseService deliveryPromiseService;
@@ -293,7 +297,8 @@ public class QuoteServiceImpl implements QuoteService {
                     row.setHandoverMessage("");
                 }
             }
-            DeliveryPromiseDTO promise = deliveryPromiseService.getDeliveryPromise(hubRouteId, type);
+            DeliveryPromiseDTO promise = deliveryPromiseService.getOutstationDeliveryPromise(
+                    selectedOriginHubId, selectedDestinationHubId, hubRouteId, type);
             row.setDeliveryPromise(promise);
             applyPromiseCopy(row, promise, type);
 
@@ -340,10 +345,7 @@ public class QuoteServiceImpl implements QuoteService {
     }
 
     private double resolveRouteRate(Long originHubId, Long destHubId, AppConfigEntity cfg) {
-        return hubRouteRepository
-                .findByOriginHubIdAndDestinationHubIdAndIsActiveTrue(originHubId, destHubId)
-                .map(HubRouteEntity::getRatePerKm)
-                .orElseGet(() -> nz(cfg.getDefaultRouteRatePerKm()));
+        return routeRateResolver.resolveHubLegRatePerKm(originHubId, destHubId, cfg);
     }
 
     private DeliveryTypePricingDTO toDeliveryTypePricing(

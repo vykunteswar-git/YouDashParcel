@@ -17,6 +17,7 @@ import com.youdash.service.OrderStatusTransitionGuard;
 import com.youdash.service.OrderTimelineService;
 import com.youdash.service.PricingService;
 import com.youdash.service.ZoneService;
+import com.youdash.service.RouteRateResolver;
 import com.youdash.service.CouponService;
 import com.youdash.service.wallet.RiderWalletService;
 import com.youdash.dto.coupon.CouponApplication;
@@ -78,6 +79,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private HubRouteRepository hubRouteRepository;
+
+    @Autowired
+    private RouteRateResolver routeRateResolver;
 
     @Autowired
     private OrderRepository orderRepository;
@@ -1600,9 +1604,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private double resolveRouteRate(Long originHubId, Long destHubId, AppConfigEntity config) {
-        return hubRouteRepository.findByOriginHubIdAndDestinationHubIdAndIsActiveTrue(originHubId, destHubId)
-                .map(HubRouteEntity::getRatePerKm)
-                .orElseGet(() -> nz(config.getDefaultRouteRatePerKm()));
+        return routeRateResolver.resolveHubLegRatePerKm(originHubId, destHubId, config);
     }
 
     private static OutstationDeliveryType parseOutstationDelivery(String raw) {

@@ -1,9 +1,14 @@
 package com.youdash.service.impl;
 
 import com.youdash.dto.DeliveryPromiseDTO;
+import com.youdash.entity.HubEntity;
 import com.youdash.entity.HubRouteSlaEntity;
+import com.youdash.entity.ZoneRouteSlaEntity;
+import com.youdash.repository.HubRepository;
 import com.youdash.repository.HubRouteSlaRepository;
+import com.youdash.repository.ZoneRouteSlaRepository;
 import com.youdash.service.DeliveryPromiseService;
+import com.youdash.service.RouteRateResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -12,6 +17,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -19,130 +25,171 @@ import java.util.Locale;
 public class DeliveryPromiseServiceImpl implements DeliveryPromiseService {
 
     private static final String NEXT_DAY = "NEXT_DAY";
-    private static final String HOURS    = "HOURS";
+    private static final String HOURS = "HOURS";
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
 
     private static final DateTimeFormatter DISPLAY_TIME = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH);
     private static final DateTimeFormatter DISPLAY_DATE = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH);
 
     @Autowired
-    private HubRouteSlaRepository slaRepository;
+    private HubRouteSlaRepository hubRouteSlaRepository;
+
+    @Autowired
+    private ZoneRouteSlaRepository zoneRouteSlaRepository;
+
+    @Autowired
+    private HubRepository hubRepository;
+
+    @Autowired
+    private RouteRateResolver routeRateResolver;
 
     @Override
     public DeliveryPromiseDTO getDeliveryPromise(Long hubRouteId, String deliveryTypeUI) {
-        if (hubRouteId == null) {
+        return getOutstationDeliveryPromise(null, null, hubRouteId, deliveryTypeUI);
+    }
+
+    @Override
+    public DeliveryPromiseDTO getOutstationDeliveryPromise(
+            Long originHubId,
+            Long destinationHubId,
+            Long hubRouteId,
+            String deliveryTypeUI) {
+
+        LocalTime hubIntakeCutoff = null;
+        if (originHubId != null) {
+            hubIntakeCutoff = hubRepository.findById(originHubId)
+                    .map(HubEntity::getIntakeCutoff)
+                    .orElse(null);
+        }
+
+        Long zoneRouteId = null;
+        if (originHubId != null && destinationHubId != null) {
+            zoneRouteId = routeRateResolver.resolveZoneRouteId(originHubId, destinationHubId).orElse(null);
+        }
+
+        List<SlaSlot> slots = new ArrayList<>();
+        if (zoneRouteId != null) {
+            for (ZoneRouteSlaEntity sla : zoneRouteSlaRepository
+                    .findByZoneRouteIdAndIsActiveTrueOrderByPriorityAsc(zoneRouteId)) {
+                slots.add(SlaSlot.fromZone(sla));
+            }
+        }
+        if (slots.isEmpty() && hubRouteId != null) {
+            for (HubRouteSlaEntity sla : hubRouteSlaRepository
+                    .findByHubRouteIdAndIsActiveTrueOrderByPriorityAsc(hubRouteId)) {
+                slots.add(SlaSlot.fromHub(sla));
+            }
+        }
+
+        if (slots.isEmpty()) {
+            if (zoneRouteId == null && hubRouteId == null) {
+                return new DeliveryPromiseDTO(
+                        "Delivery timeline will be confirmed after hub selection.",
+                        "Please select origin and destination hubs on an active route.",
+                        null,
+                        false);
+            }
             return new DeliveryPromiseDTO(
-                    "Delivery timeline will be confirmed after hub selection.",
-                    "Please select origin and destination hubs on an active route.",
+                    "Delivery schedule will be confirmed at booking.",
+                    hubIntakeCutoff != null
+                            ? "Hand over at the origin hub before " + formatTime(hubIntakeCutoff) + "."
+                            : null,
                     null,
                     false);
         }
 
-        LocalDateTime now         = LocalDateTime.now(BUSINESS_ZONE);
-        LocalTime    currentTime  = now.toLocalTime();
+        LocalDateTime now = LocalDateTime.now(BUSINESS_ZONE);
+        LocalTime currentTime = now.toLocalTime();
 
-        List<HubRouteSlaEntity> slaList =
-                slaRepository.findByHubRouteIdAndIsActiveTrueOrderByPriorityAsc(hubRouteId);
-        if (slaList.isEmpty()) {
-            return new DeliveryPromiseDTO(
-                    "Delivery schedule will be confirmed at booking.",
-                    null, null, false);
+        for (SlaSlot sla : slots) {
+            LocalTime intakeGate = hubIntakeCutoff != null ? hubIntakeCutoff : sla.cutoffTime;
+            if (intakeGate == null) {
+                continue;
+            }
+            if (!currentTime.isBefore(intakeGate)) {
+                continue;
+            }
+
+            String type = normalizeType(sla.deliveryType);
+            if (NEXT_DAY.equals(type)) {
+                return buildNextDayPromise(now, sla, deliveryTypeUI, false, intakeGate);
+            }
+            if (HOURS.equals(type)) {
+                return buildHoursPromise(sla);
+            }
         }
 
-        // 1) First slot whose cutoff has not yet passed today
-        for (HubRouteSlaEntity sla : slaList) {
-            if (sla.getCutoffTime() == null) continue;
-            if (!currentTime.isBefore(sla.getCutoffTime())) continue;
-
-            String type = normalizeType(sla.getDeliveryType());
-            if (NEXT_DAY.equals(type)) return buildNextDayPromise(now, sla, deliveryTypeUI, false);
-            if (HOURS.equals(type))    return buildHoursPromise(sla);
+        SlaSlot firstNextDay = slots.stream()
+                .filter(s -> NEXT_DAY.equalsIgnoreCase(normalizeType(s.deliveryType)))
+                .findFirst()
+                .orElse(null);
+        if (firstNextDay != null) {
+            LocalTime intakeGate = hubIntakeCutoff != null ? hubIntakeCutoff : firstNextDay.cutoffTime;
+            return buildNextDayPromise(now, firstNextDay, deliveryTypeUI, true,
+                    intakeGate != null ? intakeGate : LocalTime.of(23, 59));
         }
 
-        // 2) All today's cutoffs missed — shift to tomorrow's first NEXT_DAY window
-        HubRouteSlaEntity firstNextDay = slaList.stream()
-                .filter(s -> NEXT_DAY.equalsIgnoreCase(normalizeType(s.getDeliveryType())))
+        SlaSlot fallback = slots.stream()
+                .filter(s -> HOURS.equalsIgnoreCase(normalizeType(s.deliveryType)))
                 .findFirst()
                 .orElse(null);
-        if (firstNextDay != null) return buildNextDayPromise(now, firstNextDay, deliveryTypeUI, true);
-
-        // 3) HOURS-only fallback
-        HubRouteSlaEntity fallback = slaList.stream()
-                .filter(s -> HOURS.equalsIgnoreCase(normalizeType(s.getDeliveryType())))
-                .findFirst()
-                .orElse(null);
-        if (fallback != null) return buildHoursPromise(fallback);
+        if (fallback != null) {
+            return buildHoursPromise(fallback);
+        }
 
         return new DeliveryPromiseDTO(
                 "No delivery commitment is configured for this route.", null, null, false);
     }
 
-    // ── Builders ──────────────────────────────────────────────────────────────
-
     private DeliveryPromiseDTO buildNextDayPromise(
-            LocalDateTime now, HubRouteSlaEntity sla, String deliveryTypeUI, boolean shifted) {
+            LocalDateTime now,
+            SlaSlot sla,
+            String deliveryTypeUI,
+            boolean shifted,
+            LocalTime intakeCutoffForCopy) {
 
-        if (sla.getDeliveryTime() == null) {
+        if (sla.deliveryTime == null) {
             return new DeliveryPromiseDTO(
                     "Delivery schedule will be confirmed at booking.", null, null, shifted);
         }
 
-        /*
-         * handoverDate = the day the parcel must reach the origin hub
-         *   active (not shifted) → today
-         *   shifted              → tomorrow  (today's slots are all closed)
-         *
-         * deliveryDate = handoverDate + 1 day  (next-day commitment)
-         */
-        LocalDate handoverDate  = shifted ? now.toLocalDate().plusDays(1) : now.toLocalDate();
-        LocalDate deliveryDate  = handoverDate.plusDays(1);
+        LocalDate handoverDate = shifted ? now.toLocalDate().plusDays(1) : now.toLocalDate();
+        LocalDate deliveryDate = handoverDate.plusDays(1);
 
-        String cutoffText      = sla.getCutoffTime() != null
-                ? formatTime(sla.getCutoffTime()) : "the scheduled cutoff";
-        String deliveryTimeText = formatTime(sla.getDeliveryTime());
+        String cutoffText = formatTime(intakeCutoffForCopy);
+        String deliveryTimeText = formatTime(sla.deliveryTime);
 
         if (shifted) {
-            // e.g. "Today's delivery slots have closed. Your parcel can be delivered by 28 Apr 2026 at 12:00 PM."
-            String deliveryDateStr  = formatDate(deliveryDate);
-            String handoverDateStr  = formatDate(handoverDate);
-            String deliveredBy      = "Delivered by " + deliveryDateStr + " at " + deliveryTimeText;
-            String message          = "Today's delivery slots have closed. "
+            String deliveryDateStr = formatDate(deliveryDate);
+            String handoverDateStr = formatDate(handoverDate);
+            String deliveredBy = "Delivered by " + deliveryDateStr + " at " + deliveryTimeText;
+            String message = "Today's delivery slots have closed. "
                     + "Your parcel can be delivered by " + deliveryDateStr + " at " + deliveryTimeText + ".";
-            String cutoffInfo       = buildShiftedCutoffInfo(deliveryTypeUI, cutoffText, handoverDateStr);
+            String cutoffInfo = buildShiftedCutoffInfo(deliveryTypeUI, cutoffText, handoverDateStr);
             return new DeliveryPromiseDTO(message, cutoffInfo, deliveredBy, true);
-        } else {
-            // e.g. "Delivered by tomorrow, 12:00 PM"
-            String deliveredBy = "Delivered by tomorrow, " + deliveryTimeText;
-            String cutoffInfo  = buildActiveCutoffInfo(deliveryTypeUI, cutoffText);
-            return new DeliveryPromiseDTO(deliveredBy, cutoffInfo, deliveredBy, false);
         }
+
+        String deliveredBy = "Delivered by tomorrow, " + deliveryTimeText;
+        String cutoffInfo = buildActiveCutoffInfo(deliveryTypeUI, cutoffText);
+        return new DeliveryPromiseDTO(deliveredBy, cutoffInfo, deliveredBy, false);
     }
 
-    private DeliveryPromiseDTO buildHoursPromise(HubRouteSlaEntity sla) {
-        int h = sla.getDeliveredWithinHours() != null ? sla.getDeliveredWithinHours() : 0;
+    private DeliveryPromiseDTO buildHoursPromise(SlaSlot sla) {
+        int h = sla.deliveredWithinHours != null ? sla.deliveredWithinHours : 0;
         String msg = h > 0
                 ? "Delivered within " + h + " hour" + (h == 1 ? "" : "s") + "."
                 : "Delivery window will be confirmed at booking.";
         return new DeliveryPromiseDTO(msg, null, msg, false);
     }
 
-    // ── Cutoff-info helpers ───────────────────────────────────────────────────
-
-    /**
-     * Active slot — parcel must reach origin hub before {@code cutoffText} today.
-     */
     private static String buildActiveCutoffInfo(String deliveryTypeUI, String cutoffText) {
         if (isHubDrop(deliveryTypeUI)) {
-            return "Drop your parcel at the origin hub before " + cutoffText
-                    + " today to secure this delivery slot.";
+            return "Drop your parcel at the origin hub before " + cutoffText + " today to secure this delivery slot.";
         }
         return "Our rider will collect your parcel before " + cutoffText
                 + " today to ensure it reaches the origin hub on time.";
     }
 
-    /**
-     * Shifted — today's slots have closed; next window is on {@code handoverDateStr}.
-     */
     private static String buildShiftedCutoffInfo(
             String deliveryTypeUI, String cutoffText, String handoverDateStr) {
         if (isHubDrop(deliveryTypeUI)) {
@@ -152,8 +199,6 @@ public class DeliveryPromiseServiceImpl implements DeliveryPromiseService {
         return "A pickup will be arranged before " + cutoffText + " on " + handoverDateStr
                 + " to dispatch your parcel to the origin hub.";
     }
-
-    // ── Utilities ─────────────────────────────────────────────────────────────
 
     private static boolean isHubDrop(String deliveryTypeUI) {
         String t = normalizeUiType(deliveryTypeUI);
@@ -174,5 +219,27 @@ public class DeliveryPromiseServiceImpl implements DeliveryPromiseService {
 
     private static String formatDate(LocalDate date) {
         return date == null ? "" : date.format(DISPLAY_DATE);
+    }
+
+    private static final class SlaSlot {
+        final String deliveryType;
+        final LocalTime cutoffTime;
+        final LocalTime deliveryTime;
+        final Integer deliveredWithinHours;
+
+        SlaSlot(String deliveryType, LocalTime cutoffTime, LocalTime deliveryTime, Integer deliveredWithinHours) {
+            this.deliveryType = deliveryType;
+            this.cutoffTime = cutoffTime;
+            this.deliveryTime = deliveryTime;
+            this.deliveredWithinHours = deliveredWithinHours;
+        }
+
+        static SlaSlot fromZone(ZoneRouteSlaEntity e) {
+            return new SlaSlot(e.getDeliveryType(), e.getCutoffTime(), e.getDeliveryTime(), e.getDeliveredWithinHours());
+        }
+
+        static SlaSlot fromHub(HubRouteSlaEntity e) {
+            return new SlaSlot(e.getDeliveryType(), e.getCutoffTime(), e.getDeliveryTime(), e.getDeliveredWithinHours());
+        }
     }
 }

@@ -26,6 +26,10 @@ public class HubEntity {
     @Column(name = "zone_id")
     private Long zoneId;
 
+    /** Last time parcel can be accepted at this hub for same-day corridor dispatch. */
+    @Column(name = "intake_cutoff")
+    private java.time.LocalTime intakeCutoff;
+
     @Column(name = "is_active")
     private Boolean isActive;
 }

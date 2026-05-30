@@ -14,3 +14,10 @@
 - `POST /orders/calculate-final`
 
 Hubs must have `zone_id` set for zone-linked outstation matching on order create.
+
+## Zone routes (corridors)
+
+- **Price:** `youdash_zone_routes` — `origin_zone_id` → `destination_zone_id`, `rate_per_km`.
+- **Corridor SLA:** `youdash_zone_route_sla` — delivery promise between zones.
+- **Hub intake:** `youdash_hubs.intake_cutoff` — last acceptance time at that hub (shown in app per selected hub).
+- **Override:** hub-pair row in `youdash_hub_routes` still wins on price if present.

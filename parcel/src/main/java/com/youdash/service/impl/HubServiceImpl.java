@@ -10,12 +10,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
 public class HubServiceImpl implements HubService {
+
+    private static final DateTimeFormatter ISO_TIME = DateTimeFormatter.ISO_LOCAL_TIME;
 
     @Autowired
     private HubRepository hubRepository;
@@ -109,6 +114,21 @@ public class HubServiceImpl implements HubService {
         if (dto.getZoneId() != null) {
             e.setZoneId(dto.getZoneId());
         }
+        if (dto.getIntakeCutoff() != null) {
+            if (dto.getIntakeCutoff().isBlank()) {
+                e.setIntakeCutoff(null);
+            } else {
+                e.setIntakeCutoff(parseTime(dto.getIntakeCutoff()));
+            }
+        }
+    }
+
+    private static LocalTime parseTime(String raw) {
+        try {
+            return LocalTime.parse(raw.trim(), ISO_TIME);
+        } catch (DateTimeParseException ex) {
+            throw new RuntimeException("Invalid intakeCutoff, use e.g. 14:00");
+        }
     }
 
     private HubResponseDTO toDto(HubEntity e) {
@@ -119,6 +139,7 @@ public class HubServiceImpl implements HubService {
                 .lat(e.getLat())
                 .lng(e.getLng())
                 .zoneId(e.getZoneId())
+                .intakeCutoff(e.getIntakeCutoff() != null ? e.getIntakeCutoff().format(ISO_TIME) : null)
                 .isActive(e.getIsActive())
                 .build();
     }
