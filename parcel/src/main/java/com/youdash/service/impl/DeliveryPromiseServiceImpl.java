@@ -2,8 +2,10 @@ package com.youdash.service.impl;
 
 import com.youdash.dto.DeliveryPromiseDTO;
 import com.youdash.entity.HubEntity;
+import com.youdash.entity.HubCorridorSlaEntity;
 import com.youdash.entity.HubRouteSlaEntity;
 import com.youdash.entity.ZoneRouteSlaEntity;
+import com.youdash.repository.HubCorridorSlaRepository;
 import com.youdash.repository.HubRepository;
 import com.youdash.repository.HubRouteSlaRepository;
 import com.youdash.repository.ZoneRouteSlaRepository;
@@ -35,6 +37,9 @@ public class DeliveryPromiseServiceImpl implements DeliveryPromiseService {
     private HubRouteSlaRepository hubRouteSlaRepository;
 
     @Autowired
+    private HubCorridorSlaRepository hubCorridorSlaRepository;
+
+    @Autowired
     private ZoneRouteSlaRepository zoneRouteSlaRepository;
 
     @Autowired
@@ -62,13 +67,27 @@ public class DeliveryPromiseServiceImpl implements DeliveryPromiseService {
                     .orElse(null);
         }
 
+        Long destinationZoneId = null;
+        if (destinationHubId != null) {
+            destinationZoneId = hubRepository.findById(destinationHubId)
+                    .map(h -> h.getZoneId())
+                    .orElse(null);
+        }
+
         Long zoneRouteId = null;
         if (originHubId != null && destinationHubId != null) {
             zoneRouteId = routeRateResolver.resolveZoneRouteId(originHubId, destinationHubId).orElse(null);
         }
 
         List<SlaSlot> slots = new ArrayList<>();
-        if (zoneRouteId != null) {
+        if (originHubId != null && destinationZoneId != null) {
+            for (HubCorridorSlaEntity sla : hubCorridorSlaRepository
+                    .findByHubIdAndDestinationZoneIdAndIsActiveTrueOrderByPriorityAsc(
+                            originHubId, destinationZoneId)) {
+                slots.add(SlaSlot.fromHubCorridor(sla));
+            }
+        }
+        if (slots.isEmpty() && zoneRouteId != null) {
             for (ZoneRouteSlaEntity sla : zoneRouteSlaRepository
                     .findByZoneRouteIdAndIsActiveTrueOrderByPriorityAsc(zoneRouteId)) {
                 slots.add(SlaSlot.fromZone(sla));
@@ -239,6 +258,10 @@ public class DeliveryPromiseServiceImpl implements DeliveryPromiseService {
         }
 
         static SlaSlot fromHub(HubRouteSlaEntity e) {
+            return new SlaSlot(e.getDeliveryType(), e.getCutoffTime(), e.getDeliveryTime(), e.getDeliveredWithinHours());
+        }
+
+        static SlaSlot fromHubCorridor(HubCorridorSlaEntity e) {
             return new SlaSlot(e.getDeliveryType(), e.getCutoffTime(), e.getDeliveryTime(), e.getDeliveredWithinHours());
         }
     }
