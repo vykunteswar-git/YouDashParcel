@@ -25,6 +25,7 @@ import com.youdash.dto.RiderResponseDTO;
 import com.youdash.dto.RiderSelfUpdateDTO;
 import com.youdash.dto.wallet.RiderWalletTransactionDTO;
 import com.youdash.dto.wallet.RiderWithdrawalDTO;
+import com.youdash.entity.HubEntity;
 import com.youdash.entity.OrderEntity;
 import com.youdash.entity.RiderEntity;
 import com.youdash.entity.RiderLocationHistoryEntity;
@@ -37,6 +38,7 @@ import com.youdash.model.OrderStatus;
 import com.youdash.model.RiderApprovalStatus;
 import com.youdash.model.ServiceMode;
 import com.youdash.notification.NotificationType;
+import com.youdash.repository.HubRepository;
 import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderLocationHistoryRepository;
 import com.youdash.repository.RiderOnlineSessionRepository;
@@ -63,7 +65,7 @@ public class RiderServiceImpl implements RiderService {
     private static final List<OrderStatus> ACTIVE_ASSIGNMENT_STATUSES = List.of(
             OrderStatus.RIDER_ACCEPTED,
             OrderStatus.PAYMENT_PENDING,
-            OrderStatus.CONFIRMED,
+            OrderStatus.RIDER_ASSIGNED,
             OrderStatus.PICKED_UP,
             OrderStatus.IN_TRANSIT);
     private static final double ASSIGNMENT_NEARBY_RADIUS_KM = 12.0;
@@ -76,6 +78,9 @@ public class RiderServiceImpl implements RiderService {
 
     @Autowired
     private OrderRepository orderRepository;
+
+    @Autowired
+    private HubRepository hubRepository;
 
     @Autowired
     private RiderWalletRepository riderWalletRepository;
@@ -648,7 +653,7 @@ public class RiderServiceImpl implements RiderService {
     }
 
     @Override
-    public ApiResponse<List<RiderResponseDTO>> listRidersEligibleForOrder(Long orderId) {
+    public ApiResponse<List<RiderResponseDTO>> listRidersEligibleForOrder(Long orderId, String assignmentRole) {
         ApiResponse<List<RiderResponseDTO>> response = new ApiResponse<>();
         try {
             if (orderId == null) {
@@ -656,21 +661,41 @@ public class RiderServiceImpl implements RiderService {
             }
             OrderEntity order = orderRepository.findById(orderId)
                     .orElseThrow(() -> new RuntimeException("Order not found"));
-            if (order.getPickupLat() == null || order.getPickupLng() == null) {
-                throw new RuntimeException("Order pickup coordinates are missing");
+            double refLat;
+            double refLng;
+            if (useDeliveryReferenceForEligibleRiders(order, assignmentRole)) {
+                if (order.getDropLat() == null || order.getDropLng() == null) {
+                    throw new RuntimeException("Order drop coordinates are missing");
+                }
+                refLat = order.getDropLat();
+                refLng = order.getDropLng();
+                if (order.getServiceMode() == ServiceMode.OUTSTATION && order.getDestinationHubId() != null) {
+                    HubEntity destHub = hubRepository.findById(order.getDestinationHubId()).orElse(null);
+                    if (destHub != null && destHub.getLat() != null && destHub.getLng() != null) {
+                        refLat = destHub.getLat();
+                        refLng = destHub.getLng();
+                    }
+                }
+            } else {
+                if (order.getPickupLat() == null || order.getPickupLng() == null) {
+                    throw new RuntimeException("Order pickup coordinates are missing");
+                }
+                refLat = order.getPickupLat();
+                refLng = order.getPickupLng();
             }
 
+            final double anchorLat = refLat;
+            final double anchorLng = refLng;
             List<RiderResponseDTO> dtos = riderRepository.findByIsAvailableTrue().stream()
                     .filter(this::isApprovedOrLegacy)
                     .filter(r -> !riderWalletService.isRiderDispatchBlocked(r.getId()))
                     .filter(r -> "ONLINE".equalsIgnoreCase(computeRiderStatus(r)))
                     .filter(r -> r.getCurrentLat() != null && r.getCurrentLng() != null)
                     .filter(r -> !orderRepository.existsByRiderIdAndStatusIn(r.getId(), ACTIVE_ASSIGNMENT_STATUSES))
-                    .filter(r -> GeoUtils.haversineKm(
-                            order.getPickupLat(), order.getPickupLng(), r.getCurrentLat(), r.getCurrentLng())
+                    .filter(r -> GeoUtils.haversineKm(anchorLat, anchorLng, r.getCurrentLat(), r.getCurrentLng())
                             <= ASSIGNMENT_NEARBY_RADIUS_KM)
                     .sorted(Comparator.comparingDouble(r -> GeoUtils.haversineKm(
-                            order.getPickupLat(), order.getPickupLng(), r.getCurrentLat(), r.getCurrentLng())))
+                            anchorLat, anchorLng, r.getCurrentLat(), r.getCurrentLng())))
                     .limit(25)
                     .map(this::mapToResponseDTO)
                     .collect(Collectors.toList());
@@ -688,6 +713,39 @@ public class RiderServiceImpl implements RiderService {
             response.setSuccess(false);
         }
         return response;
+    }
+
+    private boolean useDeliveryReferenceForEligibleRiders(OrderEntity order, String assignmentRole) {
+        if (assignmentRole != null && !assignmentRole.isBlank()) {
+            String role = assignmentRole.trim().toUpperCase(Locale.ROOT);
+            if ("DELIVERY".equals(role)) {
+                return true;
+            }
+            if ("BOTH".equals(role)) {
+                return isOutstationDestinationDeliveryPhase(order);
+            }
+            return false;
+        }
+        return isOutstationDestinationDeliveryPhase(order);
+    }
+
+    private static boolean isOutstationDestinationDeliveryPhase(OrderEntity order) {
+        if (order == null || order.getServiceMode() != ServiceMode.OUTSTATION) {
+            return false;
+        }
+        String dt = order.getDeliveryType();
+        if (dt == null) {
+            return false;
+        }
+        String type = dt.trim().toUpperCase(Locale.ROOT);
+        if (!"HUB_TO_DOOR".equals(type) && !"DOOR_TO_DOOR".equals(type)) {
+            return false;
+        }
+        OrderStatus status = order.getStatus();
+        return status == OrderStatus.AT_DESTINATION_HUB
+                || status == OrderStatus.AT_DESTINATION_HUB
+                || status == OrderStatus.AWAITING_HUB_COLLECTION
+                || status == OrderStatus.OUT_FOR_DELIVERY;
     }
 
     @Override

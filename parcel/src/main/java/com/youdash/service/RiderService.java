@@ -35,7 +35,7 @@ public interface RiderService {
 
     ApiResponse<List<RiderResponseDTO>> listRidersEligibleForAssignment();
 
-    ApiResponse<List<RiderResponseDTO>> listRidersEligibleForOrder(Long orderId);
+    ApiResponse<List<RiderResponseDTO>> listRidersEligibleForOrder(Long orderId, String assignmentRole);
 
     ApiResponse<RiderOnlineTimeDTO> getOnlineTimeForDate(Long riderId, String dateIso);
 

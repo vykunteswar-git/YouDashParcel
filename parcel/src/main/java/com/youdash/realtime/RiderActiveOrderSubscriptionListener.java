@@ -30,7 +30,7 @@ public class RiderActiveOrderSubscriptionListener {
     private static final List<OrderStatus> ACTIVE_STATUSES = List.of(
             OrderStatus.RIDER_ACCEPTED,
             OrderStatus.PAYMENT_PENDING,
-            OrderStatus.CONFIRMED,
+            OrderStatus.RIDER_ASSIGNED,
             OrderStatus.PICKED_UP,
             OrderStatus.IN_TRANSIT);
 

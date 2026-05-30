@@ -14,10 +14,8 @@ public class UserActiveOrderTopicPublisher {
     private static final Logger log = LoggerFactory.getLogger(UserActiveOrderTopicPublisher.class);
     private static final Set<String> OUTSTATION_ONLY_STATUSES = Set.of(
             "AT_ORIGIN_HUB",
-            "DEPARTED_ORIGIN_HUB",
             "AT_DESTINATION_HUB",
-            "SORTED_AT_DESTINATION",
-            "READY_FOR_PICKUP");
+            "AWAITING_HUB_COLLECTION");
 
     private static final Set<String> INCITY_STATUSES = Set.of(
             "SEARCHING_RIDER",

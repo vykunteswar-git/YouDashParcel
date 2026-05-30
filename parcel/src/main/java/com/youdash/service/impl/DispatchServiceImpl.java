@@ -47,7 +47,7 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
     private static final List<OrderStatus> RIDER_BUSY_INCITY = List.of(
             OrderStatus.RIDER_ACCEPTED,
             OrderStatus.PAYMENT_PENDING,
-            OrderStatus.CONFIRMED,
+            OrderStatus.RIDER_ASSIGNED,
             OrderStatus.PICKED_UP,
             OrderStatus.IN_TRANSIT);
 

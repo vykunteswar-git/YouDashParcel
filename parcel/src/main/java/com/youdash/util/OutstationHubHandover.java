@@ -20,10 +20,10 @@ public final class OutstationHubHandover {
     private OutstationHubHandover() {}
 
     public static boolean canDropAtOriginHub(OrderEntity o) {
-        return OutstationCodPolicy.isHubToDoor(o) && o.getStatus() == OrderStatus.CREATED;
+        return OutstationCodPolicy.isHubToDoor(o) && o.getStatus() == OrderStatus.BOOKED;
     }
 
     public static boolean canCollectAtDestinationHub(OrderEntity o) {
-        return OutstationCodPolicy.isDoorToHub(o) && o.getStatus() == OrderStatus.READY_FOR_PICKUP;
+        return OutstationCodPolicy.isDoorToHub(o) && o.getStatus() == OrderStatus.AWAITING_HUB_COLLECTION;
     }
 }

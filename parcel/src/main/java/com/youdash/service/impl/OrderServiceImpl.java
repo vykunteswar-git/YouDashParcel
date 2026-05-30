@@ -426,8 +426,8 @@ public class OrderServiceImpl implements OrderService {
                     order.setCouponAmount(round2(couponDiscOs));
                     order.setTotalAmount(round2(baseOs - couponDiscOs));
                 }
-                // OUTSTATION stays admin-assigned; use CREATED until admin assigns.
-                order.setStatus(OrderStatus.CREATED);
+                // OUTSTATION stays admin-assigned; use BOOKED until admin assigns.
+                order.setStatus(OrderStatus.BOOKED);
             }
 
             OrderEntity saved = orderRepository.save(order);
@@ -891,6 +891,12 @@ public class OrderServiceImpl implements OrderService {
             if (pickupRiderId == null && deliveryRiderId == null) {
                 throw new RuntimeException("pickupRiderId or deliveryRiderId is required");
             }
+            if (deliveryRiderId != null
+                    && pickupRiderId == null
+                    && "DOOR_TO_HUB".equalsIgnoreCase(String.valueOf(o.getDeliveryType()))) {
+                throw new RuntimeException(
+                        "Door-to-hub orders use hub collection only; assign a pickup rider or verify hub collection instead of a delivery rider");
+            }
 
             Long primaryRiderId = deliveryRiderId != null ? deliveryRiderId : pickupRiderId;
             if (pickupRiderId != null) {
@@ -916,9 +922,8 @@ public class OrderServiceImpl implements OrderService {
                 o.setDeliveryRiderId(deliveryRiderId);
             }
             o.setRiderId(primaryRiderId);
-            transitionStatus(o, OrderStatus.CONFIRMED);
-            // OUTSTATION assignment or manual assignment: treat as confirmed (ready to
-            // proceed).
+            OrderStatus assignTargetStatus = resolveStatusAfterAdminRiderAssign(o, pickupRiderId, deliveryRiderId);
+            transitionStatus(o, assignTargetStatus);
             if (o.getDeliveryOtp() == null || o.getDeliveryOtp().isBlank()) {
                 o.setDeliveryOtp(DeliveryOtpGenerator.generate());
                 o.setDeliveryOtpGeneratedAt(Instant.now());
@@ -941,7 +946,7 @@ public class OrderServiceImpl implements OrderService {
                             pickupRiderId,
                             "New pickup assigned",
                             "Order #" + saved.getId() + " assigned for pickup stage.",
-                            NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(),
+                            NotificationService.baseData(saved.getId(), OrderStatus.RIDER_ASSIGNED.name(),
                                     NotificationType.RIDER_JOB_ASSIGNED),
                             NotificationType.RIDER_JOB_ASSIGNED);
                 }
@@ -950,7 +955,7 @@ public class OrderServiceImpl implements OrderService {
                             deliveryRiderId,
                             "New delivery assigned",
                             "Order #" + saved.getId() + " assigned for delivery stage.",
-                            NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(),
+                            NotificationService.baseData(saved.getId(), OrderStatus.RIDER_ASSIGNED.name(),
                                     NotificationType.RIDER_JOB_ASSIGNED),
                             NotificationType.RIDER_JOB_ASSIGNED);
                 }
@@ -962,7 +967,7 @@ public class OrderServiceImpl implements OrderService {
                         saved.getUserId(),
                         "Rider assigned",
                         "A rider has been assigned to order #" + saved.getId() + ".",
-                        NotificationService.baseData(saved.getId(), OrderStatus.CONFIRMED.name(),
+                        NotificationService.baseData(saved.getId(), OrderStatus.RIDER_ASSIGNED.name(),
                                 NotificationType.RIDER_ASSIGNED),
                         NotificationType.RIDER_ASSIGNED);
             } catch (Exception ignored) {
@@ -976,7 +981,7 @@ public class OrderServiceImpl implements OrderService {
                 userEvt.setEventVersion(1);
                 userEvt.setTsEpochMs(Instant.now().toEpochMilli());
                 userEvt.setSource("backend");
-                userEvt.setStatus(OrderStatus.CONFIRMED.name());
+                userEvt.setStatus(OrderStatus.RIDER_ASSIGNED.name());
                 userEvt.setServiceMode(saved.getServiceMode() == null ? null : saved.getServiceMode().name());
                 userEvt.setRiderId(primaryRiderId);
                 messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", userEvt);
@@ -988,7 +993,7 @@ public class OrderServiceImpl implements OrderService {
                 userActiveOrderTopicPublisher.publishStatusUpdated(
                         saved.getUserId(),
                         saved.getId(),
-                        OrderStatus.CONFIRMED.name(),
+                        OrderStatus.RIDER_ASSIGNED.name(),
                         saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
                         primaryRiderId);
                 // Also push a snapshot immediately so connected clients update even if
@@ -996,7 +1001,7 @@ public class OrderServiceImpl implements OrderService {
                 userActiveOrderTopicPublisher.publishSnapshot(
                         saved.getUserId(),
                         saved.getId(),
-                        OrderStatus.CONFIRMED.name(),
+                        OrderStatus.RIDER_ASSIGNED.name(),
                         saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
                         primaryRiderId,
                         null,
@@ -1009,25 +1014,25 @@ public class OrderServiceImpl implements OrderService {
                     riderActiveOrderTopicPublisher.publish(
                             pickupRiderId,
                             saved.getId(),
-                            OrderStatus.CONFIRMED,
+                            OrderStatus.RIDER_ASSIGNED,
                             "assigned",
                             saved.getPaymentType() == PaymentType.COD ? saved.getTotalAmount() : null);
                     riderActiveOrderTopicPublisher.publishSnapshot(
                             pickupRiderId,
                             saved.getId(),
-                            OrderStatus.CONFIRMED);
+                            OrderStatus.RIDER_ASSIGNED);
                 }
                 if (deliveryRiderId != null && !Objects.equals(deliveryRiderId, pickupRiderId)) {
                     riderActiveOrderTopicPublisher.publish(
                             deliveryRiderId,
                             saved.getId(),
-                            OrderStatus.CONFIRMED,
+                            OrderStatus.RIDER_ASSIGNED,
                             "assigned",
                             saved.getPaymentType() == PaymentType.COD ? saved.getTotalAmount() : null);
                     riderActiveOrderTopicPublisher.publishSnapshot(
                             deliveryRiderId,
                             saved.getId(),
-                            OrderStatus.CONFIRMED);
+                            OrderStatus.RIDER_ASSIGNED);
                 }
             } catch (Exception ignored) {
                 // Keep assignment successful even if one notification channel fails.
@@ -1059,7 +1064,7 @@ public class OrderServiceImpl implements OrderService {
         applyAdminOutstationOtpGates(o, target, otp, adminOverride);
         transitionStatus(o, target);
         if (target == OrderStatus.OUT_FOR_DELIVERY
-                || (target == OrderStatus.READY_FOR_PICKUP && OutstationCodPolicy.isDoorToHub(o))) {
+                || (target == OrderStatus.AWAITING_HUB_COLLECTION && OutstationCodPolicy.isDoorToHub(o))) {
             if (o.getDeliveryOtp() == null || o.getDeliveryOtp().isBlank()) {
                 o.setDeliveryOtp(DeliveryOtpGenerator.generate());
                 o.setDeliveryOtpGeneratedAt(Instant.now());
@@ -1109,7 +1114,7 @@ public class OrderServiceImpl implements OrderService {
 
         if (handoverType == OutstationHubHandover.Type.DROP) {
             if (!OutstationHubHandover.canDropAtOriginHub(o)) {
-                throw new RuntimeException("Hub drop is only allowed for HUB_TO_DOOR orders in CREATED status");
+                throw new RuntimeException("Hub drop is only allowed for HUB_TO_DOOR orders in BOOKED status");
             }
             String dropCode = o.getPickupOtp();
             if (!adminOverride) {
@@ -1127,7 +1132,7 @@ public class OrderServiceImpl implements OrderService {
         } else {
             if (!OutstationHubHandover.canCollectAtDestinationHub(o)) {
                 throw new RuntimeException(
-                        "Hub collection is only allowed for DOOR_TO_HUB orders in READY_FOR_PICKUP status");
+                        "Hub collection is only allowed for DOOR_TO_HUB orders in AWAITING_HUB_COLLECTION status");
             }
             if (o.getDeliveryOtp() == null || o.getDeliveryOtp().isBlank()) {
                 o.setDeliveryOtp(DeliveryOtpGenerator.generate());
@@ -1140,7 +1145,7 @@ public class OrderServiceImpl implements OrderService {
             }
             o.setDeliveryOtp(null);
             o.setIsOtpVerified(true);
-            targetStatus = OrderStatus.COLLECTED_BY_CUSTOMER;
+            targetStatus = OrderStatus.COLLECTED;
             timelineNote = adminOverride ? "Hub collection confirmed (OTP override)" : "Hub collection confirmed";
         }
 
@@ -1603,7 +1608,7 @@ public class OrderServiceImpl implements OrderService {
             notificationService.sendToAdminDevices(
                     "Outstation order needs rider",
                     "Order #" + saved.getId() + " — assign a rider (₹" + saved.getTotalAmount() + ").",
-                    NotificationService.baseData(saved.getId(), OrderStatus.CREATED.name(),
+                    NotificationService.baseData(saved.getId(), OrderStatus.BOOKED.name(),
                             NotificationType.ADMIN_OUTSTATION_PENDING_ASSIGNMENT),
                     NotificationType.ADMIN_OUTSTATION_PENDING_ASSIGNMENT);
         }
@@ -1939,9 +1944,10 @@ public class OrderServiceImpl implements OrderService {
                 .distanceKm(o.getDistanceKm())
                 .paymentType(o.getPaymentType())
                 .status(o.getStatus())
-                .allowedNextStatuses(orderStatusTransitionGuard.allowedNextStatuses(o.getServiceMode(), o.getStatus()))
-                .adminSelectableNextStatuses(
-                        orderStatusTransitionGuard.adminSelectableNextStatuses(o.getServiceMode(), o.getStatus()))
+                .allowedNextStatuses(orderStatusTransitionGuard.allowedNextStatuses(
+                        o.getServiceMode(), o.getDeliveryType(), o.getStatus()))
+                .adminSelectableNextStatuses(orderStatusTransitionGuard.adminSelectableNextStatuses(
+                        o.getServiceMode(), o.getDeliveryType(), o.getStatus()))
                 .riderId(o.getRiderId())
                 .pickupRiderId(o.getPickupRiderId())
                 .deliveryRiderId(o.getDeliveryRiderId())
@@ -1992,10 +1998,10 @@ public class OrderServiceImpl implements OrderService {
 
     private static final java.util.Set<OrderStatus> HUB_TRANSIT_STATUSES = java.util.Set.of(
             OrderStatus.AT_ORIGIN_HUB,
-            OrderStatus.DEPARTED_ORIGIN_HUB,
+            OrderStatus.IN_TRANSIT,
             OrderStatus.IN_TRANSIT,
             OrderStatus.AT_DESTINATION_HUB,
-            OrderStatus.SORTED_AT_DESTINATION);
+            OrderStatus.AT_DESTINATION_HUB);
 
     private static boolean isPickupRiderHubTransit(OrderEntity o, Long viewerRiderId) {
         if (o == null || viewerRiderId == null) return false;
@@ -2191,7 +2197,7 @@ public class OrderServiceImpl implements OrderService {
             return resolveOutstationDeliveryOtpForCustomer(o, s, otp);
         }
         return switch (s) {
-            case RIDER_ACCEPTED, PAYMENT_PENDING, CONFIRMED, PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY -> otp;
+            case RIDER_ACCEPTED, PAYMENT_PENDING, RIDER_ASSIGNED, PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY -> otp;
             default -> null;
         };
     }
@@ -2209,45 +2215,29 @@ public class OrderServiceImpl implements OrderService {
                 || s == OrderStatus.FAILED
                 || s == OrderStatus.RETURNED
                 || s == OrderStatus.RETURNED_TO_SENDER
-                || s == OrderStatus.ORDER_CREATED
                 || s == OrderStatus.SEARCHING_RIDER
-                || s == OrderStatus.CREATED
-                || s == OrderStatus.CONFIRMED
+                || s == OrderStatus.BOOKED
                 || s == OrderStatus.RIDER_ASSIGNED
-                || s == OrderStatus.PICKUP_CONFIRMED
                 || s == OrderStatus.PICKED_UP
-                || s == OrderStatus.PARCEL_PICKED_UP
                 || s == OrderStatus.AT_ORIGIN_HUB
-                || s == OrderStatus.ARRIVED_ORIGIN_HUB
-                || s == OrderStatus.DEPARTED_ORIGIN_HUB) {
+                || s == OrderStatus.IN_TRANSIT) {
             return null;
         }
-        if (OutstationCodPolicy.isDoorToHub(o) && s == OrderStatus.READY_FOR_PICKUP) {
+        if (OutstationCodPolicy.isDoorToHub(o) && s == OrderStatus.AWAITING_HUB_COLLECTION) {
             return null;
         }
         return switch (s) {
-            case IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERY_RIDER_ASSIGNED,
-                    AT_DESTINATION_HUB, SORTED_AT_DESTINATION -> otp;
+            case OUT_FOR_DELIVERY, AT_DESTINATION_HUB -> otp;
             default -> null;
         };
     }
 
-    /**
-     * Maps admin UI status labels to rider/transition-guard statuses.
-     */
+    /** Normalizes admin/API status input (legacy strings still accepted). */
     private static OrderStatus normalizeAdminTargetStatus(OrderEntity o, OrderStatus requested) {
         if (requested == null) {
             return null;
         }
-        return switch (requested) {
-            case RIDER_ASSIGNED, PICKUP_CONFIRMED -> OrderStatus.CONFIRMED;
-            case PARCEL_PICKED_UP -> OrderStatus.PICKED_UP;
-            case ARRIVED_ORIGIN_HUB -> OrderStatus.AT_ORIGIN_HUB;
-            case DISPATCHED_TO_DESTINATION -> OrderStatus.DEPARTED_ORIGIN_HUB;
-            case ARRIVED_DESTINATION_HUB -> OrderStatus.AT_DESTINATION_HUB;
-            case COLLECTED_BY_CUSTOMER -> OrderStatus.DELIVERED;
-            default -> requested;
-        };
+        return OrderStatus.fromLegacy(requested.name());
     }
 
     /**
@@ -2261,7 +2251,7 @@ public class OrderServiceImpl implements OrderService {
         String provided = otp == null ? "" : otp.trim();
         if (target == OrderStatus.AT_ORIGIN_HUB
                 && OutstationCodPolicy.isHubToDoor(o)
-                && o.getStatus() == OrderStatus.CREATED) {
+                && o.getStatus() == OrderStatus.BOOKED) {
             throw new RuntimeException("Use verify-hub-handover DROP for hub drop-off");
         }
         if (target == OrderStatus.PICKED_UP) {
@@ -2277,11 +2267,11 @@ public class OrderServiceImpl implements OrderService {
             }
             return;
         }
-        if (target == OrderStatus.DELIVERED || target == OrderStatus.COLLECTED_BY_CUSTOMER) {
+        if (target == OrderStatus.DELIVERED || target == OrderStatus.COLLECTED) {
             if (Boolean.TRUE.equals(o.getIsOtpVerified())) {
                 return;
             }
-            if (target == OrderStatus.COLLECTED_BY_CUSTOMER) {
+            if (target == OrderStatus.COLLECTED) {
                 throw new RuntimeException("Use verify-hub-handover COLLECT for hub collection");
             }
             String deliveryCode = o.getDeliveryOtp();
@@ -2310,11 +2300,9 @@ public class OrderServiceImpl implements OrderService {
         }
         OrderStatus s = o.getStatus();
         if (OutstationCodPolicy.isHubToDoor(o)) {
-            return s == OrderStatus.CREATED ? otp : null;
+            return s == OrderStatus.BOOKED ? otp : null;
         }
-        if (s != OrderStatus.CONFIRMED
-                && s != OrderStatus.RIDER_ASSIGNED
-                && s != OrderStatus.PICKUP_CONFIRMED) {
+        if (s != OrderStatus.RIDER_ASSIGNED) {
             return null;
         }
         boolean riderLinked = o.getRiderId() != null
@@ -2328,7 +2316,7 @@ public class OrderServiceImpl implements OrderService {
         if (riderOrderApi || o.getServiceMode() != ServiceMode.OUTSTATION) {
             return null;
         }
-        if (!OutstationCodPolicy.isDoorToHub(o) || o.getStatus() != OrderStatus.READY_FOR_PICKUP) {
+        if (!OutstationCodPolicy.isDoorToHub(o) || o.getStatus() != OrderStatus.AWAITING_HUB_COLLECTION) {
             return null;
         }
         if (Boolean.TRUE.equals(o.getIsOtpVerified())) {
@@ -2388,7 +2376,7 @@ public class OrderServiceImpl implements OrderService {
         adminOrderTopicPublisher.publishStatusUpdated(saved);
 
         if (saved.getStatus() == OrderStatus.DELIVERED
-                || saved.getStatus() == OrderStatus.COLLECTED_BY_CUSTOMER
+                || saved.getStatus() == OrderStatus.COLLECTED
                 || saved.getStatus() == OrderStatus.CANCELLED
                 || saved.getStatus() == OrderStatus.RETURNED
                 || saved.getStatus() == OrderStatus.EXPIRED
@@ -2417,8 +2405,62 @@ public class OrderServiceImpl implements OrderService {
         if (order == null || toStatus == null) {
             return;
         }
-        orderStatusTransitionGuard.ensureAllowed(order.getServiceMode(), order.getStatus(), toStatus);
+        OrderStatus from = order.getStatus();
+        if (from == toStatus) {
+            return;
+        }
+        if (order.getServiceMode() == ServiceMode.OUTSTATION) {
+            orderStatusTransitionGuard.ensureAllowed(
+                    order.getServiceMode(), order.getDeliveryType(), from, toStatus);
+        } else {
+            orderStatusTransitionGuard.ensureAllowed(order.getServiceMode(), from, toStatus);
+        }
         order.setStatus(toStatus);
+    }
+
+    private static OrderStatus resolveStatusAfterAdminRiderAssign(
+            OrderEntity order, Long pickupRiderId, Long deliveryRiderId) {
+        OrderStatus current = order.getStatus() != null ? order.getStatus() : OrderStatus.BOOKED;
+        boolean assigningDelivery = deliveryRiderId != null;
+        boolean assigningPickupOnly = pickupRiderId != null && deliveryRiderId == null;
+
+        if (order.getServiceMode() == ServiceMode.OUTSTATION
+                && assigningDelivery
+                && isOutstationDoorDeliveryType(order.getDeliveryType())
+                && isOutstationDestinationDeliveryPhase(current)) {
+            if (current == OrderStatus.OUT_FOR_DELIVERY) {
+                return current;
+            }
+            return OrderStatus.OUT_FOR_DELIVERY;
+        }
+        if (assigningPickupOnly) {
+            if (current == OrderStatus.BOOKED) {
+                return OrderStatus.RIDER_ASSIGNED;
+            }
+            return current;
+        }
+        if (current == OrderStatus.BOOKED || current == OrderStatus.SEARCHING_RIDER) {
+            return OrderStatus.RIDER_ASSIGNED;
+        }
+        if (assigningDelivery && current == OrderStatus.OUT_FOR_DELIVERY) {
+            return current;
+        }
+        if (assigningDelivery && isOutstationDestinationDeliveryPhase(current)) {
+            return OrderStatus.OUT_FOR_DELIVERY;
+        }
+        return current != OrderStatus.RIDER_ASSIGNED ? current : OrderStatus.RIDER_ASSIGNED;
+    }
+
+    private static boolean isOutstationDoorDeliveryType(String deliveryType) {
+        if (deliveryType == null || deliveryType.isBlank()) {
+            return false;
+        }
+        String t = deliveryType.trim().toUpperCase(Locale.ROOT);
+        return "HUB_TO_DOOR".equals(t) || "DOOR_TO_DOOR".equals(t);
+    }
+
+    private static boolean isOutstationDestinationDeliveryPhase(OrderStatus status) {
+        return status == OrderStatus.AT_DESTINATION_HUB || status == OrderStatus.OUT_FOR_DELIVERY;
     }
 
     private void appendTimeline(

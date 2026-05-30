@@ -125,7 +125,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                     ServiceMode.INCITY,
                     PaymentType.COD,
                     OrderStatus.SEARCHING_RIDER,
-                    OrderStatus.CONFIRMED,
+                    OrderStatus.RIDER_ASSIGNED,
                     now,
                     "UNPAID",
                     now);
@@ -150,7 +150,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
 
         // 3) Close request for other riders.
         dispatchService.closeRequest(orderId, "accepted", riderId);
-        final OrderStatus statusAfterAccept = cod ? OrderStatus.CONFIRMED : OrderStatus.RIDER_ACCEPTED;
+        final OrderStatus statusAfterAccept = cod ? OrderStatus.RIDER_ASSIGNED : OrderStatus.RIDER_ACCEPTED;
 
         // Persist delivery OTP once (COD → CONFIRMED; ONLINE → RIDER_ACCEPTED).
         OrderEntity refreshed = orderRepository.findById(orderId).orElse(order);
@@ -176,13 +176,13 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                 refreshed.getServiceMode() == null ? null : refreshed.getServiceMode().name();
         TransactionAfterCommit.run(() -> {
             if (codFinal) {
-                sendUserEvent(userId, acceptedOrderId, "rider_found", OrderStatus.CONFIRMED, null, riderIdFinal);
-                sendUserEvent(userId, acceptedOrderId, "confirmed", OrderStatus.CONFIRMED, null, riderIdFinal);
+                sendUserEvent(userId, acceptedOrderId, "rider_found", OrderStatus.RIDER_ASSIGNED, null, riderIdFinal);
+                sendUserEvent(userId, acceptedOrderId, "confirmed", OrderStatus.RIDER_ASSIGNED, null, riderIdFinal);
                 notificationService.sendToUser(
                         userId,
                         "Rider assigned",
                         "A rider accepted order #" + acceptedOrderId + ". Your delivery is confirmed.",
-                        userRiderAcceptedPushData(acceptedOrderId, OrderStatus.CONFIRMED, null, riderIdFinal),
+                        userRiderAcceptedPushData(acceptedOrderId, OrderStatus.RIDER_ASSIGNED, null, riderIdFinal),
                         NotificationType.USER_RIDER_ACCEPTED);
             } else {
                 sendUserEvent(userId, acceptedOrderId, "rider_found", OrderStatus.RIDER_ACCEPTED, paymentDueFinal, riderIdFinal);
@@ -220,8 +220,8 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         OrderEntity order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BadRequestException("Order not found"));
         requireAssignedRider(order, riderId);
-        if (order.getStatus() != OrderStatus.CONFIRMED) {
-            throw new BadRequestException("Order must be CONFIRMED to mark picked up");
+        if (order.getStatus() != OrderStatus.RIDER_ASSIGNED) {
+            throw new BadRequestException("Order must be RIDER_ASSIGNED to mark picked up");
         }
         if (order.getServiceMode() == ServiceMode.OUTSTATION) {
             if (pickupOtp == null || pickupOtp.isBlank()) {
@@ -269,13 +269,10 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                 .orElseThrow(() -> new BadRequestException("Order not found"));
         requireAssignedRider(order, riderId);
         if (order.getServiceMode() == ServiceMode.OUTSTATION) {
-            if (order.getStatus() == OrderStatus.AT_ORIGIN_HUB) {
-                transitionStatus(order, OrderStatus.DEPARTED_ORIGIN_HUB);
-            } else if (order.getStatus() == OrderStatus.DEPARTED_ORIGIN_HUB) {
-                transitionStatus(order, OrderStatus.IN_TRANSIT);
-            } else {
-                throw new BadRequestException("OUTSTATION order must be AT_ORIGIN_HUB or DEPARTED_ORIGIN_HUB to start transit");
+            if (order.getStatus() != OrderStatus.AT_ORIGIN_HUB) {
+                throw new BadRequestException("OUTSTATION order must be AT_ORIGIN_HUB before in transit");
             }
+            transitionStatus(order, OrderStatus.IN_TRANSIT);
         } else {
             if (order.getStatus() != OrderStatus.PICKED_UP) {
                 throw new BadRequestException("Order must be PICKED_UP to start transit");

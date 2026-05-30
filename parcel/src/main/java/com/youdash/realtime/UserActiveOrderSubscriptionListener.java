@@ -24,18 +24,16 @@ public class UserActiveOrderSubscriptionListener {
 
     private static final List<OrderStatus> USER_ACTIVE_STATUSES = List.of(
             OrderStatus.SEARCHING_RIDER,
-            OrderStatus.CREATED,
+            OrderStatus.BOOKED,
             OrderStatus.RIDER_ACCEPTED,
             OrderStatus.PAYMENT_PENDING,
-            OrderStatus.CONFIRMED,
+            OrderStatus.RIDER_ASSIGNED,
             OrderStatus.PICKED_UP,
             OrderStatus.AT_ORIGIN_HUB,
-            OrderStatus.DEPARTED_ORIGIN_HUB,
             OrderStatus.IN_TRANSIT,
             OrderStatus.AT_DESTINATION_HUB,
-            OrderStatus.SORTED_AT_DESTINATION,
             OrderStatus.OUT_FOR_DELIVERY,
-            OrderStatus.READY_FOR_PICKUP);
+            OrderStatus.AWAITING_HUB_COLLECTION);
 
     private final OrderRepository orderRepository;
     private final RiderRepository riderRepository;

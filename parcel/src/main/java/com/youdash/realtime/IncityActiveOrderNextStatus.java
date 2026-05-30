@@ -19,8 +19,8 @@ public final class IncityActiveOrderNextStatus {
         }
         return switch (current) {
             case RIDER_ACCEPTED -> OrderStatus.PAYMENT_PENDING.name();
-            case PAYMENT_PENDING -> OrderStatus.CONFIRMED.name();
-            case CONFIRMED -> OrderStatus.PICKED_UP.name();
+            case PAYMENT_PENDING -> OrderStatus.RIDER_ASSIGNED.name();
+            case RIDER_ASSIGNED -> OrderStatus.PICKED_UP.name();
             case PICKED_UP -> OrderStatus.IN_TRANSIT.name();
             case IN_TRANSIT -> OrderStatus.DELIVERED.name();
             default -> null;

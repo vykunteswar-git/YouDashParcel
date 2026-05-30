@@ -58,7 +58,7 @@ public class AdminOrderController {
             r.setStatus(500);
             return r;
         }
-        OrderStatus st = OrderStatus.valueOf(dto.getStatus().trim().toUpperCase());
+        OrderStatus st = OrderStatus.fromLegacy(dto.getStatus());
         boolean override = Boolean.TRUE.equals(dto.getAdminOverride());
         return orderService.adminUpdateStatus(id, st, dto.getOtp(), override);
     }

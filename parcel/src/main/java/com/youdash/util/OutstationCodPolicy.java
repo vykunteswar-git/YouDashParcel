@@ -23,11 +23,19 @@ public final class OutstationCodPolicy {
     }
 
     public static boolean isHubToDoor(OrderEntity order) {
-        return "HUB_TO_DOOR".equals(deliveryTypeUpper(order));
+        return isHubToDoor(deliveryTypeUpper(order));
+    }
+
+    public static boolean isHubToDoor(String deliveryType) {
+        return "HUB_TO_DOOR".equals(deliveryType == null ? "" : deliveryType.trim().toUpperCase());
     }
 
     public static boolean isDoorToHub(OrderEntity order) {
-        return "DOOR_TO_HUB".equals(deliveryTypeUpper(order));
+        return isDoorToHub(deliveryTypeUpper(order));
+    }
+
+    public static boolean isDoorToHub(String deliveryType) {
+        return "DOOR_TO_HUB".equals(deliveryType == null ? "" : deliveryType.trim().toUpperCase());
     }
 
     /** Rider collects COD at sender door (pickup leg). */

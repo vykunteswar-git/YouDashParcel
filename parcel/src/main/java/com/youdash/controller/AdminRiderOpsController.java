@@ -62,7 +62,9 @@ public class AdminRiderOpsController {
 
     @GetMapping("/eligible-for-order/{orderId}")
     @Operation(summary = "Nearby approved, online, and unassigned riders for order")
-    public ApiResponse<List<RiderResponseDTO>> eligibleForOrder(@PathVariable Long orderId) {
-        return riderService.listRidersEligibleForOrder(orderId);
+    public ApiResponse<List<RiderResponseDTO>> eligibleForOrder(
+            @PathVariable Long orderId,
+            @RequestParam(required = false) String role) {
+        return riderService.listRidersEligibleForOrder(orderId, role);
     }
 }

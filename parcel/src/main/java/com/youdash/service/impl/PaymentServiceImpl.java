@@ -293,7 +293,7 @@ public class PaymentServiceImpl implements PaymentService {
                         order.getId(),
                         ServiceMode.INCITY,
                         List.of(OrderStatus.RIDER_ACCEPTED, OrderStatus.PAYMENT_PENDING),
-                        OrderStatus.CONFIRMED,
+                        OrderStatus.RIDER_ASSIGNED,
                         "PAID",
                         dto.getRazorpayPaymentId().trim(),
                         "RAZORPAY",
@@ -313,7 +313,7 @@ public class PaymentServiceImpl implements PaymentService {
                     // finalize directly when order is still in a verifiable state.
                     Instant now = Instant.now();
                     order.setPaymentStatus("PAID");
-                    order.setStatus(OrderStatus.CONFIRMED);
+                    order.setStatus(OrderStatus.RIDER_ASSIGNED);
                     order.setRazorpayPaymentId(dto.getRazorpayPaymentId().trim());
                     order.setPaymentMethod("RAZORPAY");
                     if (order.getPaymentCreatedAt() == null) {
@@ -341,13 +341,13 @@ public class PaymentServiceImpl implements PaymentService {
                 }
                 sendConfirmedEvent(order.getUserId(), order.getId());
                 OrderEntity forRider = orderRepository.findById(order.getId()).orElse(order);
-                if (forRider.getRiderId() != null && forRider.getStatus() == OrderStatus.CONFIRMED) {
+                if (forRider.getRiderId() != null && forRider.getStatus() == OrderStatus.RIDER_ASSIGNED) {
                     riderActiveOrderTopicPublisher.publish(
-                            forRider.getRiderId(), forRider.getId(), OrderStatus.CONFIRMED, "confirmed");
+                            forRider.getRiderId(), forRider.getId(), OrderStatus.RIDER_ASSIGNED, "confirmed");
                 }
                 orderTimelineService.appendEvent(
                         order,
-                        OrderStatus.CONFIRMED,
+                        OrderStatus.RIDER_ASSIGNED,
                         "payment_verified",
                         order.getOriginHubId(),
                         order.getRiderId(),
@@ -410,15 +410,15 @@ public class PaymentServiceImpl implements PaymentService {
         evt.setEventVersion(1);
         evt.setTsEpochMs(Instant.now().toEpochMilli());
         evt.setSource("backend");
-        evt.setStatus(OrderStatus.CONFIRMED.name());
-        evt.setStage(OrderStatus.CONFIRMED.name());
+        evt.setStatus(OrderStatus.RIDER_ASSIGNED.name());
+        evt.setStage(OrderStatus.RIDER_ASSIGNED.name());
         messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", evt);
         orderRepository.findById(orderId).ifPresent(adminOrderTopicPublisher::publishStatusUpdated);
         final String serviceMode = orderRepository.findById(orderId)
                 .map(o -> o.getServiceMode() == null ? null : o.getServiceMode().name())
                 .orElse(null);
         userActiveOrderTopicPublisher.publishStatusUpdated(
-                userId, orderId, OrderStatus.CONFIRMED.name(), serviceMode, null);
+                userId, orderId, OrderStatus.RIDER_ASSIGNED.name(), serviceMode, null);
     }
 
     @Override
@@ -642,7 +642,7 @@ public class PaymentServiceImpl implements PaymentService {
                     orderEntity.getId(),
                     ServiceMode.INCITY,
                     List.of(OrderStatus.RIDER_ACCEPTED, OrderStatus.PAYMENT_PENDING),
-                    OrderStatus.CONFIRMED,
+                    OrderStatus.RIDER_ASSIGNED,
                     "PAID",
                     "TEST_BYPASS",
                     "TEST_BYPASS",
@@ -657,12 +657,12 @@ public class PaymentServiceImpl implements PaymentService {
             }
             sendConfirmedEvent(orderEntity.getUserId(), orderEntity.getId());
             final OrderEntity fe = orderRepository.findById(orderEntity.getId()).orElse(orderEntity);
-            if (fe.getRiderId() != null && fe.getStatus() == OrderStatus.CONFIRMED) {
+            if (fe.getRiderId() != null && fe.getStatus() == OrderStatus.RIDER_ASSIGNED) {
                 riderActiveOrderTopicPublisher.publish(
-                        fe.getRiderId(), fe.getId(), OrderStatus.CONFIRMED, "confirmed");
+                        fe.getRiderId(), fe.getId(), OrderStatus.RIDER_ASSIGNED, "confirmed");
             }
             orderTimelineService.appendEvent(
-                    orderEntity, OrderStatus.CONFIRMED, "payment_verified",
+                    orderEntity, OrderStatus.RIDER_ASSIGNED, "payment_verified",
                     orderEntity.getOriginHubId(), orderEntity.getRiderId(), null,
                     "Test bypass — order auto-confirmed");
         } else {
