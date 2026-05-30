@@ -136,6 +136,11 @@ public class OrderServiceImpl implements OrderService {
         try {
             validateCoordsWeight(dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng(),
                     dto.getWeight());
+            zoneService.inactiveZoneBlockMessage(
+                            dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng())
+                    .ifPresent(msg -> {
+                        throw new RuntimeException(msg);
+                    });
             if (dto.getOriginHubId() == null || dto.getDestinationHubId() == null) {
                 throw new RuntimeException("originHubId and destinationHubId are required");
             }
@@ -146,6 +151,10 @@ public class OrderServiceImpl implements OrderService {
             HubEntity dest = hubRepository.findById(dto.getDestinationHubId())
                     .filter(h -> Boolean.TRUE.equals(h.getIsActive()))
                     .orElseThrow(() -> new RuntimeException("Destination hub not found or inactive"));
+            requireOutstationHubsMatchZones(
+                    dto.getPickupLat(), dto.getPickupLng(),
+                    dto.getDropLat(), dto.getDropLng(),
+                    origin, dest);
 
             AppConfigEntity cfg = requireConfig();
             double routeRate = resolveRouteRate(dto.getOriginHubId(), dto.getDestinationHubId(), cfg);
@@ -217,6 +226,12 @@ public class OrderServiceImpl implements OrderService {
             PaymentType paymentType = PaymentType.valueOf(dto.getPaymentType().trim().toUpperCase());
             AppConfigEntity checkoutConfig = requireConfig();
             validatePaymentModeEnabled(paymentType, checkoutConfig);
+
+            zoneService.inactiveZoneBlockMessage(
+                            dto.getPickupLat(), dto.getPickupLng(), dto.getDropLat(), dto.getDropLng())
+                    .ifPresent(msg -> {
+                        throw new RuntimeException(msg);
+                    });
 
             Optional<com.youdash.entity.ZoneEntity> pz = zoneService.findZoneContaining(dto.getPickupLat(),
                     dto.getPickupLng());
@@ -306,7 +321,7 @@ public class OrderServiceImpl implements OrderService {
                     AppConfigEntity cfg = checkoutConfig;
                     double sub = pricingService.incityVehicleTotal(dist, dto.getWeight(), vehicle);
                     double gst = sub * (nz(cfg.getGstPercent()) / 100.0);
-                    double platform = nz(cfg.getPlatformFee());
+                    double platform = com.youdash.util.AppConfigPricing.incityPlatformFee(cfg);
                     double baseTotal = round2(sub + gst + platform);
                     double couponDisc;
                     if (StringUtils.hasText(dto.getCouponCode())) {
@@ -345,6 +360,10 @@ public class OrderServiceImpl implements OrderService {
                 HubEntity dest = hubRepository.findById(dto.getDestinationHubId())
                         .filter(h -> Boolean.TRUE.equals(h.getIsActive()))
                         .orElseThrow(() -> new RuntimeException("Destination hub not found or inactive"));
+                requireOutstationHubsMatchZones(
+                        dto.getPickupLat(), dto.getPickupLng(),
+                        dto.getDropLat(), dto.getDropLng(),
+                        origin, dest);
 
                 double pickupDist = distanceService.distanceKm(
                         dto.getPickupLat(), dto.getPickupLng(), origin.getLat(), origin.getLng());
@@ -2212,6 +2231,33 @@ public class OrderServiceImpl implements OrderService {
             return computed;
         }
         return round2(nz(dto.getTotalAmount()));
+    }
+
+    /**
+     * Ensures outstation hub IDs belong to the zones that contain pickup / drop coordinates.
+     * Any active hub in the pickup zone is allowed for origin; any in the drop zone for destination.
+     */
+    private void requireOutstationHubsMatchZones(
+            Double pickupLat, Double pickupLng,
+            Double dropLat, Double dropLng,
+            HubEntity origin, HubEntity dest) {
+        Long pickupZoneId = zoneService.resolveServingZoneIdAt(pickupLat, pickupLng)
+                .orElseThrow(() -> new RuntimeException("Pickup location is not inside a service zone"));
+        Long dropZoneId = zoneService.resolveServingZoneIdAt(dropLat, dropLng)
+                .orElseThrow(() -> new RuntimeException("Drop location is not inside a service zone"));
+
+        if (origin.getZoneId() == null) {
+            throw new RuntimeException("Origin hub is not linked to a zone");
+        }
+        if (!Objects.equals(origin.getZoneId(), pickupZoneId)) {
+            throw new RuntimeException("Origin hub does not belong to the pickup zone");
+        }
+        if (dest.getZoneId() == null) {
+            throw new RuntimeException("Destination hub is not linked to a zone");
+        }
+        if (!Objects.equals(dest.getZoneId(), dropZoneId)) {
+            throw new RuntimeException("Destination hub does not belong to the drop zone");
+        }
     }
 
     private record LegKm(double pickupKm, double hubKm, double dropKm) {

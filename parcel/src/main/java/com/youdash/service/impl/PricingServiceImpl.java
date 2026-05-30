@@ -3,11 +3,18 @@ package com.youdash.service.impl;
 import com.youdash.entity.AppConfigEntity;
 import com.youdash.entity.VehicleEntity;
 import com.youdash.model.OutstationDeliveryType;
+import com.youdash.model.OutstationLegType;
+import com.youdash.service.OutstationLegRateResolver;
 import com.youdash.service.PricingService;
+import com.youdash.util.AppConfigPricing;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
 public class PricingServiceImpl implements PricingService {
+
+    @Autowired
+    private OutstationLegRateResolver legRateResolver;
 
     @Override
     public double incityVehicleTotal(double distanceKm, double weightKg, VehicleEntity vehicle) {
@@ -28,23 +35,19 @@ public class PricingServiceImpl implements PricingService {
             OutstationDeliveryType deliveryType,
             AppConfigEntity config) {
 
-        double pickupRate = nz(config.getPickupRatePerKm());
-        double dropRate = nz(config.getDropRatePerKm());
+        double pickupRate = legRateResolver.resolveRatePerKm(OutstationLegType.PICKUP, weightKg, config);
+        double dropRate = legRateResolver.resolveRatePerKm(OutstationLegType.DROP, weightKg, config);
         double perKg = nz(config.getPerKgRate());
         double gstPct = nz(config.getGstPercent());
-        double platform = nz(config.getPlatformFee());
+        double platform = AppConfigPricing.outstationPlatformFee(config);
 
         double pickupDist = pickupDistanceKm;
         double dropDist = dropDistanceKm;
 
         switch (deliveryType) {
             case DOOR_TO_DOOR -> { /* use legs as passed */ }
-            case DOOR_TO_HUB -> {
-                dropDist = 0.0;
-            }
-            case HUB_TO_DOOR -> {
-                pickupDist = 0.0;
-            }
+            case DOOR_TO_HUB -> dropDist = 0.0;
+            case HUB_TO_DOOR -> pickupDist = 0.0;
             default -> throw new IllegalArgumentException("Unknown delivery type");
         }
 
@@ -61,6 +64,8 @@ public class PricingServiceImpl implements PricingService {
                 .pickupDistanceKm(round4(pickupDist))
                 .hubDistanceKm(round4(hubDistanceKm))
                 .dropDistanceKm(round4(dropDist))
+                .pickupRatePerKm(round2(pickupRate))
+                .dropRatePerKm(round2(dropRate))
                 .pickupCost(round2(pickupCost))
                 .hubCost(round2(hubCost))
                 .dropCost(round2(dropCost))

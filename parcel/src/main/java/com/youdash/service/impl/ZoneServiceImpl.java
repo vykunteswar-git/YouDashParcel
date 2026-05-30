@@ -96,13 +96,59 @@ public class ZoneServiceImpl implements ZoneService {
 
     @Override
     public Optional<ZoneEntity> findZoneContaining(double lat, double lng) {
-        List<ZoneEntity> active = zoneRepository.findByIsActiveTrueOrderByIdAsc();
-        for (ZoneEntity z : active) {
+        return firstZoneContaining(lat, lng, zoneRepository.findByIsActiveTrueOrderByIdAsc());
+    }
+
+    @Override
+    public Optional<ZoneEntity> findInactiveZoneContaining(double lat, double lng) {
+        return firstZoneContaining(lat, lng, zoneRepository.findByIsActiveFalseOrderByIdAsc());
+    }
+
+    @Override
+    public Optional<String> inactiveZoneBlockMessage(
+            double pickupLat, double pickupLng, double dropLat, double dropLng) {
+        if (findZoneContaining(pickupLat, pickupLng).isPresent()
+                || findZoneContaining(dropLat, dropLng).isPresent()) {
+            return Optional.empty();
+        }
+        Optional<ZoneEntity> pickupInactive = findInactiveZoneContaining(pickupLat, pickupLng);
+        Optional<ZoneEntity> dropInactive = findInactiveZoneContaining(dropLat, dropLng);
+        if (pickupInactive.isPresent()
+                && dropInactive.isPresent()
+                && pickupInactive.get().getId().equals(dropInactive.get().getId())) {
+            return Optional.of(pausedZoneMessage(pickupInactive.get()));
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<Long> resolveServingZoneIdAt(double lat, double lng) {
+        Optional<ZoneEntity> active = findZoneContaining(lat, lng);
+        if (active.isPresent()) {
+            return Optional.of(active.get().getId());
+        }
+        return findInactiveZoneContaining(lat, lng).map(ZoneEntity::getId);
+    }
+
+    private Optional<ZoneEntity> firstZoneContaining(double lat, double lng, List<ZoneEntity> zones) {
+        for (ZoneEntity z : zones) {
             if (containsPoint(z, lat, lng)) {
                 return Optional.of(z);
             }
         }
         return Optional.empty();
+    }
+
+    private static String pausedZoneMessage(ZoneEntity zone) {
+        String label = zone.getCity();
+        if (label == null || label.isBlank()) {
+            label = zone.getName();
+        }
+        if (label != null && !label.isBlank()) {
+            return "At present we are not serving at this location (" + label.trim()
+                    + "). Please try again later.";
+        }
+        return "At present we are not serving at this location. Please try again later.";
     }
 
     private boolean containsPoint(ZoneEntity zone, double lat, double lng) {

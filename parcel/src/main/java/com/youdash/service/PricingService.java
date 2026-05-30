@@ -33,6 +33,8 @@ public interface PricingService {
         private double pickupDistanceKm;
         private double hubDistanceKm;
         private double dropDistanceKm;
+        private double pickupRatePerKm;
+        private double dropRatePerKm;
         private double pickupCost;
         private double hubCost;
         private double dropCost;

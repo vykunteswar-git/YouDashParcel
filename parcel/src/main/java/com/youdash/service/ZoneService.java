@@ -21,4 +21,21 @@ public interface ZoneService {
      * Overlapping zones are ambiguous; avoid overlaps in admin data.
      */
     Optional<ZoneEntity> findZoneContaining(double lat, double lng);
+
+    /**
+     * First inactive zone polygon/circle that contains the point (id ascending).
+     */
+    Optional<ZoneEntity> findInactiveZoneContaining(double lat, double lng);
+
+    /**
+     * When pickup and drop lie in the same paused (inactive) zone, returns a user-facing block message.
+     * Cross-city (different inactive zones or mixed with active) is not blocked here.
+     */
+    Optional<String> inactiveZoneBlockMessage(
+            double pickupLat, double pickupLng, double dropLat, double dropLng);
+
+    /**
+     * Zone id for hub matching at a point: active zone if present, otherwise inactive zone polygon.
+     */
+    Optional<Long> resolveServingZoneIdAt(double lat, double lng);
 }

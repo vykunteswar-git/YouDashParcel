@@ -8,4 +8,6 @@ import java.util.List;
 public interface HubRepository extends JpaRepository<HubEntity, Long> {
 
     List<HubEntity> findByIsActiveTrue();
+
+    List<HubEntity> findByZoneIdAndIsActiveTrue(Long zoneId);
 }

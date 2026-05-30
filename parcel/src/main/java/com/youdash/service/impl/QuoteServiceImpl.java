@@ -28,6 +28,7 @@ import com.youdash.service.DistanceService;
 import com.youdash.service.PricingService;
 import com.youdash.service.QuoteService;
 import com.youdash.service.ZoneService;
+import com.youdash.util.AppConfigPricing;
 import com.youdash.util.GeoUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -41,7 +42,7 @@ import java.util.stream.Collectors;
 @Service
 public class QuoteServiceImpl implements QuoteService {
 
-    /** Only hubs within this distance (km) of pickup / drop are returned for outstation quote */
+    /** Fallback when pickup/drop are outside any zone polygon (legacy outstation search). */
     private static final double HUB_SEARCH_RADIUS_KM = 50.0;
 
     @Autowired
@@ -79,6 +80,19 @@ public class QuoteServiceImpl implements QuoteService {
             double dropLat = dto.getDropLat();
             double dropLng = dto.getDropLng();
 
+            Optional<String> pausedLocal = zoneService.inactiveZoneBlockMessage(
+                    pickupLat, pickupLng, dropLat, dropLng);
+            if (pausedLocal.isPresent()) {
+                double distanceKm = distanceService.distanceKm(pickupLat, pickupLng, dropLat, dropLng);
+                QuoteResponseDTO blocked = buildServiceUnavailableQuote(distanceKm, pausedLocal.get());
+                response.setData(blocked);
+                response.setMessage(pausedLocal.get());
+                response.setMessageKey("SUCCESS");
+                response.setSuccess(true);
+                response.setStatus(200);
+                return response;
+            }
+
             Optional<ZoneEntity> pz = zoneService.findZoneContaining(pickupLat, pickupLng);
             Optional<ZoneEntity> dz = zoneService.findZoneContaining(dropLat, dropLng);
             boolean sameZone = pz.isPresent() && dz.isPresent()
@@ -95,7 +109,7 @@ public class QuoteServiceImpl implements QuoteService {
                 AppConfigEntity cfg = appConfigRepository.findById(1L)
                         .orElseThrow(() -> new RuntimeException("Price config missing — ensure youdash_price_config row id=1 exists"));
                 double gstPct = nz(cfg.getGstPercent());
-                double platform = nz(cfg.getPlatformFee());
+                double platform = AppConfigPricing.incityPlatformFee(cfg);
 
                 // Exclude vehicles when parcel weight exceeds maxWeight
                 List<VehicleEntity> vehicles = vehicleRepository.findByIsActiveTrue().stream()
@@ -134,9 +148,8 @@ public class QuoteServiceImpl implements QuoteService {
                 response.setData(data);
                 response.setMessage("Quote ready");
             } else {
-                List<HubEntity> hubs = hubRepository.findByIsActiveTrue();
-                List<HubOptionDTO> originHubs = nearestHubs(pickupLat, pickupLng, hubs);
-                List<HubOptionDTO> destHubs = nearestHubs(dropLat, dropLng, hubs);
+                List<HubOptionDTO> originHubs = hubsForOutstationPoint(pickupLat, pickupLng);
+                List<HubOptionDTO> destHubs = hubsForOutstationPoint(dropLat, dropLng);
                 boolean noOrigin = originHubs.isEmpty();
                 boolean noDest = destHubs.isEmpty();
 
@@ -251,8 +264,6 @@ public class QuoteServiceImpl implements QuoteService {
             Long selectedOriginHubId,
             Long selectedDestinationHubId) {
         List<DeliveryTypeDetailsDTO> out = new ArrayList<>();
-        double pickupRate = nz(cfg.getPickupRatePerKm());
-        double dropRate = nz(cfg.getDropRatePerKm());
         double perKg = nz(cfg.getPerKgRate());
         SelectedHubsDTO selectedHubs = new SelectedHubsDTO(selectedOriginHubId, selectedDestinationHubId);
 
@@ -289,7 +300,7 @@ public class QuoteServiceImpl implements QuoteService {
             OutstationDeliveryType dtype = OutstationDeliveryType.valueOf(type);
             PricingService.OutstationBreakdown b = pricingService.outstationBreakdown(
                     pickupDist, hubDist, dropDist, routeRate, weightKg, dtype, cfg);
-            row.setPricing(toDeliveryTypePricing(b, cfg, pickupRate, routeRate, dropRate, perKg, weightKg));
+            row.setPricing(toDeliveryTypePricing(b, cfg, b.getPickupRatePerKm(), routeRate, b.getDropRatePerKm(), perKg, weightKg));
             out.add(row);
         }
         return out;
@@ -387,7 +398,44 @@ public class QuoteServiceImpl implements QuoteService {
                 .build();
     }
 
-    private List<HubOptionDTO> nearestHubs(double lat, double lng, List<HubEntity> hubs) {
+    private QuoteResponseDTO buildServiceUnavailableQuote(double distanceKm, String message) {
+        return QuoteResponseDTO.builder()
+                .serviceType("OUTSTATION")
+                .distanceKm(round4(distanceKm))
+                .vehicleOptions(List.of())
+                .originHubs(List.of())
+                .destinationHubs(List.of())
+                .deliveryTypes(List.of())
+                .deliveryTypeDetails(List.of())
+                .manualRequest(false)
+                .serviceUnavailable(true)
+                .unavailableMessage(message)
+                .build();
+    }
+
+    /**
+     * Hubs for outstation: zone-linked hubs when point is in an active or inactive zone; otherwise
+     * nearest active hubs within {@link #HUB_SEARCH_RADIUS_KM}.
+     */
+    private List<HubOptionDTO> hubsForOutstationPoint(double lat, double lng) {
+        Optional<Long> zoneId = zoneService.resolveServingZoneIdAt(lat, lng);
+        if (zoneId.isPresent()) {
+            List<HubEntity> inZone = hubRepository.findByZoneIdAndIsActiveTrue(zoneId.get());
+            if (!inZone.isEmpty()) {
+                return toHubOptionsSortedByDistance(lat, lng, inZone);
+            }
+        }
+        return nearestActiveHubsWithinRadius(lat, lng);
+    }
+
+    private List<HubOptionDTO> nearestActiveHubsWithinRadius(double lat, double lng) {
+        List<HubEntity> hubs = hubRepository.findByIsActiveTrue();
+        return toHubOptionsSortedByDistance(lat, lng, hubs).stream()
+                .filter(opt -> opt.getDistanceKm() != null && opt.getDistanceKm() <= HUB_SEARCH_RADIUS_KM)
+                .collect(Collectors.toList());
+    }
+
+    private List<HubOptionDTO> toHubOptionsSortedByDistance(double lat, double lng, List<HubEntity> hubs) {
         return hubs.stream()
                 .map(h -> {
                     double d = GeoUtils.haversineKm(lat, lng, h.getLat(), h.getLng());
@@ -400,7 +448,6 @@ public class QuoteServiceImpl implements QuoteService {
                             .distanceKm(round4(d))
                             .build();
                 })
-                .filter(opt -> opt.getDistanceKm() != null && opt.getDistanceKm() <= HUB_SEARCH_RADIUS_KM)
                 .sorted(Comparator.comparing(HubOptionDTO::getDistanceKm))
                 .collect(Collectors.toList());
     }

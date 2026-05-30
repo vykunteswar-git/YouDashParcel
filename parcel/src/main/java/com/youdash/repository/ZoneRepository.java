@@ -8,4 +8,6 @@ import java.util.List;
 public interface ZoneRepository extends JpaRepository<ZoneEntity, Long> {
 
     List<ZoneEntity> findByIsActiveTrueOrderByIdAsc();
+
+    List<ZoneEntity> findByIsActiveFalseOrderByIdAsc();
 }

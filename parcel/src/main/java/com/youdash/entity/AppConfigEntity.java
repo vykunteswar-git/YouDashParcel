@@ -16,12 +16,21 @@ public class AppConfigEntity {
     @Column(name = "gst_percent")
     private Double gstPercent;
 
+    /** Legacy single fee; use {@link #incityPlatformFee} / {@link #outstationPlatformFee} when set. */
     @Column(name = "platform_fee")
     private Double platformFee;
 
+    @Column(name = "incity_platform_fee")
+    private Double incityPlatformFee;
+
+    @Column(name = "outstation_platform_fee")
+    private Double outstationPlatformFee;
+
+    /** Legacy flat pickup ₹/km when no weight tier matches. */
     @Column(name = "pickup_rate_per_km")
     private Double pickupRatePerKm;
 
+    /** Legacy flat drop ₹/km when no weight tier matches. */
     @Column(name = "drop_rate_per_km")
     private Double dropRatePerKm;
 
