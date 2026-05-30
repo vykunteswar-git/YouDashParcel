@@ -48,6 +48,20 @@ public class CreateOrderRequestDTO {
     private String dropLandmark;
     private String imageUrl;
 
+    /** Customer description of parcel contents (booking parcel step). */
+    private String packageContents;
+    /** Declared value in INR, when provided. */
+    private Double declaredValue;
+    /** Number of physical pieces (default 1). */
+    private Integer pieceCount;
+    private Boolean isFragile;
+    private Boolean containsLiquid;
+    private Boolean containsBattery;
+    /** Customer confirmed prohibited-items policy at booking. */
+    private Boolean prohibitedItemsAccepted;
+    /** Customer confirmed parcel declaration at booking. */
+    private Boolean parcelDeclarationAccepted;
+
     /**
      * Optional snapshot from quote {@code vehicleOptions[].perKm} for the chosen vehicle (incity).
      */

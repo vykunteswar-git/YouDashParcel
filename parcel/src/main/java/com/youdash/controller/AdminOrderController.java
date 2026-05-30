@@ -4,6 +4,7 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.AdminOrderAssignDTO;
 import com.youdash.dto.AdminOrderStatusDTO;
 import com.youdash.dto.OrderResponseDTO;
+import com.youdash.dto.VerifyHubHandoverRequestDTO;
 import com.youdash.model.OrderStatus;
 import com.youdash.service.OrderService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,6 +59,14 @@ public class AdminOrderController {
             return r;
         }
         OrderStatus st = OrderStatus.valueOf(dto.getStatus().trim().toUpperCase());
-        return orderService.adminUpdateStatus(id, st);
+        boolean override = Boolean.TRUE.equals(dto.getAdminOverride());
+        return orderService.adminUpdateStatus(id, st, dto.getOtp(), override);
+    }
+
+    @PostMapping("/{id}/verify-hub-handover")
+    public ApiResponse<OrderResponseDTO> verifyHubHandover(
+            @PathVariable Long id,
+            @RequestBody VerifyHubHandoverRequestDTO dto) {
+        return orderService.adminVerifyHubHandover(id, dto);
     }
 }

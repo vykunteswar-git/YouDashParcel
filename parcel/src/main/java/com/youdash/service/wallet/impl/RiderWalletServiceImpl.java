@@ -1256,17 +1256,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
     }
 
     private static Long resolveCodCollectorRiderId(OrderEntity order) {
-        if (order == null) {
-            return null;
-        }
-        if (order.getServiceMode() == com.youdash.model.ServiceMode.OUTSTATION) {
-            String deliveryType = nzStr(order.getDeliveryType()).trim().toUpperCase();
-            if ("DOOR_TO_DOOR".equals(deliveryType) || "HUB_TO_DOOR".equals(deliveryType)) {
-                return order.getPickupRiderId() != null ? order.getPickupRiderId() : order.getRiderId();
-            }
-            return order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
-        }
-        return order.getRiderId();
+        return com.youdash.util.OutstationCodPolicy.resolveCodCollectorRiderId(order);
     }
 
     private static void validateCommissionPercent(String field, Double value) {

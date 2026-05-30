@@ -224,10 +224,15 @@ public class RiderController {
     }
 
     @PutMapping("/orders/{orderId}/pickup")
-    @Operation(summary = "Mark parcel picked up (CONFIRMED → PICKED_UP)")
-    public ApiResponse<?> markPickedUp(@PathVariable Long orderId, HttpServletRequest request) {
+    @Operation(summary = "Mark parcel picked up (CONFIRMED → PICKED_UP)",
+            description = "INCITY: no body. OUTSTATION: JSON body with 6-digit pickup OTP from customer.")
+    public ApiResponse<?> markPickedUp(
+            @PathVariable Long orderId,
+            @RequestBody(required = false) com.youdash.dto.VerifyDeliveryOtpRequestDTO dto,
+            HttpServletRequest request) {
         Long riderId = riderAccessVerifier.resolveActingRiderId(request);
-        return riderOrderService.markPickedUp(riderId, orderId);
+        String otp = dto != null ? dto.getOtp() : null;
+        return riderOrderService.markPickedUp(riderId, orderId, otp);
     }
 
     @PutMapping("/orders/{orderId}/start-transit")

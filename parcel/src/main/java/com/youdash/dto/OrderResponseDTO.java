@@ -31,6 +31,14 @@ public class OrderResponseDTO {
     private String dropDoorNo;
     private String dropLandmark;
     private String imageUrl;
+    private String packageContents;
+    private Double declaredValue;
+    private Integer pieceCount;
+    private Boolean isFragile;
+    private Boolean containsLiquid;
+    private Boolean containsBattery;
+    private Boolean prohibitedItemsAccepted;
+    private Boolean parcelDeclarationAccepted;
     private Double pickupLat;
     private Double pickupLng;
     private Double dropLat;
@@ -89,6 +97,8 @@ public class OrderResponseDTO {
     private String deliveryOtp;
     private Boolean isOtpVerified;
     private String pickupOtp;
+    /** DOOR_TO_HUB: OTP for receiver collection at destination hub (READY_FOR_PICKUP). */
+    private String hubCollectionOtp;
     private String deliveryOtpGeneratedAt;
     private Integer deliveryOtpAttempts;
     private Double subtotal;

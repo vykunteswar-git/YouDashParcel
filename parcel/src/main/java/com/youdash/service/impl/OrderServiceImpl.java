@@ -4,6 +4,8 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.*;
 import com.youdash.entity.*;
 import com.youdash.util.DeliveryOtpGenerator;
+import com.youdash.util.OutstationCodPolicy;
+import com.youdash.util.OutstationHubHandover;
 import com.youdash.util.OutstationPayableLegSplit;
 import com.youdash.exception.BadRequestException;
 import com.youdash.model.*;
@@ -266,6 +268,7 @@ public class OrderServiceImpl implements OrderService {
             order.setDropDoorNo(trimToNull(dto.getDropDoorNo()));
             order.setDropLandmark(trimToNull(dto.getDropLandmark()));
             order.setImageUrl(trimToNull(dto.getImageUrl()));
+            applyParcelExtras(order, dto);
             order.setPickupLat(dto.getPickupLat());
             order.setPickupLng(dto.getPickupLng());
             order.setDropLat(dto.getDropLat());
@@ -436,6 +439,8 @@ public class OrderServiceImpl implements OrderService {
                     && (saved.getPaymentStatus() == null || saved.getPaymentStatus().isBlank())) {
                 saved.setPaymentStatus("UNPAID");
             }
+            saved = orderRepository.save(saved);
+            applyOutstationOtpsOnCreate(saved);
             saved = orderRepository.save(saved);
             appendTimeline(saved, saved.getStatus(), "order_created", null, saved.getRiderId(), "Order created");
             if (promo != null) {
@@ -921,6 +926,10 @@ public class OrderServiceImpl implements OrderService {
                 o.setDeliveryOtp(DeliveryOtpGenerator.generate());
                 o.setDeliveryOtpGeneratedAt(Instant.now());
             }
+            if (o.getServiceMode() == ServiceMode.OUTSTATION
+                    && (o.getPickupOtp() == null || o.getPickupOtp().isBlank())) {
+                o.setPickupOtp(DeliveryOtpGenerator.generate());
+            }
             OrderEntity saved = orderRepository.save(o);
             appendTimeline(
                     saved,
@@ -1039,64 +1048,113 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public ApiResponse<OrderResponseDTO> adminUpdateStatus(Long orderId, OrderStatus status) {
+    public ApiResponse<OrderResponseDTO> adminUpdateStatus(
+            Long orderId, OrderStatus status, String otp, boolean adminOverride) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         OrderEntity o = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found"));
-        if (status == OrderStatus.DELIVERED && o.getPaymentType() == PaymentType.COD) {
+        OrderStatus target = normalizeAdminTargetStatus(o, status);
+        if (target == OrderStatus.DELIVERED && o.getPaymentType() == PaymentType.COD) {
             if (o.getCodCollectionMode() == null || o.getCodCollectedAmount() == null) {
                 throw new RuntimeException("COD details missing. Use /order/complete");
             }
         }
-        transitionStatus(o, status);
-        if (status == OrderStatus.OUT_FOR_DELIVERY) {
-            o.setDeliveryOtp(DeliveryOtpGenerator.generate());
-            o.setDeliveryOtpGeneratedAt(Instant.now());
+        applyAdminOutstationOtpGates(o, target, otp, adminOverride);
+        transitionStatus(o, target);
+        if (target == OrderStatus.OUT_FOR_DELIVERY
+                || (target == OrderStatus.READY_FOR_PICKUP && OutstationCodPolicy.isDoorToHub(o))) {
+            if (o.getDeliveryOtp() == null || o.getDeliveryOtp().isBlank()) {
+                o.setDeliveryOtp(DeliveryOtpGenerator.generate());
+                o.setDeliveryOtpGeneratedAt(Instant.now());
+            }
             o.setIsOtpVerified(false);
             o.setDeliveryOtpAttempts(0);
         }
+        if (target == OrderStatus.PICKED_UP) {
+            o.setPickupOtp(null);
+        }
+        if (target == OrderStatus.DELIVERED) {
+            o.setDeliveryOtp(null);
+            o.setIsOtpVerified(true);
+        }
         OrderEntity saved = orderRepository.save(o);
-        appendTimeline(saved, status, "status_updated", saved.getDestinationHubId(), saved.getRiderId(),
-                "Admin status update");
-        UserOrderEventDTO evt = new UserOrderEventDTO();
-        evt.setOrderId(saved.getId());
-        evt.setEvent("status_updated");
-        evt.setEventType("status_updated");
-        evt.setEventVersion(1);
-        evt.setTsEpochMs(Instant.now().toEpochMilli());
-        evt.setSource("backend");
-        evt.setStatus(saved.getStatus().name());
-        evt.setServiceMode(saved.getServiceMode() == null ? null : saved.getServiceMode().name());
-        evt.setStage(saved.getStatus().name());
-        evt.setRiderId(saved.getRiderId());
-        messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", evt);
-        adminOrderTopicPublisher.publishStatusUpdated(saved);
-
-        if (saved.getStatus() == OrderStatus.DELIVERED
-                || saved.getStatus() == OrderStatus.CANCELLED
-                || saved.getStatus() == OrderStatus.RETURNED
-                || saved.getStatus() == OrderStatus.EXPIRED
-                || saved.getStatus() == OrderStatus.FAILED) {
-            userActiveOrderTopicPublisher.publishReleased(saved.getUserId(), saved.getId());
-        } else {
-            userActiveOrderTopicPublisher.publishStatusUpdated(
-                    saved.getUserId(),
-                    saved.getId(),
-                    saved.getStatus().name(),
-                    saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
-                    saved.getRiderId());
-        }
-        if (status == OrderStatus.DELIVERED && saved.getRiderId() != null) {
-            riderWalletService.settleOrderDelivered(
-                    saved,
-                    saved.getPaymentType() == PaymentType.COD ? saved.getCodCollectionMode() : null,
-                    saved.getCodCollectedAmount(),
-                    null,
-                    "ADMIN");
-        }
-        sendMilestoneUserStatusPush(saved, status);
+        String timelineNote = adminOverride ? "Admin status update (OTP override)" : "Admin status update";
+        appendTimeline(saved, target, "status_updated", saved.getDestinationHubId(), saved.getRiderId(), timelineNote);
+        publishAdminStatusEvent(saved, target);
         response.setData(toOrderDto(saved, null, null, false, null));
         response.setMessage("Status updated");
+        response.setMessageKey("SUCCESS");
+        response.setSuccess(true);
+        response.setStatus(200);
+        return response;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ApiResponse<OrderResponseDTO> adminVerifyHubHandover(Long orderId, VerifyHubHandoverRequestDTO dto) {
+        ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
+        if (orderId == null) {
+            throw new RuntimeException("orderId is required");
+        }
+        if (dto == null || dto.getType() == null || dto.getType().isBlank()) {
+            throw new RuntimeException("type is required (DROP or COLLECT)");
+        }
+        OrderEntity o = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found"));
+        if (o.getServiceMode() != ServiceMode.OUTSTATION) {
+            throw new RuntimeException("Hub handover is only for OUTSTATION orders");
+        }
+        boolean adminOverride = Boolean.TRUE.equals(dto.getAdminOverride());
+        OutstationHubHandover.Type handoverType = OutstationHubHandover.Type.parse(dto.getType());
+        String providedOtp = dto.getOtp() == null ? "" : dto.getOtp().trim();
+        OrderStatus targetStatus;
+        String timelineNote;
+
+        if (handoverType == OutstationHubHandover.Type.DROP) {
+            if (!OutstationHubHandover.canDropAtOriginHub(o)) {
+                throw new RuntimeException("Hub drop is only allowed for HUB_TO_DOOR orders in CREATED status");
+            }
+            String dropCode = o.getPickupOtp();
+            if (!adminOverride) {
+                if (dropCode == null || dropCode.isBlank()) {
+                    throw new RuntimeException("No drop-off OTP on this order");
+                }
+                if (providedOtp.isEmpty() || !dropCode.equals(providedOtp)) {
+                    throw new RuntimeException("Invalid drop-off OTP");
+                }
+            }
+            recordSenderCodAtHubIfNeeded(o, dto, adminOverride);
+            o.setPickupOtp(null);
+            targetStatus = OrderStatus.AT_ORIGIN_HUB;
+            timelineNote = adminOverride ? "Hub drop confirmed (OTP override)" : "Hub drop confirmed";
+        } else {
+            if (!OutstationHubHandover.canCollectAtDestinationHub(o)) {
+                throw new RuntimeException(
+                        "Hub collection is only allowed for DOOR_TO_HUB orders in READY_FOR_PICKUP status");
+            }
+            if (o.getDeliveryOtp() == null || o.getDeliveryOtp().isBlank()) {
+                o.setDeliveryOtp(DeliveryOtpGenerator.generate());
+                o.setDeliveryOtpGeneratedAt(Instant.now());
+            }
+            if (!adminOverride) {
+                if (!o.getDeliveryOtp().equals(providedOtp)) {
+                    throw new RuntimeException("Invalid collection OTP");
+                }
+            }
+            o.setDeliveryOtp(null);
+            o.setIsOtpVerified(true);
+            targetStatus = OrderStatus.COLLECTED_BY_CUSTOMER;
+            timelineNote = adminOverride ? "Hub collection confirmed (OTP override)" : "Hub collection confirmed";
+        }
+
+        transitionStatus(o, targetStatus);
+        OrderEntity saved = orderRepository.save(o);
+        appendTimeline(saved, targetStatus, "hub_handover_" + handoverType.name().toLowerCase(),
+                handoverType == OutstationHubHandover.Type.DROP ? saved.getOriginHubId() : saved.getDestinationHubId(),
+                null, timelineNote);
+        publishAdminStatusEvent(saved);
+        response.setData(toOrderDto(saved, null, null, false, null));
+        response.setMessage("Hub handover recorded");
         response.setMessageKey("SUCCESS");
         response.setSuccess(true);
         response.setStatus(200);
@@ -1153,6 +1211,13 @@ public class OrderServiceImpl implements OrderService {
 
         if (o.getPaymentType() == null) {
             throw new BadRequestException("Order payment type is missing");
+        }
+
+        if (o.getServiceMode() == ServiceMode.OUTSTATION
+                && o.getPaymentType() == PaymentType.COD
+                && nz(o.getCodCollectedAmount()) <= 0.0) {
+            throw new BadRequestException(
+                    "COD must be collected from the sender before completing delivery");
         }
 
         if (o.getPaymentType() == PaymentType.ONLINE) {
@@ -1639,6 +1704,18 @@ public class OrderServiceImpl implements OrderService {
         return s == null || s.isBlank();
     }
 
+    private static void applyParcelExtras(OrderEntity order, CreateOrderRequestDTO dto) {
+        order.setPackageContents(trimToNull(dto.getPackageContents()));
+        order.setDeclaredValue(dto.getDeclaredValue());
+        Integer pieces = dto.getPieceCount();
+        order.setPieceCount(pieces != null && pieces > 0 ? pieces : 1);
+        order.setIsFragile(Boolean.TRUE.equals(dto.getIsFragile()));
+        order.setContainsLiquid(Boolean.TRUE.equals(dto.getContainsLiquid()));
+        order.setContainsBattery(Boolean.TRUE.equals(dto.getContainsBattery()));
+        order.setProhibitedItemsAccepted(Boolean.TRUE.equals(dto.getProhibitedItemsAccepted()));
+        order.setParcelDeclarationAccepted(Boolean.TRUE.equals(dto.getParcelDeclarationAccepted()));
+    }
+
     private static String trimToNull(String s) {
         if (s == null) {
             return null;
@@ -1792,6 +1869,8 @@ public class OrderServiceImpl implements OrderService {
         String riderName = rider != null ? rider.getName() : null;
         String riderPhone = rider != null ? rider.getPhone() : null;
         String deliveryOtp = resolveDeliveryOtpForResponse(o, riderOrderApi);
+        String pickupOtp = resolvePickupOtpForResponse(o, riderOrderApi);
+        String hubCollectionOtp = resolveHubCollectionOtpForResponse(o, riderOrderApi);
         HubEntity originHub = resolveHubById(o.getOriginHubId());
         HubEntity destinationHub = resolveHubById(o.getDestinationHubId());
         String resolvedPickupAddress = resolveDisplayAddress(
@@ -1830,6 +1909,14 @@ public class OrderServiceImpl implements OrderService {
                 .dropDoorNo(o.getDropDoorNo())
                 .dropLandmark(o.getDropLandmark())
                 .imageUrl(o.getImageUrl())
+                .packageContents(o.getPackageContents())
+                .declaredValue(o.getDeclaredValue())
+                .pieceCount(o.getPieceCount())
+                .isFragile(o.getIsFragile())
+                .containsLiquid(o.getContainsLiquid())
+                .containsBattery(o.getContainsBattery())
+                .prohibitedItemsAccepted(o.getProhibitedItemsAccepted())
+                .parcelDeclarationAccepted(o.getParcelDeclarationAccepted())
                 .pickupLat(o.getPickupLat())
                 .pickupLng(o.getPickupLng())
                 .dropLat(o.getDropLat())
@@ -1864,7 +1951,8 @@ public class OrderServiceImpl implements OrderService {
                 .riderName(riderName)
                 .riderPhone(riderPhone)
                 .deliveryOtp(deliveryOtp)
-                .pickupOtp(o.getPickupOtp())
+                .pickupOtp(pickupOtp)
+                .hubCollectionOtp(hubCollectionOtp)
                 .isOtpVerified(o.getIsOtpVerified())
                 .deliveryOtpGeneratedAt(
                         o.getDeliveryOtpGeneratedAt() != null ? o.getDeliveryOtpGeneratedAt().toString() : null)
@@ -1945,14 +2033,15 @@ public class OrderServiceImpl implements OrderService {
         if (nz(order.getCodCollectedAmount()) > 0.0) {
             return false;
         }
-        if (order.getServiceMode() != ServiceMode.OUTSTATION) {
-            return true;
+        if (!OutstationCodPolicy.pickupRiderCollectsCod(order)) {
+            return false;
         }
         Long riderId = viewerRiderId != null ? viewerRiderId : order.getRiderId();
         if (riderId == null) {
             return false;
         }
-        return Objects.equals(riderId, order.getPickupRiderId()) || Objects.equals(riderId, order.getRiderId());
+        Long collector = OutstationCodPolicy.resolveCodCollectorRiderId(order);
+        return collector != null && Objects.equals(riderId, collector);
     }
 
     private void applyOutstationLegAmounts(OrderResponseDTO dto, OrderEntity order, boolean riderOrderApi,
@@ -2102,12 +2191,229 @@ public class OrderServiceImpl implements OrderService {
             return (s == OrderStatus.IN_TRANSIT || s == OrderStatus.OUT_FOR_DELIVERY) ? otp : null;
         }
         if (o.getServiceMode() == ServiceMode.OUTSTATION) {
-            return s == OrderStatus.OUT_FOR_DELIVERY ? otp : null;
+            return resolveOutstationDeliveryOtpForCustomer(o, s, otp);
         }
         return switch (s) {
             case RIDER_ACCEPTED, PAYMENT_PENDING, CONFIRMED, PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY -> otp;
             default -> null;
         };
+    }
+
+    /**
+     * Customer outstation: delivery OTP only during last-mile / handover, not at pickup.
+     */
+    private static String resolveOutstationDeliveryOtpForCustomer(
+            OrderEntity o, OrderStatus s, String otp) {
+        if (Boolean.TRUE.equals(o.getIsOtpVerified())) {
+            return null;
+        }
+        if (s == OrderStatus.CANCELLED
+                || s == OrderStatus.EXPIRED
+                || s == OrderStatus.FAILED
+                || s == OrderStatus.RETURNED
+                || s == OrderStatus.RETURNED_TO_SENDER
+                || s == OrderStatus.ORDER_CREATED
+                || s == OrderStatus.SEARCHING_RIDER
+                || s == OrderStatus.CREATED
+                || s == OrderStatus.CONFIRMED
+                || s == OrderStatus.RIDER_ASSIGNED
+                || s == OrderStatus.PICKUP_CONFIRMED
+                || s == OrderStatus.PICKED_UP
+                || s == OrderStatus.PARCEL_PICKED_UP
+                || s == OrderStatus.AT_ORIGIN_HUB
+                || s == OrderStatus.ARRIVED_ORIGIN_HUB
+                || s == OrderStatus.DEPARTED_ORIGIN_HUB) {
+            return null;
+        }
+        if (OutstationCodPolicy.isDoorToHub(o) && s == OrderStatus.READY_FOR_PICKUP) {
+            return null;
+        }
+        return switch (s) {
+            case IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERY_RIDER_ASSIGNED,
+                    AT_DESTINATION_HUB, SORTED_AT_DESTINATION -> otp;
+            default -> null;
+        };
+    }
+
+    /**
+     * Maps admin UI status labels to rider/transition-guard statuses.
+     */
+    private static OrderStatus normalizeAdminTargetStatus(OrderEntity o, OrderStatus requested) {
+        if (requested == null) {
+            return null;
+        }
+        return switch (requested) {
+            case RIDER_ASSIGNED, PICKUP_CONFIRMED -> OrderStatus.CONFIRMED;
+            case PARCEL_PICKED_UP -> OrderStatus.PICKED_UP;
+            case ARRIVED_ORIGIN_HUB -> OrderStatus.AT_ORIGIN_HUB;
+            case DISPATCHED_TO_DESTINATION -> OrderStatus.DEPARTED_ORIGIN_HUB;
+            case ARRIVED_DESTINATION_HUB -> OrderStatus.AT_DESTINATION_HUB;
+            case COLLECTED_BY_CUSTOMER -> OrderStatus.DELIVERED;
+            default -> requested;
+        };
+    }
+
+    /**
+     * Outstation admin status changes must verify pickup/delivery OTP unless {@code adminOverride}.
+     */
+    private static void applyAdminOutstationOtpGates(
+            OrderEntity o, OrderStatus target, String otp, boolean adminOverride) {
+        if (o.getServiceMode() != ServiceMode.OUTSTATION || adminOverride) {
+            return;
+        }
+        String provided = otp == null ? "" : otp.trim();
+        if (target == OrderStatus.AT_ORIGIN_HUB
+                && OutstationCodPolicy.isHubToDoor(o)
+                && o.getStatus() == OrderStatus.CREATED) {
+            throw new RuntimeException("Use verify-hub-handover DROP for hub drop-off");
+        }
+        if (target == OrderStatus.PICKED_UP) {
+            String pickupCode = o.getPickupOtp();
+            if (pickupCode != null && !pickupCode.isBlank()) {
+                if (provided.isEmpty()) {
+                    throw new RuntimeException(
+                            "Pickup OTP required. Enter the customer's pickup OTP or set adminOverride.");
+                }
+                if (!pickupCode.equals(provided)) {
+                    throw new RuntimeException("Invalid pickup OTP");
+                }
+            }
+            return;
+        }
+        if (target == OrderStatus.DELIVERED || target == OrderStatus.COLLECTED_BY_CUSTOMER) {
+            if (Boolean.TRUE.equals(o.getIsOtpVerified())) {
+                return;
+            }
+            if (target == OrderStatus.COLLECTED_BY_CUSTOMER) {
+                throw new RuntimeException("Use verify-hub-handover COLLECT for hub collection");
+            }
+            String deliveryCode = o.getDeliveryOtp();
+            if (deliveryCode != null && !deliveryCode.isBlank()) {
+                if (provided.isEmpty()) {
+                    throw new RuntimeException(
+                            "Delivery OTP required. Enter the customer's delivery OTP or set adminOverride.");
+                }
+                if (!deliveryCode.equals(provided)) {
+                    throw new RuntimeException("Invalid delivery OTP");
+                }
+            }
+        }
+    }
+
+    /**
+     * Customer outstation: pickup OTP after rider assigned, until parcel is picked up.
+     */
+    private static String resolvePickupOtpForResponse(OrderEntity o, boolean riderOrderApi) {
+        if (riderOrderApi || o.getServiceMode() != ServiceMode.OUTSTATION) {
+            return null;
+        }
+        String otp = o.getPickupOtp();
+        if (otp == null || otp.isBlank()) {
+            return null;
+        }
+        OrderStatus s = o.getStatus();
+        if (OutstationCodPolicy.isHubToDoor(o)) {
+            return s == OrderStatus.CREATED ? otp : null;
+        }
+        if (s != OrderStatus.CONFIRMED
+                && s != OrderStatus.RIDER_ASSIGNED
+                && s != OrderStatus.PICKUP_CONFIRMED) {
+            return null;
+        }
+        boolean riderLinked = o.getRiderId() != null
+                || o.getPickupRiderId() != null
+                || o.getDeliveryRiderId() != null;
+        return riderLinked ? otp : null;
+    }
+
+    /** Customer: collection OTP at destination hub (DOOR_TO_HUB). */
+    private static String resolveHubCollectionOtpForResponse(OrderEntity o, boolean riderOrderApi) {
+        if (riderOrderApi || o.getServiceMode() != ServiceMode.OUTSTATION) {
+            return null;
+        }
+        if (!OutstationCodPolicy.isDoorToHub(o) || o.getStatus() != OrderStatus.READY_FOR_PICKUP) {
+            return null;
+        }
+        if (Boolean.TRUE.equals(o.getIsOtpVerified())) {
+            return null;
+        }
+        String otp = o.getDeliveryOtp();
+        return otp == null || otp.isBlank() ? null : otp;
+    }
+
+    private void applyOutstationOtpsOnCreate(OrderEntity order) {
+        if (order == null || order.getServiceMode() != ServiceMode.OUTSTATION) {
+            return;
+        }
+        if (OutstationCodPolicy.isHubToDoor(order)
+                && (order.getPickupOtp() == null || order.getPickupOtp().isBlank())) {
+            order.setPickupOtp(DeliveryOtpGenerator.generate());
+        }
+    }
+
+    private void recordSenderCodAtHubIfNeeded(
+            OrderEntity order, VerifyHubHandoverRequestDTO dto, boolean adminOverride) {
+        if (order.getPaymentType() != PaymentType.COD) {
+            return;
+        }
+        if (nz(order.getCodCollectedAmount()) > 0.0) {
+            return;
+        }
+        if (adminOverride) {
+            return;
+        }
+        if (dto.getCodCollectionMode() == null || dto.getCodCollectionMode().isBlank()) {
+            throw new RuntimeException("COD: codCollectionMode (CASH or QR) is required when collecting from sender at hub");
+        }
+        CodCollectionMode mode = CodCollectionMode.parseClientValue(dto.getCodCollectionMode());
+        double collected = round2(nz(order.getTotalAmount()));
+        if (collected <= 0) {
+            throw new RuntimeException("Invalid order total for COD collection");
+        }
+        order.setCodCollectionMode(mode);
+        order.setCodCollectedAmount(collected);
+        order.setCodSettlementStatus(CodSettlementStatus.PENDING);
+    }
+
+    private void publishAdminStatusEvent(OrderEntity saved, OrderStatus target) {
+        UserOrderEventDTO evt = new UserOrderEventDTO();
+        evt.setOrderId(saved.getId());
+        evt.setEvent("status_updated");
+        evt.setEventType("status_updated");
+        evt.setEventVersion(1);
+        evt.setTsEpochMs(Instant.now().toEpochMilli());
+        evt.setSource("backend");
+        evt.setStatus(saved.getStatus().name());
+        evt.setServiceMode(saved.getServiceMode() == null ? null : saved.getServiceMode().name());
+        evt.setStage(saved.getStatus().name());
+        evt.setRiderId(saved.getRiderId());
+        messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", evt);
+        adminOrderTopicPublisher.publishStatusUpdated(saved);
+
+        if (saved.getStatus() == OrderStatus.DELIVERED
+                || saved.getStatus() == OrderStatus.COLLECTED_BY_CUSTOMER
+                || saved.getStatus() == OrderStatus.CANCELLED
+                || saved.getStatus() == OrderStatus.RETURNED
+                || saved.getStatus() == OrderStatus.EXPIRED
+                || saved.getStatus() == OrderStatus.FAILED) {
+            userActiveOrderTopicPublisher.publishReleased(saved.getUserId(), saved.getId());
+        } else {
+            userActiveOrderTopicPublisher.publishStatusUpdated(
+                    saved.getUserId(),
+                    saved.getId(),
+                    saved.getStatus().name(),
+                    saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
+                    saved.getRiderId());
+        }
+        if (target == OrderStatus.DELIVERED && saved.getRiderId() != null) {
+            riderWalletService.settleOrderDelivered(
+                    saved,
+                    saved.getPaymentType() == PaymentType.COD ? saved.getCodCollectionMode() : null,
+                    saved.getCodCollectedAmount(),
+                    null,
+                    "ADMIN");
+        }
+        sendMilestoneUserStatusPush(saved, target);
     }
 
     private void transitionStatus(OrderEntity order, OrderStatus toStatus) {

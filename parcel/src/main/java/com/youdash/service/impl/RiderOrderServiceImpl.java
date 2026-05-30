@@ -215,13 +215,25 @@ public class RiderOrderServiceImpl implements RiderOrderService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public ApiResponse<OrderResponseDTO> markPickedUp(Long riderId, Long orderId) {
+    public ApiResponse<OrderResponseDTO> markPickedUp(Long riderId, Long orderId, String pickupOtp) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         OrderEntity order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BadRequestException("Order not found"));
         requireAssignedRider(order, riderId);
         if (order.getStatus() != OrderStatus.CONFIRMED) {
             throw new BadRequestException("Order must be CONFIRMED to mark picked up");
+        }
+        if (order.getServiceMode() == ServiceMode.OUTSTATION) {
+            if (pickupOtp == null || pickupOtp.isBlank()) {
+                throw new BadRequestException("Pickup OTP is required");
+            }
+            if (order.getPickupOtp() == null || order.getPickupOtp().isBlank()) {
+                throw new BadRequestException("No pickup OTP on this order");
+            }
+            if (!order.getPickupOtp().equals(pickupOtp.trim())) {
+                throw new BadRequestException("Invalid pickup OTP");
+            }
+            order.setPickupOtp(null);
         }
         transitionStatus(order, OrderStatus.PICKED_UP);
         OrderEntity saved = orderRepository.save(order);

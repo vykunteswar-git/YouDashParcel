@@ -24,8 +24,8 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RETURNED)));
 
     private static final Map<OrderStatus, Set<OrderStatus>> OUTSTATION_ALLOWED = Map.ofEntries(
-            Map.entry(OrderStatus.CREATED, Set.of(OrderStatus.CONFIRMED, OrderStatus.CANCELLED, OrderStatus.FAILED)),
-            Map.entry(OrderStatus.CONFIRMED, Set.of(OrderStatus.PICKED_UP, OrderStatus.AT_ORIGIN_HUB, OrderStatus.FAILED_DELIVERY, OrderStatus.CANCELLED)),
+            Map.entry(OrderStatus.CREATED, Set.of(OrderStatus.CONFIRMED, OrderStatus.AT_ORIGIN_HUB, OrderStatus.CANCELLED, OrderStatus.FAILED)),
+            Map.entry(OrderStatus.CONFIRMED, Set.of(OrderStatus.PICKED_UP, OrderStatus.FAILED_DELIVERY, OrderStatus.CANCELLED)),
             Map.entry(OrderStatus.PICKED_UP, Set.of(OrderStatus.AT_ORIGIN_HUB, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.AT_ORIGIN_HUB, Set.of(OrderStatus.DEPARTED_ORIGIN_HUB, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.DEPARTED_ORIGIN_HUB, Set.of(OrderStatus.IN_TRANSIT, OrderStatus.FAILED_DELIVERY)),
@@ -33,7 +33,7 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             Map.entry(OrderStatus.AT_DESTINATION_HUB, Set.of(OrderStatus.SORTED_AT_DESTINATION, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.SORTED_AT_DESTINATION, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.READY_FOR_PICKUP, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.OUT_FOR_DELIVERY, Set.of(OrderStatus.DELIVERED, OrderStatus.FAILED_DELIVERY)),
-            Map.entry(OrderStatus.READY_FOR_PICKUP, Set.of(OrderStatus.DELIVERED, OrderStatus.RETURNED)),
+            Map.entry(OrderStatus.READY_FOR_PICKUP, Set.of(OrderStatus.DELIVERED, OrderStatus.COLLECTED_BY_CUSTOMER, OrderStatus.RETURNED)),
             Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RETURNED)));
 
     /**
@@ -49,7 +49,7 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             Map.entry(OrderStatus.AT_DESTINATION_HUB, Set.of(OrderStatus.SORTED_AT_DESTINATION, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.SORTED_AT_DESTINATION, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.READY_FOR_PICKUP, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.OUT_FOR_DELIVERY, Set.of(OrderStatus.DELIVERED, OrderStatus.FAILED_DELIVERY)),
-            Map.entry(OrderStatus.READY_FOR_PICKUP, Set.of(OrderStatus.DELIVERED, OrderStatus.RETURNED)),
+            Map.entry(OrderStatus.READY_FOR_PICKUP, Set.of(OrderStatus.DELIVERED, OrderStatus.COLLECTED_BY_CUSTOMER, OrderStatus.RETURNED)),
             Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RETURNED)));
 
     private static final Map<OrderStatus, Set<OrderStatus>> INCITY_ADMIN_SELECTABLE = Map.ofEntries(

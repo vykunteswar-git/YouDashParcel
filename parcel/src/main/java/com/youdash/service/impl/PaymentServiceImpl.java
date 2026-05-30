@@ -901,12 +901,8 @@ public class PaymentServiceImpl implements PaymentService {
         if (order == null || riderId == null) {
             return false;
         }
-        if (order.getServiceMode() == ServiceMode.OUTSTATION) {
-            Long collector = order.getPickupRiderId() != null ? order.getPickupRiderId() : order.getRiderId();
-            return collector != null && Objects.equals(collector, riderId);
-        }
-        Long deliveryRider = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
-        return deliveryRider != null && Objects.equals(deliveryRider, riderId);
+        Long collector = com.youdash.util.OutstationCodPolicy.resolveCodCollectorRiderId(order);
+        return collector != null && Objects.equals(collector, riderId);
     }
 
     private void ensureRazorpayConfigured() {

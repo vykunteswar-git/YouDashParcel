@@ -8,7 +8,7 @@ public interface RiderOrderService {
 
     ApiResponse<String> reject(Long riderId, Long orderId);
 
-    ApiResponse<OrderResponseDTO> markPickedUp(Long riderId, Long orderId);
+    ApiResponse<OrderResponseDTO> markPickedUp(Long riderId, Long orderId, String pickupOtp);
 
     ApiResponse<OrderResponseDTO> startTransit(Long riderId, Long orderId);
 

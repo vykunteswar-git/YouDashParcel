@@ -72,6 +72,30 @@ public class OrderEntity {
     @Column(name = "image_url")
     private String imageUrl;
 
+    @Column(name = "package_contents", length = 512)
+    private String packageContents;
+
+    @Column(name = "declared_value")
+    private Double declaredValue;
+
+    @Column(name = "piece_count")
+    private Integer pieceCount;
+
+    @Column(name = "is_fragile")
+    private Boolean isFragile;
+
+    @Column(name = "contains_liquid")
+    private Boolean containsLiquid;
+
+    @Column(name = "contains_battery")
+    private Boolean containsBattery;
+
+    @Column(name = "prohibited_items_accepted")
+    private Boolean prohibitedItemsAccepted;
+
+    @Column(name = "parcel_declaration_accepted")
+    private Boolean parcelDeclarationAccepted;
+
     @Column(name = "pickup_lat", nullable = false)
     private Double pickupLat;
 
