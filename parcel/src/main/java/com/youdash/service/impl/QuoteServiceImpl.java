@@ -190,6 +190,7 @@ public class QuoteServiceImpl implements QuoteService {
                     AppConfigEntity cfg = appConfigRepository.findById(1L)
                             .orElseThrow(() -> new RuntimeException("Price config missing — ensure youdash_price_config row id=1 exists"));
                     Long hubRouteId = resolveHubRouteId(originHubs, destHubs);
+                    enrichHubDeliveryPromises(originHubs, destHubs, hubRouteId);
                     HubOptionDTO oHub = originHubs.get(0);
                     HubOptionDTO dHub = destHubs.get(0);
                     double pickupDist = distanceService.distanceKm(
@@ -249,11 +250,39 @@ public class QuoteServiceImpl implements QuoteService {
         if (originHubs.isEmpty() || destHubs.isEmpty()) {
             return null;
         }
+        return resolveHubRouteIdForPair(originHubs.get(0).getId(), destHubs.get(0).getId(), null);
+    }
+
+    private Long resolveHubRouteIdForPair(Long originHubId, Long destHubId, Long fallback) {
         return hubRouteRepository
-                .findByOriginHubIdAndDestinationHubIdAndIsActiveTrue(
-                        originHubs.get(0).getId(), destHubs.get(0).getId())
+                .findByOriginHubIdAndDestinationHubIdAndIsActiveTrue(originHubId, destHubId)
                 .map(HubRouteEntity::getId)
-                .orElse(null);
+                .orElse(fallback);
+    }
+
+    /**
+     * Each hub gets a delivery promise paired with the nearest hub on the opposite side
+     * (same assumption as default quote pricing).
+     */
+    private void enrichHubDeliveryPromises(
+            List<HubOptionDTO> originHubs,
+            List<HubOptionDTO> destHubs,
+            Long defaultHubRouteId) {
+        if (originHubs.isEmpty() || destHubs.isEmpty()) {
+            return;
+        }
+        HubOptionDTO pairedDest = destHubs.get(0);
+        for (HubOptionDTO origin : originHubs) {
+            Long routeId = resolveHubRouteIdForPair(origin.getId(), pairedDest.getId(), defaultHubRouteId);
+            origin.setDeliveryPromise(deliveryPromiseService.getOutstationDeliveryPromise(
+                    origin.getId(), pairedDest.getId(), routeId, "HUB_TO_DOOR"));
+        }
+        HubOptionDTO pairedOrigin = originHubs.get(0);
+        for (HubOptionDTO dest : destHubs) {
+            Long routeId = resolveHubRouteIdForPair(pairedOrigin.getId(), dest.getId(), defaultHubRouteId);
+            dest.setDeliveryPromise(deliveryPromiseService.getOutstationDeliveryPromise(
+                    pairedOrigin.getId(), dest.getId(), routeId, "DOOR_TO_HUB"));
+        }
     }
 
     private List<DeliveryTypeDetailsDTO> buildDeliveryTypeDetails(
