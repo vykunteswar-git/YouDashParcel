@@ -1,7 +1,11 @@
 package com.youdash.util;
 
 import com.youdash.entity.OrderEntity;
+import com.youdash.model.PaymentType;
 import com.youdash.model.ServiceMode;
+import com.youdash.model.wallet.CodCollectionMode;
+
+import java.util.Objects;
 
 
 /**
@@ -69,6 +73,44 @@ public final class OutstationCodPolicy {
     /** OUTSTATION D2D/D2H: COD is taken from the sender at pickup, not at delivery. */
     public static boolean codCollectedAtPickupLeg(OrderEntity order) {
         return isOutstation(order) && pickupRiderCollectsCod(order);
+    }
+
+    /**
+     * Rider should receive a normal withdrawable wallet credit (like ONLINE) because COD cash was
+     * already collected by another party (pickup rider or hub/admin) and remitted — this rider only
+     * performed the delivery leg.
+     */
+    public static boolean riderEarnsWalletCreditWithoutCodCash(OrderEntity order, Long riderId) {
+        if (order == null || riderId == null || order.getPaymentType() != PaymentType.COD) {
+            return false;
+        }
+        if (codAmount(order) <= 0.0) {
+            return false;
+        }
+        Long collector = resolveCodCollectorRiderId(order);
+        if (collector == null) {
+            return isOutstation(order);
+        }
+        return !Objects.equals(collector, riderId);
+    }
+
+    /** True when this rider collected COD cash and must not receive withdrawable wallet credit. */
+    public static boolean riderHoldsCodCash(OrderEntity order, Long riderId) {
+        if (order == null || riderId == null || order.getPaymentType() != PaymentType.COD) {
+            return false;
+        }
+        if (order.getCodCollectionMode() == CodCollectionMode.QR) {
+            return false;
+        }
+        Long collector = resolveCodCollectorRiderId(order);
+        if (collector != null) {
+            return Objects.equals(collector, riderId);
+        }
+        return !isOutstation(order) && Objects.equals(order.getRiderId(), riderId);
+    }
+
+    private static double codAmount(OrderEntity order) {
+        return order.getCodCollectedAmount() != null ? order.getCodCollectedAmount() : 0.0;
     }
 
     /**

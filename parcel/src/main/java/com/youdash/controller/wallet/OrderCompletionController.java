@@ -25,8 +25,8 @@ public class OrderCompletionController {
 
     @PostMapping("/complete")
     @Operation(
-            summary = "Complete delivery (IN_TRANSIT → DELIVERED)",
-            description = "Requires RIDER token. Order must be IN_TRANSIT and delivery OTP must already be verified "
+            summary = "Complete delivery (IN_TRANSIT / OUT_FOR_DELIVERY → DELIVERED)",
+            description = "Requires RIDER token. Order must be IN_TRANSIT or OUT_FOR_DELIVERY and delivery OTP must already be verified "
                     + "(POST /orders/{id}/verify-otp). "
                     + "ONLINE: send only orderId (numeric id or YP- reference). "
                     + "COD: send codCollectionMode (CASH or QR). Amount is auto-captured from order total.")

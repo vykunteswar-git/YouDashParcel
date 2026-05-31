@@ -1266,17 +1266,13 @@ public class OrderServiceImpl implements OrderService {
         }
 
         if (!alreadyDelivered) {
-            boolean outstationLastMile = o.getServiceMode() == ServiceMode.OUTSTATION
-                    && o.getStatus() == OrderStatus.OUT_FOR_DELIVERY
-                    && isOutstationDoorDeliveryType(o.getDeliveryType());
-            if (o.getStatus() != OrderStatus.IN_TRANSIT && !outstationLastMile) {
+            boolean atDeliveryCompletion = o.getStatus() == OrderStatus.IN_TRANSIT
+                    || o.getStatus() == OrderStatus.OUT_FOR_DELIVERY;
+            if (!atDeliveryCompletion) {
                 throw new BadRequestException("Order cannot be completed from status: " + o.getStatus());
             }
-            if (outstationLastMile && !Boolean.TRUE.equals(o.getIsOtpVerified())) {
+            if (!Boolean.TRUE.equals(o.getIsOtpVerified())) {
                 throw new BadRequestException("Delivery OTP not verified");
-            }
-            if (o.getServiceMode() != ServiceMode.OUTSTATION && !Boolean.TRUE.equals(o.getIsOtpVerified())) {
-                throw new BadRequestException("OTP not verified");
             }
         }
 
@@ -1327,12 +1323,16 @@ public class OrderServiceImpl implements OrderService {
         appendTimeline(saved, OrderStatus.DELIVERED, "order_completed", saved.getDestinationHubId(), actingRiderId,
                 "Delivery completed");
 
-        riderWalletService.settleOrderDelivered(
-                saved,
-                saved.getPaymentType() == PaymentType.COD ? saved.getCodCollectionMode() : null,
-                saved.getCodCollectedAmount(),
-                actingRiderId,
-                "RIDER");
+        try {
+            riderWalletService.settleOrderDelivered(
+                    saved,
+                    saved.getPaymentType() == PaymentType.COD ? saved.getCodCollectionMode() : null,
+                    saved.getCodCollectedAmount(),
+                    actingRiderId,
+                    "RIDER");
+        } catch (RuntimeException ex) {
+            // Keep DELIVERED even if wallet settlement fails (e.g. split-leg race); ops can retry settlement.
+        }
 
         UserOrderEventDTO deliveredEvt = new UserOrderEventDTO();
         deliveredEvt.setOrderId(saved.getId());
@@ -1359,7 +1359,7 @@ public class OrderServiceImpl implements OrderService {
 
         sendMilestoneUserStatusPush(saved, OrderStatus.DELIVERED);
 
-        markRiderAvailableAfterDelivery(saved.getRiderId());
+        markRiderAvailableAfterDelivery(actingRiderId);
 
         riderActiveOrderTopicPublisher.publish(actingRiderId, saved.getId(), OrderStatus.DELIVERED, "delivered");
 
@@ -1388,11 +1388,12 @@ public class OrderServiceImpl implements OrderService {
         OrderEntity o = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BadRequestException("Order not found"));
 
+        Long actingRiderId = null;
         boolean allowed = false;
         if ("USER".equals(tokenType) && Objects.equals(o.getUserId(), tokenUserId)) {
             allowed = true;
         } else if ("RIDER".equals(tokenType)) {
-            Long actingRiderId = riderAccessVerifier.resolveActingRiderIdFromToken(tokenUserId, tokenType);
+            actingRiderId = riderAccessVerifier.resolveActingRiderIdFromToken(tokenUserId, tokenType);
             allowed = Objects.equals(o.getRiderId(), actingRiderId)
                     || Objects.equals(o.getDeliveryRiderId(), actingRiderId);
         }
@@ -1415,7 +1416,10 @@ public class OrderServiceImpl implements OrderService {
         o.setIsOtpVerified(true);
         o.setDeliveryOtpAttempts((o.getDeliveryOtpAttempts() == null ? 0 : o.getDeliveryOtpAttempts()) + 1);
         OrderEntity saved = orderRepository.save(o);
-        appendTimeline(saved, saved.getStatus(), "otp_verified", saved.getDestinationHubId(), saved.getRiderId(),
+        final String publishedStatus = saved.getStatus().name();
+        Long eventRiderId = saved.getDeliveryRiderId() != null ? saved.getDeliveryRiderId() : saved.getRiderId();
+        Long timelineRiderId = actingRiderId != null ? actingRiderId : eventRiderId;
+        appendTimeline(saved, saved.getStatus(), "otp_verified", saved.getDestinationHubId(), timelineRiderId,
                 "Delivery OTP verified");
 
         UserOrderEventDTO evt = new UserOrderEventDTO();
@@ -1425,9 +1429,9 @@ public class OrderServiceImpl implements OrderService {
         evt.setEventVersion(1);
         evt.setTsEpochMs(Instant.now().toEpochMilli());
         evt.setSource("backend");
-        evt.setStatus(OrderStatus.IN_TRANSIT.name());
+        evt.setStatus(publishedStatus);
         evt.setServiceMode(saved.getServiceMode() == null ? null : saved.getServiceMode().name());
-        evt.setRiderId(saved.getRiderId());
+        evt.setRiderId(eventRiderId);
         evt.setCanRateRider(Boolean.FALSE);
         evt.setRiderRatingSubmitted(Boolean.FALSE);
         evt.setRiderRating(null);
@@ -1436,23 +1440,23 @@ public class OrderServiceImpl implements OrderService {
         userActiveOrderTopicPublisher.publishStatusUpdated(
                 saved.getUserId(),
                 saved.getId(),
-                OrderStatus.IN_TRANSIT.name(),
+                publishedStatus,
                 saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
-                saved.getRiderId());
+                eventRiderId);
 
-        if (saved.getRiderId() != null) {
+        if (eventRiderId != null) {
             riderActiveOrderTopicPublisher.publish(
-                    saved.getRiderId(), saved.getId(), OrderStatus.IN_TRANSIT, "otp_verified");
+                    eventRiderId, saved.getId(), saved.getStatus(), "otp_verified");
         }
 
         if ("RIDER".equals(tokenType) && saved.getUserId() != null) {
             Map<String, String> userOtpData = new HashMap<>(
                     NotificationService.baseData(
                             saved.getId(),
-                            OrderStatus.IN_TRANSIT.name(),
+                            publishedStatus,
                             NotificationType.USER_OTP_VERIFIED_BY_RIDER));
-            if (saved.getRiderId() != null) {
-                userOtpData.put("riderId", String.valueOf(saved.getRiderId()));
+            if (eventRiderId != null) {
+                userOtpData.put("riderId", String.valueOf(eventRiderId));
             }
             notificationService.sendToUser(
                     saved.getUserId(),
@@ -1460,14 +1464,14 @@ public class OrderServiceImpl implements OrderService {
                     "Rider verified the OTP for order #" + saved.getId() + ".",
                     userOtpData,
                     NotificationType.USER_OTP_VERIFIED_BY_RIDER);
-        } else if ("USER".equals(tokenType) && saved.getRiderId() != null) {
+        } else if ("USER".equals(tokenType) && eventRiderId != null) {
             Map<String, String> riderOtpData = new HashMap<>(
                     NotificationService.baseData(
                             saved.getId(),
-                            OrderStatus.IN_TRANSIT.name(),
+                            publishedStatus,
                             NotificationType.RIDER_OTP_VERIFIED_BY_USER));
             notificationService.sendToRider(
-                    saved.getRiderId(),
+                    eventRiderId,
                     "Delivery OTP verified",
                     "Customer verified the OTP for order #" + saved.getId() + ". You can complete delivery.",
                     riderOtpData,
@@ -1475,7 +1479,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         boolean riderApi = "RIDER".equals(tokenType);
-        OrderResponseDTO data = toOrderDto(saved, null, null, riderApi, riderApi ? tokenUserId : null);
+        OrderResponseDTO data = toOrderDto(saved, null, null, riderApi, riderApi ? actingRiderId : null);
         if (riderApi) {
             data = stripCommercialDetailsForRider(data);
         }

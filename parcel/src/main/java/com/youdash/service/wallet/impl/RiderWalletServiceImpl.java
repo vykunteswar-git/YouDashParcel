@@ -70,6 +70,7 @@ import com.youdash.service.NotificationDedupService;
 import com.youdash.service.NotificationService;
 import com.youdash.service.PeakIncentiveService;
 import com.youdash.service.wallet.RiderWalletService;
+import com.youdash.util.OutstationCodPolicy;
 import com.youdash.util.OutstationPayableLegSplit;
 
 /**
@@ -563,10 +564,10 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             return;
         }
         int expectedLegs = expectedSettlementLegCount(order);
-        if (orderRiderFinancialRepository.countByOrderId(order.getId()) >= expectedLegs) {
+        if (isOrderDeliveryWalletAlreadyCredited(order, expectedLegs)) {
             return;
         }
-        if (expectedLegs == 1 && order.getRiderId() == null) {
+        if (expectedLegs == 1 && order.getRiderId() == null && order.getDeliveryRiderId() == null) {
             return;
         }
 
@@ -648,14 +649,19 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 order.getId(), pickupRiderId, oaPick, oaDrop, order.getTotalAmount());
 
         PaymentType payType = order.getPaymentType();
-        // Pickup rider never collects COD (cash collected by drop rider at delivery)
-        double commissionPercent = resolveCommissionPercent(cfg, PaymentType.ONLINE, null);
+        CodCollectionMode codMode = payType == PaymentType.COD ? order.getCodCollectionMode() : null;
+        double commissionPercent = resolveCommissionPercent(cfg, payType, codMode);
         double commPick = round2(oaPick * (commissionPercent / 100.0));
         double basePick = round2(Math.max(0.0, oaPick - commPick));
         double peakBonusTotal = peakIncentiveService.resolveBonusForDeliveredOrder(order, Instant.now());
         double riderLegDen = oaPick + oaDrop;
         double peakPick = riderLegDen > 0.0 ? round2(peakBonusTotal * (oaPick / riderLegDen)) : 0.0;
         double earnPick = round2(Math.max(0.0, basePick + peakPick));
+        boolean pickupHoldsCod = OutstationCodPolicy.riderHoldsCodCash(order, pickupRiderId);
+        double codCollected = payType == PaymentType.COD ? round2(nz(order.getCodCollectedAmount())) : 0.0;
+        if (pickupHoldsCod && codCollected <= 0.0) {
+            codCollected = round2(nz(order.getTotalAmount()));
+        }
 
         OrderRiderFinancialEntity finP = new OrderRiderFinancialEntity();
         finP.setOrderId(order.getId());
@@ -665,10 +671,16 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         finP.setCommissionAmount(commPick);
         finP.setSurgeBonusAmount(peakPick);
         finP.setRiderEarningAmount(earnPick);
-        finP.setCodCollectedAmount(null);
-        finP.setCodCollectionMode(null);
-        finP.setCodSettlementStatus(CodSettlementStatus.SETTLED);
-        finP.setSettledAt(Instant.now());
+        if (payType == PaymentType.ONLINE || !pickupHoldsCod) {
+            finP.setCodCollectedAmount(null);
+            finP.setCodCollectionMode(null);
+            finP.setCodSettlementStatus(CodSettlementStatus.SETTLED);
+            finP.setSettledAt(Instant.now());
+        } else {
+            finP.setCodCollectedAmount(codCollected);
+            finP.setCodCollectionMode(codMode);
+            finP.setCodSettlementStatus(CodSettlementStatus.PENDING);
+        }
 
         try {
             orderRiderFinancialRepository.saveAndFlush(finP);
@@ -678,13 +690,39 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             return;
         }
 
-        creditOnlineEarningToWallet(order, pickupRiderId, earnPick, oaPick, commissionPercent, commPick, basePick, peakPick);
+        creditPickupLegEarning(order, pickupRiderId, payType, codMode, pickupHoldsCod, earnPick, oaPick,
+                commissionPercent, commPick, basePick, peakPick, codCollected);
 
-        log.info("PICKUP_LEG_SETTLED -> orderId={}, pickupRider={}, earnPick={}", order.getId(), pickupRiderId, earnPick);
+        log.info("PICKUP_LEG_SETTLED -> orderId={}, pickupRider={}, earnPick={}, codInHand={}",
+                order.getId(), pickupRiderId, earnPick, pickupHoldsCod);
         audit("ORDER_SETTLE_PICKUP_LEG", "RIDER", pickupRiderId, "ORDER", order.getId(), Map.of(
                 "pickupRiderId", pickupRiderId,
                 "pickupEarning", earnPick,
-                "paymentType", payType.name()));
+                "paymentType", payType.name(),
+                "codInHand", pickupHoldsCod));
+    }
+
+    private void creditPickupLegEarning(
+            OrderEntity order,
+            Long pickupRiderId,
+            PaymentType payType,
+            CodCollectionMode codMode,
+            boolean pickupHoldsCod,
+            double earnPick,
+            double oaPick,
+            double commissionPercent,
+            double commPick,
+            double basePick,
+            double peakPick,
+            double codCollected) {
+        if (pickupHoldsCod) {
+            recordCodCashCommissionPending(
+                    order, pickupRiderId, earnPick, oaPick, commissionPercent, commPick, basePick, peakPick, codMode,
+                    codCollected);
+            notifyCodEarningRecorded(order.getId(), pickupRiderId, earnPick);
+            return;
+        }
+        creditOnlineEarningToWallet(order, pickupRiderId, earnPick, oaPick, commissionPercent, commPick, basePick, peakPick);
         sendRiderEarningCreditedNotification(order.getId(), pickupRiderId, earnPick, payType);
     }
 
@@ -765,7 +803,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             creditOnlineEarningToWallet(order, riderId, riderEarning, orderAmount, commissionPercent, commissionAmount,
                     baseRiderEarning, peakBonus);
             sendRiderEarningCreditedNotification(order.getId(), riderId, riderEarning, payType);
-        } else if (payType == PaymentType.COD && codMode == CodCollectionMode.QR) {
+        } else if (payType == PaymentType.COD && (codMode == CodCollectionMode.QR
+                || OutstationCodPolicy.riderEarnsWalletCreditWithoutCodCash(order, riderId))) {
             creditOnlineEarningToWallet(order, riderId, riderEarning, orderAmount, commissionPercent, commissionAmount,
                     baseRiderEarning, peakBonus);
             sendRiderEarningCreditedNotification(order.getId(), riderId, riderEarning, payType);
@@ -885,47 +924,27 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             }
         }
 
-        try {
-            orderRiderFinancialRepository.saveAndFlush(finD);
-        } catch (DataIntegrityViolationException ex) {
-            log.info("ORDER_SETTLE_RACE orderId={} deliveryRider={} - row already exists, skipping",
-                    order.getId(), deliveryId);
-            return;
+        boolean deliveryFinAlreadyRecorded = orderRiderFinancialRepository
+                .findByOrderIdAndRiderId(order.getId(), deliveryId).isPresent();
+        if (!deliveryFinAlreadyRecorded) {
+            try {
+                orderRiderFinancialRepository.saveAndFlush(finD);
+            } catch (DataIntegrityViolationException ex) {
+                log.info("ORDER_SETTLE_RACE orderId={} deliveryRider={} - financial row already exists",
+                        order.getId(), deliveryId);
+                deliveryFinAlreadyRecorded = true;
+            }
         }
-
-        Long codCollectorRiderId = payType == PaymentType.COD ? resolveCodCollectorRiderId(order) : null;
-        boolean pickupCollectsCod = codCollectorRiderId != null && Objects.equals(codCollectorRiderId, pickupId);
 
         if (!pickupAlreadySettled) {
-            if (payType == PaymentType.ONLINE || !pickupCollectsCod) {
-                creditOnlineEarningToWallet(order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick, peakPick);
-            } else if (codMode == CodCollectionMode.QR) {
-                creditOnlineEarningToWallet(order, pickupId, earnPick, oaPick, commissionPercent, commPick, basePick, peakPick);
-            } else {
-                double combinedEarn = round2(earnPick + earnDrop);
-                double combinedComm = round2(commPick + commDrop);
-                double combinedBase = round2(basePick + baseDrop);
-                double combinedPeak = round2(peakPick + peakDrop);
-                recordCodCashCommissionPending(
-                        order, pickupId, combinedEarn, orderAmount, commissionPercent, combinedComm, combinedBase,
-                        combinedPeak, codMode, collected);
-            }
+            boolean pickupHoldsCod = payType == PaymentType.COD
+                    && OutstationCodPolicy.riderHoldsCodCash(order, pickupId);
+            creditPickupLegEarning(order, pickupId, payType, codMode, pickupHoldsCod, earnPick, oaPick,
+                    commissionPercent, commPick, basePick, peakPick, collected);
         }
 
-        if (payType == PaymentType.ONLINE) {
-            creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop);
-        } else if (pickupCollectsCod) {
-            if (codMode == CodCollectionMode.QR) {
-                creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop);
-            } else if (pickupAlreadySettled) {
-                creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop);
-            }
-        } else if (codMode == CodCollectionMode.QR) {
-            creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop);
-        } else {
-            recordCodCashCommissionPending(
-                    order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop, codMode, collected);
-        }
+        // Delivery rider always receives last-mile earning on complete — independent of pickup hub settlement.
+        creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop);
 
         log.info(
                 "EARNING_SPLIT -> orderId={}, pickupRider={}, pickupEarning={} (preSettled={}), deliveryRider={}, deliveryEarning={}",
@@ -938,8 +957,30 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 "deliveryEarning", earnDrop,
                 "paymentType", payType.name()));
 
-        if (!pickupAlreadySettled) sendRiderEarningCreditedNotification(order.getId(), pickupId, earnPick, payType);
         sendRiderEarningCreditedNotification(order.getId(), deliveryId, earnDrop, payType);
+    }
+
+    private boolean isOrderDeliveryWalletAlreadyCredited(OrderEntity order, int expectedLegs) {
+        if (order == null || order.getId() == null) {
+            return true;
+        }
+        Long payeeRiderId = expectedLegs >= 2
+                ? order.getDeliveryRiderId()
+                : (order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId());
+        if (payeeRiderId == null) {
+            return false;
+        }
+        return hasCompletedWalletCreditForOrder(payeeRiderId, order.getId());
+    }
+
+    private boolean hasCompletedWalletCreditForOrder(Long riderId, Long orderId) {
+        if (riderId == null || orderId == null) {
+            return false;
+        }
+        return riderWalletTransactionRepository
+                .findTopByRiderIdAndReferenceTypeAndReferenceIdAndStatusOrderByIdDesc(
+                        riderId, WalletTxnReferenceType.ORDER, orderId, WalletTxnStatus.COMPLETED)
+                .isPresent();
     }
 
     private void creditOnlineEarningToWallet(
@@ -951,6 +992,13 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             double commissionAmountPortion,
             double basePortion,
             double peakPortion) {
+        if (riderEarning <= 0.0001) {
+            return;
+        }
+        if (hasCompletedWalletCreditForOrder(riderId, order.getId())) {
+            log.info("WALLET_CREDIT_SKIP orderId={} riderId={} — earning already credited", order.getId(), riderId);
+            return;
+        }
         RiderWalletEntity wallet = riderWalletRepository.lockByRiderId(riderId)
                 .orElseGet(() -> riderWalletRepository.save(newWallet(riderId)));
         if (wallet.getCurrentBalance() < -0.0001) {
