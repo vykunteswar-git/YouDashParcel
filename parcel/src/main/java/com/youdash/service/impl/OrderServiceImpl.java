@@ -1999,8 +1999,6 @@ public class OrderServiceImpl implements OrderService {
     private static final java.util.Set<OrderStatus> HUB_TRANSIT_STATUSES = java.util.Set.of(
             OrderStatus.AT_ORIGIN_HUB,
             OrderStatus.IN_TRANSIT,
-            OrderStatus.IN_TRANSIT,
-            OrderStatus.AT_DESTINATION_HUB,
             OrderStatus.AT_DESTINATION_HUB);
 
     private static boolean isPickupRiderHubTransit(OrderEntity o, Long viewerRiderId) {
