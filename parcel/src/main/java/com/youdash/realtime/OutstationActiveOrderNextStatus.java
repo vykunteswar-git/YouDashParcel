@@ -15,7 +15,7 @@ public final class OutstationActiveOrderNextStatus {
             return null;
         }
         return switch (current) {
-            case RIDER_ASSIGNED -> OrderStatus.PICKED_UP.name();
+            case PICKUP_ASSIGNED, RIDER_ASSIGNED -> OrderStatus.PICKED_UP.name();
             case PICKED_UP -> OrderStatus.AT_ORIGIN_HUB.name();
             case AT_ORIGIN_HUB -> OrderStatus.IN_TRANSIT.name();
             case IN_TRANSIT -> OrderStatus.AT_DESTINATION_HUB.name();

@@ -222,8 +222,9 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         OrderEntity order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BadRequestException("Order not found"));
         requireAssignedRider(order, riderId);
-        if (order.getStatus() != OrderStatus.RIDER_ASSIGNED) {
-            throw new BadRequestException("Order must be RIDER_ASSIGNED to mark picked up");
+        if (order.getStatus() != OrderStatus.RIDER_ASSIGNED
+                && order.getStatus() != OrderStatus.PICKUP_ASSIGNED) {
+            throw new BadRequestException("Order must be pickup-assigned to mark picked up");
         }
         if (order.getServiceMode() == ServiceMode.OUTSTATION) {
             if (pickupOtp == null || pickupOtp.isBlank()) {

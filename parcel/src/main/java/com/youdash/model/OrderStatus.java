@@ -10,6 +10,8 @@ public enum OrderStatus {
     RIDER_ACCEPTED,
     PAYMENT_PENDING,
     RIDER_ASSIGNED,
+    /** Outstation pickup leg: admin assigned pickup rider (D2D / D2H). */
+    PICKUP_ASSIGNED,
     PICKED_UP,
     AT_ORIGIN_HUB,
     IN_TRANSIT,
@@ -49,9 +51,23 @@ public enum OrderStatus {
             case "DISPATCHED_TO_DESTINATION", "DEPARTED_ORIGIN_HUB" -> IN_TRANSIT;
             case "ARRIVED_DESTINATION_HUB", "SORTED_AT_DESTINATION" -> AT_DESTINATION_HUB;
             case "DELIVERY_RIDER_ASSIGNED" -> OUT_FOR_DELIVERY;
+            case "PICKUP_ASSIGNED" -> PICKUP_ASSIGNED;
             case "READY_FOR_PICKUP" -> AWAITING_HUB_COLLECTION;
             case "COLLECTED_BY_CUSTOMER" -> COLLECTED;
             default -> throw new IllegalArgumentException("Unknown order status: " + raw);
         };
+    }
+
+    /** Outstation pickup rider assigned (includes legacy {@link #RIDER_ASSIGNED} rows). */
+    public static boolean isOutstationPickupAssigned(OrderStatus status) {
+        return status == PICKUP_ASSIGNED || status == RIDER_ASSIGNED;
+    }
+
+    /** Normalize legacy outstation pickup-assigned status for transition lookups. */
+    public static OrderStatus normalizeOutstationPickupStatus(OrderStatus status) {
+        if (status == RIDER_ASSIGNED) {
+            return PICKUP_ASSIGNED;
+        }
+        return status;
     }
 }

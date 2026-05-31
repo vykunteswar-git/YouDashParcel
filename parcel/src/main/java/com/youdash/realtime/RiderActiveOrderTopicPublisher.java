@@ -1,21 +1,29 @@
 package com.youdash.realtime;
 
 import java.time.Instant;
+import java.util.Optional;
 
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 
 import com.youdash.dto.realtime.RiderActiveOrderEventDTO;
+import com.youdash.entity.OrderEntity;
 import com.youdash.model.OrderStatus;
 import com.youdash.model.ServiceMode;
+import com.youdash.repository.OrderRepository;
+import com.youdash.util.OutstationRiderLegPolicy;
 
 @Component
 public class RiderActiveOrderTopicPublisher {
 
     private final SimpMessagingTemplate messagingTemplate;
+    private final OrderRepository orderRepository;
 
-    public RiderActiveOrderTopicPublisher(SimpMessagingTemplate messagingTemplate) {
+    public RiderActiveOrderTopicPublisher(
+            SimpMessagingTemplate messagingTemplate,
+            OrderRepository orderRepository) {
         this.messagingTemplate = messagingTemplate;
+        this.orderRepository = orderRepository;
     }
 
     public void publish(Long riderId, Long orderId, OrderStatus status, String event) {
@@ -37,6 +45,12 @@ public class RiderActiveOrderTopicPublisher {
     public void publish(Long riderId, Long orderId, OrderStatus status, String event, String reason, Double collectAmount,
             ServiceMode serviceMode) {
         if (riderId == null || orderId == null) {
+            return;
+        }
+        Optional<OrderEntity> orderOpt = orderRepository.findById(orderId);
+        if (orderOpt.isPresent()
+                && OutstationRiderLegPolicy.shouldSuppressRiderActiveOrderSocket(
+                        orderOpt.get(), riderId, event, reason)) {
             return;
         }
         RiderActiveOrderEventDTO dto = new RiderActiveOrderEventDTO();

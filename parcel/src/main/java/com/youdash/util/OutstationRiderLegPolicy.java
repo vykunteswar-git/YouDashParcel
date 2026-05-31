@@ -64,4 +64,16 @@ public final class OutstationRiderLegPolicy {
         }
         return !isSplitPickupRiderLegComplete(order, riderId);
     }
+
+    /**
+     * Split pickup rider must not receive hub-transit / delivery socket noise after handover.
+     * The only allowed message is the one-time {@code delivered} release at origin hub.
+     */
+    public static boolean shouldSuppressRiderActiveOrderSocket(
+            OrderEntity order, Long riderId, String event, String reason) {
+        if (!isSplitPickupRiderLegComplete(order, riderId)) {
+            return false;
+        }
+        return !("delivered".equals(event) && "pickup_leg_complete".equals(reason));
+    }
 }
