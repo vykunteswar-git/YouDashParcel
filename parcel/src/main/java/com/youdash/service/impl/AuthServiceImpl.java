@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PostConstruct;
+
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.OtpRequestDTO;
 import com.youdash.dto.OtpResponseDTO;
@@ -64,6 +66,14 @@ public class AuthServiceImpl implements AuthService {
   @Autowired
   private SmsService smsService;
 
+  @PostConstruct
+  void logTestLoginConfig() {
+    if (testLoginEnabled) {
+      log.info("Test-login OTP bypass enabled for phones: {} (OTP: {})",
+          configuredTestLoginPhones(), testLoginOtp);
+    }
+  }
+
   // SEND OTP
   @Override
   public ApiResponse<OtpResponseDTO> sendOtp(OtpRequestDTO request) {
@@ -80,7 +90,7 @@ public class AuthServiceImpl implements AuthService {
           ? testLoginOtp
           : String.valueOf(new Random().nextInt(9000) + 1000);
 
-      OtpEntity otpEntity = otpRepository.findByPhoneNumber(phone)
+      OtpEntity otpEntity = otpRepository.findTopByPhoneNumberOrderByIdDesc(phone)
           .orElse(new OtpEntity());
       otpEntity.setPhoneNumber(phone);
       otpEntity.setOtp(otp);
@@ -180,7 +190,7 @@ public class AuthServiceImpl implements AuthService {
       String phone = PhoneNumberUtil.normalizeNational(request.getPhoneNumber());
       boolean isTestPhone = matchesConfiguredTestLoginPhone(phone);
 
-      if (isTestPhone && testLoginOtp.equals(request.getOtp())) {
+      if (isTestPhone && testLoginOtp.equals(request.getOtp().trim())) {
         // Test-login fast path: skip DB OTP lookup and expiry check.
       } else {
         OtpEntity otpEntity = otpRepository
@@ -190,7 +200,7 @@ public class AuthServiceImpl implements AuthService {
         if (otpEntity.getExpiryTime().isBefore(LocalDateTime.now())) {
           throw new RuntimeException("OTP expired");
         }
-        if (!otpEntity.getOtp().equals(request.getOtp())) {
+        if (!otpEntity.getOtp().trim().equals(request.getOtp().trim())) {
           throw new RuntimeException("Invalid OTP");
         }
       }
