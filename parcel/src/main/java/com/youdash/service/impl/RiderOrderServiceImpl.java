@@ -577,8 +577,16 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         if (!isOutstationDoorDeliveryType(order.getDeliveryType())) {
             return false;
         }
-        Long deliveryId = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
-        return Objects.equals(riderId, deliveryId);
+        Long deliveryId = order.getDeliveryRiderId();
+        if (deliveryId == null || !Objects.equals(riderId, deliveryId)) {
+            return false;
+        }
+        // Same rider on pickup + delivery: only delivery leg after OUT_FOR_DELIVERY.
+        Long pickupId = order.getPickupRiderId() != null ? order.getPickupRiderId() : order.getRiderId();
+        if (Objects.equals(pickupId, deliveryId)) {
+            return order.getStatus() == OrderStatus.OUT_FOR_DELIVERY;
+        }
+        return true;
     }
 
     private void transitionStatus(OrderEntity order, OrderStatus toStatus) {

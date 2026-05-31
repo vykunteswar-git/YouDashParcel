@@ -7,6 +7,7 @@ import com.youdash.dto.RazorpayCreateOrderRequestDTO;
 import com.youdash.dto.RazorpayOrderCreatedDTO;
 import com.youdash.dto.RazorpayVerifyRequestDTO;
 import com.youdash.dto.UpiQrCreatedDTO;
+import com.youdash.security.RiderAccessVerifier;
 import com.youdash.service.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -21,6 +22,9 @@ public class PaymentController {
 
     @Autowired
     private PaymentService paymentService;
+
+    @Autowired
+    private RiderAccessVerifier riderAccessVerifier;
 
     @Operation(summary = "Create Razorpay order for an internal order (ONLINE only)")
     @PostMapping("/create-order")
@@ -49,9 +53,9 @@ public class PaymentController {
     @PostMapping("/collect")
     public ApiResponse<String> collectPayment(
             @RequestBody CollectPaymentRequestDTO dto,
-            @RequestAttribute("userId") Long userId,
+            HttpServletRequest request,
             @RequestAttribute(value = "type", required = false) String tokenType) {
-        if (!"RIDER".equals(tokenType)) {
+        if (!"RIDER".equals(tokenType) && !"USER".equals(tokenType)) {
             ApiResponse<String> err = new ApiResponse<>();
             err.setMessage("Rider token required");
             err.setMessageKey("ERROR");
@@ -59,16 +63,17 @@ public class PaymentController {
             err.setSuccess(false);
             return err;
         }
-        return paymentService.collectCodPayment(userId, dto);
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return paymentService.collectCodPayment(riderId, dto);
     }
 
     @Operation(summary = "Create Razorpay UPI QR for COD collection. Requires RIDER token.")
     @PostMapping("/qr")
     public ApiResponse<UpiQrCreatedDTO> createUpiQr(
             @RequestBody java.util.Map<String, Object> body,
-            @RequestAttribute("userId") Long userId,
+            HttpServletRequest request,
             @RequestAttribute(value = "type", required = false) String tokenType) {
-        if (!"RIDER".equals(tokenType)) {
+        if (!"RIDER".equals(tokenType) && !"USER".equals(tokenType)) {
             ApiResponse<UpiQrCreatedDTO> err = new ApiResponse<>();
             err.setMessage("Rider token required");
             err.setMessageKey("ERROR");
@@ -78,6 +83,7 @@ public class PaymentController {
         }
         Object raw = body.get("orderId");
         Long orderId = raw == null ? null : Long.parseLong(raw.toString());
-        return paymentService.createUpiQr(userId, orderId);
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return paymentService.createUpiQr(riderId, orderId);
     }
 }

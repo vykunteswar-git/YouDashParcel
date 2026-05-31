@@ -2079,9 +2079,15 @@ public class OrderServiceImpl implements OrderService {
             return "INCITY";
         }
         Long riderId = viewerRiderId != null ? viewerRiderId : order.getRiderId();
-        if (riderId != null && order.getDeliveryRiderId() != null && Objects.equals(riderId, order.getDeliveryRiderId())
-                && !Objects.equals(order.getPickupRiderId(), order.getDeliveryRiderId())) {
-            return "DROP";
+        if (riderId != null && order.getDeliveryRiderId() != null
+                && Objects.equals(riderId, order.getDeliveryRiderId())) {
+            Long pickupId = order.getPickupRiderId() != null ? order.getPickupRiderId() : order.getRiderId();
+            if (!Objects.equals(pickupId, order.getDeliveryRiderId())) {
+                return "DROP";
+            }
+            if (order.getStatus() == OrderStatus.OUT_FOR_DELIVERY) {
+                return "DROP";
+            }
         }
         return "PICKUP";
     }

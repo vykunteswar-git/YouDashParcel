@@ -876,12 +876,39 @@ public class PaymentServiceImpl implements PaymentService {
             response.setStatus(503);
             response.setSuccess(false);
         } catch (Exception e) {
-            response.setMessage("Failed to create UPI QR: " + e.getMessage());
+            response.setMessage(mapUpiQrCreationError(e));
             response.setMessageKey("ERROR");
-            response.setStatus(500);
+            response.setStatus(resolveUpiQrErrorStatus(e));
             response.setSuccess(false);
         }
         return response;
+    }
+
+    private static String mapUpiQrCreationError(Exception e) {
+        String raw = e.getMessage() == null ? "" : e.getMessage();
+        if (raw.contains("not found on the server")) {
+            return "Razorpay UPI QR is not enabled on this merchant account. "
+                    + "Ask Razorpay support to enable QR Codes (payments/qr_codes) for your live/test MID, "
+                    + "or collect COD as CASH until it is enabled.";
+        }
+        if (raw.contains("Access denied")) {
+            return "Only the pickup rider can generate COD QR for this order.";
+        }
+        return "Failed to create UPI QR: " + raw;
+    }
+
+    private static int resolveUpiQrErrorStatus(Exception e) {
+        String raw = e.getMessage() == null ? "" : e.getMessage();
+        if (raw.contains("not found on the server")) {
+            return 503;
+        }
+        if (raw.contains("Access denied") || raw.contains("only applicable")) {
+            return 403;
+        }
+        if (raw.contains("not found") || raw.contains("required") || raw.contains("Invalid")) {
+            return 400;
+        }
+        return 500;
     }
 
     private static boolean verifyWebhookSignature(String payload, String signature, String secret) {
