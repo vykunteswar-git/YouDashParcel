@@ -132,7 +132,6 @@ public class OrderEntity {
     @Column(name = "payment_type", nullable = false)
     private PaymentType paymentType;
 
-    @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     private OrderStatus status;
 

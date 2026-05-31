@@ -24,7 +24,6 @@ public class OrderTimelineEventEntity {
     @Column(name = "order_id", nullable = false)
     private Long orderId;
 
-    @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 32)
     private OrderStatus status;
 
