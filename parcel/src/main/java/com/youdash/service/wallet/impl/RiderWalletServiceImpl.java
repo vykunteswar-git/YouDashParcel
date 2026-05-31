@@ -607,6 +607,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         }
         int expectedLegs = expectedSettlementLegCount(order);
         if (isOrderDeliveryWalletAlreadyCredited(order, expectedLegs)) {
+            creditOutstationDeliveryLegIfNeeded(order, actorUserId, actorType);
+            creditOutstationPickupLegIfNeeded(order, OutstationRiderLegPolicy.resolvePickupRiderId(order));
             return;
         }
         if (expectedLegs == 1 && order.getRiderId() == null && order.getDeliveryRiderId() == null) {
@@ -646,6 +648,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                     actorUserId,
                     actorType);
             ensureSplitDeliveryLegWalletCredited(order, payType, effectiveCodMode, actorUserId, actorType);
+            creditOutstationDeliveryLegIfNeeded(order, actorUserId, actorType);
+            creditOutstationPickupLegIfNeeded(order, OutstationRiderLegPolicy.resolvePickupRiderId(order));
             return;
         }
 
@@ -664,6 +668,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                         deliveryLeg.riderEarning(),
                         actorUserId,
                         actorType);
+                creditOutstationDeliveryLegIfNeeded(order, actorUserId, actorType);
                 return;
             }
             settleSingleRiderOrderDelivered(
@@ -678,6 +683,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                     Math.max(0.0, totalRiderPool),
                     actorUserId,
                     actorType);
+            creditOutstationDeliveryLegIfNeeded(order, actorUserId, actorType);
             return;
         }
 
@@ -694,6 +700,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 actorType);
 
         ensureSplitDeliveryLegWalletCredited(order, payType, effectiveCodMode, actorUserId, actorType);
+        creditOutstationDeliveryLegIfNeeded(order, actorUserId, actorType);
+        creditOutstationPickupLegIfNeeded(order, OutstationRiderLegPolicy.resolvePickupRiderId(order));
     }
 
     @Override
@@ -733,6 +741,19 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                             ex.getMessage());
                 }
             }
+            List<OrderEntity> pickupOrders = orderRepository.findOutstationPickupLegOrdersForRider(
+                    riderId, PageRequest.of(0, 100));
+            for (OrderEntity order : pickupOrders) {
+                try {
+                    creditOutstationPickupLegIfNeeded(order, riderId);
+                } catch (RuntimeException ex) {
+                    log.warn(
+                            "PICKUP_WALLET_REPAIR_FAILED orderId={} riderId={}: {}",
+                            order.getId(),
+                            riderId,
+                            ex.getMessage());
+                }
+            }
         } catch (Exception ex) {
             log.warn("DELIVERY_WALLET_REPAIR_ABORTED riderId={}: {}", riderId, ex.getMessage(), ex);
         }
@@ -747,23 +768,48 @@ public class RiderWalletServiceImpl implements RiderWalletService {
     @Override
     @Transactional(rollbackFor = Exception.class, propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     public void settlePickupLegAtOriginHub(OrderEntity order, Long pickupRiderId) {
-        if (order == null || order.getId() == null || pickupRiderId == null)
+        if (order == null || order.getId() == null || pickupRiderId == null) {
             return;
-        if (order.getStatus() != OrderStatus.AT_ORIGIN_HUB)
+        }
+        if (order.getStatus() != OrderStatus.AT_ORIGIN_HUB) {
             return;
-        if (order.getServiceMode() != ServiceMode.OUTSTATION)
+        }
+        if (order.getServiceMode() != ServiceMode.OUTSTATION) {
             return;
+        }
+        creditOutstationPickupLegIfNeeded(order, pickupRiderId);
+    }
 
-        // Idempotent: skip if already settled for this rider
-        if (orderRiderFinancialRepository.findByOrderIdAndRiderId(order.getId(), pickupRiderId).isPresent())
+    /** Pickup-leg wallet credit — idempotent; credits from fin row if wallet txn is still missing. */
+    private void creditOutstationPickupLegIfNeeded(OrderEntity order, Long pickupRiderId) {
+        if (order == null || order.getId() == null || pickupRiderId == null) {
             return;
+        }
+        if (order.getServiceMode() != ServiceMode.OUTSTATION) {
+            return;
+        }
+        if (hasCompletedWalletCreditForOrder(pickupRiderId, order.getId())) {
+            return;
+        }
+
+        var existingFin = orderRiderFinancialRepository.findByOrderIdAndRiderId(order.getId(), pickupRiderId);
+        if (existingFin.isPresent()) {
+            OrderRiderFinancialEntity fin = existingFin.get();
+            PaymentType payType = order.getPaymentType();
+            CodCollectionMode codMode = payType == PaymentType.COD ? order.getCodCollectionMode() : null;
+            boolean pickupHoldsCod = OutstationCodPolicy.riderHoldsCodCash(order, pickupRiderId);
+            double codCollected = payType == PaymentType.COD ? round2(nz(order.getCodCollectedAmount())) : 0.0;
+            double earn = fin.getRiderEarningAmount();
+            double peak = nz(fin.getSurgeBonusAmount());
+            double base = round2(Math.max(0.0, earn - peak));
+            creditPickupLegEarning(order, pickupRiderId, payType, codMode, pickupHoldsCod, earn, fin.getOrderAmount(),
+                    nz(fin.getCommissionPercentApplied()), fin.getCommissionAmount(), base, peak, codCollected);
+            return;
+        }
 
         ensureDefaultCommissionConfig();
         RiderCommissionConfigEntity cfg = riderCommissionConfigRepository.findById(COMMISSION_CONFIG_ID).orElseThrow();
 
-        // Guard: outstation*Cost fields must be set for an accurate split.
-        // Without them, OutstationPayableLegSplit falls back to full totalAmount as
-        // pickupAmount which would over-credit the pickup rider.
         if (order.getOutstationPickupCost() == null
                 || order.getOutstationHubCost() == null
                 || order.getOutstationDropCost() == null) {
@@ -815,8 +861,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         try {
             orderRiderFinancialRepository.saveAndFlush(finP);
         } catch (DataIntegrityViolationException ex) {
-            log.info("PICKUP_LEG_SETTLE_RACE orderId={} pickupRider={} - row already exists, skipping",
-                    order.getId(), pickupRiderId);
+            log.info("PICKUP_LEG_SETTLE_RACE orderId={} pickupRider={} - row already exists", order.getId(), pickupRiderId);
+            creditOutstationPickupLegIfNeeded(order, pickupRiderId);
             return;
         }
 
@@ -927,8 +973,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         try {
             orderRiderFinancialRepository.saveAndFlush(fin);
         } catch (DataIntegrityViolationException ex) {
-            log.info("ORDER_SETTLE_RACE orderId={} - financial row already exists, skipping wallet mutations",
-                    order.getId());
+            log.info("ORDER_SETTLE_RACE orderId={} riderId={} - financial row already exists", order.getId(), riderId);
+            creditOutstationDeliveryLegIfNeeded(order, actorUserId != null ? actorUserId : riderId, actorType);
             return;
         }
 
@@ -1081,6 +1127,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                     && OutstationCodPolicy.riderHoldsCodCash(order, pickupId);
             creditPickupLegEarning(order, pickupId, payType, codMode, pickupHoldsCod, earnPick, oaPick,
                     commissionPercent, commPick, basePick, peakPick, collected);
+        } else {
+            creditOutstationPickupLegIfNeeded(order, pickupId);
         }
 
         // Delivery rider always receives last-mile earning on complete — independent of

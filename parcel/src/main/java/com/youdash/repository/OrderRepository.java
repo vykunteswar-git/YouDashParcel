@@ -27,6 +27,23 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             @Param("riderId") Long riderId,
             Pageable pageable);
 
+    @Query("""
+            SELECT o FROM OrderEntity o
+            WHERE o.serviceMode = com.youdash.model.ServiceMode.OUTSTATION
+              AND o.pickupRiderId = :riderId
+              AND o.status IN (
+                  com.youdash.model.OrderStatus.AT_ORIGIN_HUB,
+                  com.youdash.model.OrderStatus.IN_TRANSIT,
+                  com.youdash.model.OrderStatus.AT_DESTINATION_HUB,
+                  com.youdash.model.OrderStatus.OUT_FOR_DELIVERY,
+                  com.youdash.model.OrderStatus.DELIVERED,
+                  com.youdash.model.OrderStatus.COLLECTED)
+            ORDER BY o.createdAt DESC
+            """)
+    List<OrderEntity> findOutstationPickupLegOrdersForRider(
+            @Param("riderId") Long riderId,
+            Pageable pageable);
+
     List<OrderEntity> findByUserIdOrderByCreatedAtDesc(Long userId);
 
     /** User history feed excluding transiently expired search attempts. */

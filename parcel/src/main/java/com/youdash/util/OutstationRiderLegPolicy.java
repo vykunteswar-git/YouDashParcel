@@ -1,5 +1,6 @@
 package com.youdash.util;
 
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 
@@ -28,7 +29,24 @@ public final class OutstationRiderLegPolicy {
         if (order == null) {
             return null;
         }
-        return order.getPickupRiderId() != null ? order.getPickupRiderId() : order.getRiderId();
+        if (order.getPickupRiderId() != null) {
+            return order.getPickupRiderId();
+        }
+        // D2D with only deliveryRiderId: riderId is delivery — not pickup.
+        if (order.getServiceMode() == ServiceMode.OUTSTATION
+                && isDoorToDoor(order)
+                && order.getDeliveryRiderId() != null) {
+            return null;
+        }
+        return order.getRiderId();
+    }
+
+    private static boolean isDoorToDoor(OrderEntity order) {
+        if (order.getDeliveryType() == null || order.getDeliveryType().isBlank()) {
+            return false;
+        }
+        return "DOOR_TO_DOOR".equals(
+                order.getDeliveryType().trim().toUpperCase(Locale.ROOT).replace(' ', '_'));
     }
 
     /**
