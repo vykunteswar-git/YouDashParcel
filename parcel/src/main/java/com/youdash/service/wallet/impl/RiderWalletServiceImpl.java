@@ -72,6 +72,7 @@ import com.youdash.service.PeakIncentiveService;
 import com.youdash.service.wallet.RiderWalletService;
 import com.youdash.util.OutstationCodPolicy;
 import com.youdash.util.OutstationPayableLegSplit;
+import com.youdash.util.OutstationRiderLegPolicy;
 
 /**
  * Wallet, withdrawals, per-order settlement (including split OUTSTATION legs).
@@ -144,13 +145,13 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         }
         // Split / delivery-leg outstation: delivery rider must have a wallet credit txn.
         if (OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(order)) {
-            Long deliveryId = order.getDeliveryRiderId();
+            Long deliveryId = OutstationCodPolicy.resolveDeliveryRiderId(order);
             return deliveryId != null && hasCompletedWalletCreditForOrder(deliveryId, order.getId());
         }
         if (order.getServiceMode() == ServiceMode.OUTSTATION
-                && OutstationCodPolicy.isDeliveryLegOnlyOrder(order)
-                && order.getDeliveryRiderId() != null) {
-            return hasCompletedWalletCreditForOrder(order.getDeliveryRiderId(), order.getId());
+                && OutstationCodPolicy.isDeliveryLegOnlyOrder(order)) {
+            Long deliveryId = OutstationCodPolicy.resolveDeliveryRiderId(order);
+            return deliveryId != null && hasCompletedWalletCreditForOrder(deliveryId, order.getId());
         }
         return finCount >= need;
     }
@@ -161,6 +162,13 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         }
         if (OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(orderEntity)) {
             return 2;
+        }
+        if (OutstationCodPolicy.isDoorToDoor(orderEntity)) {
+            Long pickupRiderId = OutstationRiderLegPolicy.resolvePickupRiderId(orderEntity);
+            Long deliveryRiderId = OutstationCodPolicy.resolveDeliveryRiderId(orderEntity);
+            if (pickupRiderId != null && deliveryRiderId != null && !Objects.equals(pickupRiderId, deliveryRiderId)) {
+                return 2;
+            }
         }
         Long pickupRiderId = orderEntity.getPickupRiderId();
         Long deliveryRiderId = orderEntity.getDeliveryRiderId();
@@ -619,6 +627,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                     peakBonusTotal,
                     actorUserId,
                     actorType);
+            ensureSplitDeliveryLegWalletCredited(order, payType, codMode, actorUserId, actorType);
             return;
         }
 
@@ -665,6 +674,34 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 peakBonusTotal,
                 actorUserId,
                 actorType);
+
+        ensureSplitDeliveryLegWalletCredited(order, payType, codMode, actorUserId, actorType);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class, propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void ensureDeliverySettlementIfNeeded(OrderEntity order) {
+        if (order == null || order.getId() == null || order.getStatus() != OrderStatus.DELIVERED) {
+            return;
+        }
+        Long deliveryId = OutstationCodPolicy.resolveDeliveryRiderId(order);
+        if (deliveryId != null && hasCompletedWalletCreditForOrder(deliveryId, order.getId())) {
+            return;
+        }
+        CodCollectionMode codMode = order.getPaymentType() == PaymentType.COD ? order.getCodCollectionMode() : null;
+        log.info("DELIVERY_SETTLE_ENSURE orderId={} deliveryRider={}", order.getId(), deliveryId);
+        settleOrderDelivered(
+                order,
+                codMode,
+                order.getCodCollectedAmount(),
+                deliveryId,
+                "ENSURE");
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isRiderWalletCreditedForOrder(Long riderId, Long orderId) {
+        return hasCompletedWalletCreditForOrder(riderId, orderId);
     }
 
     @Override
@@ -787,7 +824,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             double riderEarning,
             Long actorUserId,
             String actorType) {
-        Long riderId = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
+        Long resolvedDeliveryRiderId = OutstationCodPolicy.resolveDeliveryRiderId(order);
+        Long riderId = resolvedDeliveryRiderId != null ? resolvedDeliveryRiderId : order.getRiderId();
         log.info(
                 "EARNING_CALCULATION -> riderId={}, orderId={}, paymentType={}, codMode={}, orderAmount={}, commissionPercent={}, commissionAmount={}, riderEarning={}",
                 riderId,
@@ -891,8 +929,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             double peakBonusTotal,
             Long actorUserId,
             String actorType) {
-        Long pickupId = order.getPickupRiderId();
-        Long deliveryId = order.getDeliveryRiderId();
+        Long pickupId = OutstationRiderLegPolicy.resolvePickupRiderId(order);
+        Long deliveryId = OutstationCodPolicy.resolveDeliveryRiderId(order);
         if (pickupId == null || deliveryId == null) {
             throw new RuntimeException("OUTSTATION split settlement requires pickupRiderId and deliveryRiderId");
         }
@@ -1025,6 +1063,74 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 "paymentType", payType.name()));
 
         sendRiderEarningCreditedNotification(order.getId(), deliveryId, earnDrop, payType);
+
+        ensureSplitDeliveryLegWalletCredited(order, payType, codMode, actorUserId, actorType);
+    }
+
+    /**
+     * Safety net: after split D2D settlement, guarantee delivery rider wallet credit exists.
+     */
+    private void ensureSplitDeliveryLegWalletCredited(
+            OrderEntity order,
+            PaymentType payType,
+            CodCollectionMode codMode,
+            Long actorUserId,
+            String actorType) {
+        if (order == null || order.getId() == null || order.getStatus() != OrderStatus.DELIVERED) {
+            return;
+        }
+        if (!OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(order)) {
+            return;
+        }
+        Long deliveryId = OutstationCodPolicy.resolveDeliveryRiderId(order);
+        if (deliveryId == null || hasCompletedWalletCreditForOrder(deliveryId, order.getId())) {
+            return;
+        }
+        log.warn(
+                "DELIVERY_WALLET_REPAIR orderId={} deliveryRider={} — forcing delivery leg credit",
+                order.getId(),
+                deliveryId);
+        ensureDefaultCommissionConfig();
+        RiderCommissionConfigEntity cfg = riderCommissionConfigRepository.findById(COMMISSION_CONFIG_ID).orElseThrow();
+        double commissionPercent = resolveCommissionPercent(cfg, payType, codMode);
+        double peakBonusTotal = peakIncentiveService.resolveBonusForDeliveredOrder(order, Instant.now());
+        LegEarning deliveryLeg = computeDeliveryLegEarning(order, commissionPercent, peakBonusTotal);
+        double oaDrop = deliveryLeg.legAmount();
+        double earnDrop = deliveryLeg.riderEarning();
+
+        if (!orderRiderFinancialRepository.findByOrderIdAndRiderId(order.getId(), deliveryId).isPresent()) {
+            OrderRiderFinancialEntity finD = new OrderRiderFinancialEntity();
+            finD.setOrderId(order.getId());
+            finD.setRiderId(deliveryId);
+            finD.setOrderAmount(oaDrop);
+            finD.setCommissionPercentApplied(commissionPercent);
+            finD.setCommissionAmount(deliveryLeg.commissionAmount());
+            finD.setSurgeBonusAmount(deliveryLeg.peakBonus());
+            finD.setRiderEarningAmount(earnDrop);
+            finD.setCodSettlementStatus(CodSettlementStatus.SETTLED);
+            finD.setSettledAt(Instant.now());
+            try {
+                orderRiderFinancialRepository.saveAndFlush(finD);
+            } catch (DataIntegrityViolationException ex) {
+                log.info("DELIVERY_WALLET_REPAIR fin row exists orderId={} deliveryRider={}", order.getId(), deliveryId);
+            }
+        }
+
+        creditOnlineEarningToWallet(
+                order,
+                deliveryId,
+                earnDrop,
+                oaDrop,
+                commissionPercent,
+                deliveryLeg.commissionAmount(),
+                deliveryLeg.baseEarning(),
+                deliveryLeg.peakBonus());
+        if (earnDrop > 0.0001) {
+            sendRiderEarningCreditedNotification(order.getId(), deliveryId, earnDrop, payType);
+        }
+        audit("ORDER_SETTLE_DELIVERY_REPAIR", actorType, actorUserId, "ORDER", order.getId(), Map.of(
+                "deliveryRiderId", deliveryId,
+                "deliveryEarning", earnDrop));
     }
 
     private record LegEarning(
@@ -1063,10 +1169,20 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (order == null || order.getId() == null) {
             return true;
         }
-        Long payeeRiderId = OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(order)
-                        || expectedLegs >= 2
-                ? order.getDeliveryRiderId()
-                : (order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId());
+        Long deliveryId = OutstationCodPolicy.resolveDeliveryRiderId(order);
+        if (OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(order) || expectedLegs >= 2) {
+            if (deliveryId == null) {
+                return false;
+            }
+            return hasCompletedWalletCreditForOrder(deliveryId, order.getId());
+        }
+        if (OutstationCodPolicy.isDoorToDoor(order) && OutstationCodPolicy.isOutstation(order) && deliveryId != null) {
+            Long pickupId = OutstationRiderLegPolicy.resolvePickupRiderId(order);
+            if (pickupId != null && !Objects.equals(pickupId, deliveryId)) {
+                return hasCompletedWalletCreditForOrder(deliveryId, order.getId());
+            }
+        }
+        Long payeeRiderId = deliveryId != null ? deliveryId : order.getRiderId();
         if (payeeRiderId == null) {
             return false;
         }

@@ -29,6 +29,15 @@ public interface RiderWalletService {
     void settleOrderDelivered(OrderEntity order, CodCollectionMode codMode, Double codCollectedAmount, Long actorUserId, String actorType);
 
     /**
+     * Re-runs delivery settlement for DELIVERED orders when the delivery rider wallet credit is still missing.
+     * Safe to call multiple times (e.g. order fetch, complete retry, admin status).
+     */
+    void ensureDeliverySettlementIfNeeded(OrderEntity order);
+
+    /** True when this rider already has a completed ORDER wallet credit for the given order. */
+    boolean isRiderWalletCreditedForOrder(Long riderId, Long orderId);
+
+    /**
      * Settle the pickup leg for an OUTSTATION split order when the pickup rider
      * marks AT_ORIGIN_HUB. Idempotent — safe to call multiple times.
      */

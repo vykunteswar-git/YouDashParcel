@@ -501,6 +501,16 @@ public class OrderServiceImpl implements OrderService {
             if (!admin && !riderOrderApi) {
                 o = ensureHubDropOtpIfNeeded(o);
             }
+            if (riderOrderApi && o.getStatus() == OrderStatus.DELIVERED) {
+                ensureOutstationDeliveryRiderRecorded(o, tokenUserId);
+                o = orderRepository.save(o);
+                try {
+                    riderWalletService.ensureDeliverySettlementIfNeeded(o);
+                } catch (RuntimeException ex) {
+                    log.warn("DELIVERY_SETTLE_ENSURE_FAILED orderId={} riderId={}: {}",
+                            o.getId(), tokenUserId, ex.getMessage(), ex);
+                }
+            }
             OrderResponseDTO data = toOrderDto(o, null, null, riderOrderApi, riderOrderApi ? tokenUserId : null);
             Integer riderStars = riderRatingRepository.findByOrderId(o.getId())
                     .map(RiderRatingEntity::getStars)
@@ -1256,10 +1266,10 @@ public class OrderServiceImpl implements OrderService {
             throw new BadRequestException("Access denied");
         }
 
-        boolean financialExists = riderWalletService.isOrderWalletSettlementComplete(o);
+        boolean riderAlreadyCredited = riderWalletService.isRiderWalletCreditedForOrder(actingRiderId, o.getId());
         boolean alreadyDelivered = o.getStatus() == OrderStatus.DELIVERED;
 
-        if (alreadyDelivered && financialExists) {
+        if (alreadyDelivered && riderAlreadyCredited) {
             OrderEntity refreshed = orderRepository.findById(o.getId()).orElse(o);
             markRiderAvailableAfterDelivery(actingRiderId);
             OrderResponseDTO earlyDto = stripCommercialDetailsForRider(toOrderDto(refreshed, null, null, true, actingRiderId));
@@ -1282,6 +1292,8 @@ public class OrderServiceImpl implements OrderService {
                 throw new BadRequestException("Delivery OTP not verified");
             }
         }
+
+        ensureOutstationDeliveryRiderRecorded(o, actingRiderId);
 
         if (o.getPaymentType() == null) {
             throw new BadRequestException("Order payment type is missing");
@@ -1337,6 +1349,7 @@ public class OrderServiceImpl implements OrderService {
                     saved.getCodCollectedAmount(),
                     actingRiderId,
                     "RIDER");
+            riderWalletService.ensureDeliverySettlementIfNeeded(saved);
         } catch (RuntimeException ex) {
             // Settlement runs in REQUIRES_NEW; DELIVERED must persist even when wallet credit fails.
             log.warn(
@@ -2474,6 +2487,26 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    private static void ensureOutstationDeliveryRiderRecorded(OrderEntity order, Long actingRiderId) {
+        if (order == null || actingRiderId == null) {
+            return;
+        }
+        if (order.getServiceMode() != ServiceMode.OUTSTATION || !OutstationCodPolicy.isDoorToDoor(order)) {
+            return;
+        }
+        if (order.getDeliveryRiderId() != null) {
+            return;
+        }
+        Long pickupId = OutstationRiderLegPolicy.resolvePickupRiderId(order);
+        if (pickupId != null && Objects.equals(pickupId, actingRiderId)) {
+            return;
+        }
+        order.setDeliveryRiderId(actingRiderId);
+        if (order.getRiderId() == null || Objects.equals(order.getRiderId(), pickupId)) {
+            order.setRiderId(actingRiderId);
+        }
+    }
+
     private void recordSenderCodCollection(OrderEntity order, String codCollectionMode) {
         CodCollectionMode mode = CodCollectionMode.parseClientValue(codCollectionMode);
         double collected = round2(nz(order.getTotalAmount()));
@@ -2515,13 +2548,33 @@ public class OrderServiceImpl implements OrderService {
                     saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
                     saved.getRiderId());
         }
-        if (target == OrderStatus.DELIVERED && saved.getRiderId() != null) {
-            riderWalletService.settleOrderDelivered(
-                    saved,
-                    saved.getPaymentType() == PaymentType.COD ? saved.getCodCollectionMode() : null,
-                    saved.getCodCollectedAmount(),
-                    null,
-                    "ADMIN");
+        if (saved.getStatus() == OrderStatus.DELIVERED) {
+            try {
+                riderWalletService.ensureDeliverySettlementIfNeeded(saved);
+            } catch (RuntimeException ex) {
+                log.warn(
+                        "ORDER_SETTLE_ENSURE_FAILED orderId={} status=DELIVERED: {}",
+                        saved.getId(),
+                        ex.getMessage(),
+                        ex);
+            }
+        }
+        if (target == OrderStatus.DELIVERED) {
+            try {
+                riderWalletService.settleOrderDelivered(
+                        saved,
+                        saved.getPaymentType() == PaymentType.COD ? saved.getCodCollectionMode() : null,
+                        saved.getCodCollectedAmount(),
+                        OutstationCodPolicy.resolveDeliveryRiderId(saved),
+                        "ADMIN");
+                riderWalletService.ensureDeliverySettlementIfNeeded(saved);
+            } catch (RuntimeException ex) {
+                log.warn(
+                        "ORDER_SETTLE_FAILED orderId={} admin DELIVERED: {}",
+                        saved.getId(),
+                        ex.getMessage(),
+                        ex);
+            }
         }
         sendMilestoneUserStatusPush(saved, target);
         publishAdminStatusToAssignedRiders(saved, target);

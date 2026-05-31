@@ -50,13 +50,38 @@ public final class OutstationCodPolicy {
         return "DOOR_TO_DOOR".equals(deliveryType == null ? "" : deliveryType.trim().toUpperCase());
     }
 
+    /**
+     * Delivery rider for outstation last-mile settlement.
+     * Prefer {@code deliveryRiderId}; when only {@code riderId} differs from pickup, treat as delivery.
+     */
+    public static Long resolveDeliveryRiderId(OrderEntity order) {
+        if (order == null) {
+            return null;
+        }
+        if (order.getDeliveryRiderId() != null) {
+            return order.getDeliveryRiderId();
+        }
+        if (!isOutstation(order)) {
+            return order.getRiderId();
+        }
+        Long pickup = OutstationRiderLegPolicy.resolvePickupRiderId(order);
+        Long rider = order.getRiderId();
+        if (pickup != null && rider != null && !Objects.equals(pickup, rider)) {
+            return rider;
+        }
+        if (isDoorToDoor(order) && rider != null && pickup == null) {
+            return rider;
+        }
+        return null;
+    }
+
     /** D2D with distinct pickup and delivery riders — each leg settles separately. */
     public static boolean hasSplitPickupAndDeliveryRiders(OrderEntity order) {
         if (!isOutstation(order) || !isDoorToDoor(order)) {
             return false;
         }
-        Long pickup = order.getPickupRiderId();
-        Long delivery = order.getDeliveryRiderId();
+        Long pickup = OutstationRiderLegPolicy.resolvePickupRiderId(order);
+        Long delivery = resolveDeliveryRiderId(order);
         return pickup != null && delivery != null && !Objects.equals(pickup, delivery);
     }
 
