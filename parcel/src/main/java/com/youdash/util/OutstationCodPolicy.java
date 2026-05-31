@@ -42,6 +42,24 @@ public final class OutstationCodPolicy {
         return "DOOR_TO_HUB".equals(deliveryType == null ? "" : deliveryType.trim().toUpperCase());
     }
 
+    public static boolean isDoorToDoor(OrderEntity order) {
+        return isDoorToDoor(deliveryTypeUpper(order));
+    }
+
+    public static boolean isDoorToDoor(String deliveryType) {
+        return "DOOR_TO_DOOR".equals(deliveryType == null ? "" : deliveryType.trim().toUpperCase());
+    }
+
+    /** D2D with distinct pickup and delivery riders — each leg settles separately. */
+    public static boolean hasSplitPickupAndDeliveryRiders(OrderEntity order) {
+        if (!isOutstation(order) || !isDoorToDoor(order)) {
+            return false;
+        }
+        Long pickup = order.getPickupRiderId();
+        Long delivery = order.getDeliveryRiderId();
+        return pickup != null && delivery != null && !Objects.equals(pickup, delivery);
+    }
+
     /** Rider collects COD at sender door (pickup leg). */
     public static boolean pickupRiderCollectsCod(OrderEntity order) {
         if (!isOutstation(order)) {
@@ -92,6 +110,25 @@ public final class OutstationCodPolicy {
             return isOutstation(order);
         }
         return !Objects.equals(collector, riderId);
+    }
+
+    /** H2D, or D2D/H2D delivery-only completion on last mile (not split D2D). */
+    public static boolean isDeliveryLegOnlyOrder(OrderEntity order) {
+        if (!isOutstation(order)) {
+            return false;
+        }
+        if (isHubToDoor(order)) {
+            return true;
+        }
+        if (hasSplitPickupAndDeliveryRiders(order)) {
+            return false;
+        }
+        if (isDoorToDoor(order) && order.getDeliveryRiderId() != null) {
+            return true;
+        }
+        Long pickup = order.getPickupRiderId();
+        Long delivery = order.getDeliveryRiderId();
+        return delivery != null && pickup == null;
     }
 
     /** True when this rider collected COD cash and must not receive withdrawable wallet credit. */

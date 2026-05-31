@@ -145,6 +145,9 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (orderEntity.getServiceMode() != com.youdash.model.ServiceMode.OUTSTATION) {
             return 1;
         }
+        if (OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(orderEntity)) {
+            return 2;
+        }
         Long pickupRiderId = orderEntity.getPickupRiderId();
         Long deliveryRiderId = orderEntity.getDeliveryRiderId();
         if (pickupRiderId == null || deliveryRiderId == null) {
@@ -589,7 +592,39 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             throw new RuntimeException("Invalid commission config: rider earning cannot be negative");
         }
 
+        // D2D split: delivery rider always paid on destination hub → drop leg only.
+        if (OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(order)) {
+            settleSplitOutstationOrderDelivered(
+                    order,
+                    payType,
+                    codMode,
+                    orderAmount,
+                    commissionPercent,
+                    commissionAmount,
+                    baseRiderEarning,
+                    peakBonusTotal,
+                    actorUserId,
+                    actorType);
+            return;
+        }
+
         if (expectedLegs == 1) {
+            if (OutstationCodPolicy.isDeliveryLegOnlyOrder(order)) {
+                LegEarning deliveryLeg = computeDeliveryLegEarning(order, commissionPercent, peakBonusTotal);
+                settleSingleRiderOrderDelivered(
+                        order,
+                        payType,
+                        codMode,
+                        deliveryLeg.legAmount(),
+                        commissionPercent,
+                        deliveryLeg.commissionAmount(),
+                        deliveryLeg.baseEarning(),
+                        deliveryLeg.peakBonus(),
+                        deliveryLeg.riderEarning(),
+                        actorUserId,
+                        actorType);
+                return;
+            }
             settleSingleRiderOrderDelivered(
                     order,
                     payType,
@@ -738,7 +773,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             double riderEarning,
             Long actorUserId,
             String actorType) {
-        Long riderId = order.getRiderId();
+        Long riderId = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
         log.info(
                 "EARNING_CALCULATION -> riderId={}, orderId={}, paymentType={}, codMode={}, orderAmount={}, commissionPercent={}, commissionAmount={}, riderEarning={}",
                 riderId,
@@ -769,17 +804,24 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             fin.setCodSettlementStatus(CodSettlementStatus.SETTLED);
             fin.setSettledAt(Instant.now());
         } else if (payType == PaymentType.COD) {
-            collected = round2(orderAmount);
-            if (collected <= 0) {
-                throw new RuntimeException("Invalid order total for COD settlement");
-            }
-            fin.setCodCollectedAmount(collected);
-            fin.setCodCollectionMode(codMode);
-            if (codMode == CodCollectionMode.QR) {
+            if (OutstationCodPolicy.riderEarnsWalletCreditWithoutCodCash(order, riderId)) {
+                fin.setCodCollectedAmount(null);
+                fin.setCodCollectionMode(null);
                 fin.setCodSettlementStatus(CodSettlementStatus.SETTLED);
                 fin.setSettledAt(Instant.now());
             } else {
-                fin.setCodSettlementStatus(CodSettlementStatus.PENDING);
+                collected = round2(nz(order.getTotalAmount()));
+                if (collected <= 0) {
+                    throw new RuntimeException("Invalid order total for COD settlement");
+                }
+                fin.setCodCollectedAmount(collected);
+                fin.setCodCollectionMode(codMode);
+                if (codMode == CodCollectionMode.QR) {
+                    fin.setCodSettlementStatus(CodSettlementStatus.SETTLED);
+                    fin.setSettledAt(Instant.now());
+                } else {
+                    fin.setCodSettlementStatus(CodSettlementStatus.PENDING);
+                }
             }
         } else {
             throw new RuntimeException("Unsupported payment type: " + payType);
@@ -846,16 +888,17 @@ public class RiderWalletServiceImpl implements RiderWalletService {
 
         OutstationPayableLegSplit leg = OutstationPayableLegSplit.fromOrder(order);
         double oaPick = leg.pickupAmount();
-        double oaDrop = leg.lastMileAmount();
-        double commPick = round2(oaPick * (commissionPercent / 100.0));
-        double commDrop = round2(oaDrop * (commissionPercent / 100.0));
-        double basePick = round2(Math.max(0.0, oaPick - commPick));
-        double baseDrop = round2(Math.max(0.0, oaDrop - commDrop));
-        double riderLegDen = oaPick + oaDrop;
-        double peakPick = riderLegDen > 0.0 ? round2(peakBonusTotal * (oaPick / riderLegDen)) : 0.0;
-        double peakDrop = round2(peakBonusTotal - peakPick);
-        double earnPick = round2(Math.max(0.0, basePick + peakPick));
-        double earnDrop = round2(Math.max(0.0, baseDrop + peakDrop));
+        LegEarning pickupLeg = computePickupLegEarning(oaPick, leg.lastMileAmount(), commissionPercent, peakBonusTotal);
+        LegEarning deliveryLeg = computeDeliveryLegEarning(order, commissionPercent, peakBonusTotal);
+        double commPick = pickupLeg.commissionAmount();
+        double basePick = pickupLeg.baseEarning();
+        double peakPick = pickupLeg.peakBonus();
+        double earnPick = pickupLeg.riderEarning();
+        double oaDrop = deliveryLeg.legAmount();
+        double commDrop = deliveryLeg.commissionAmount();
+        double baseDrop = deliveryLeg.baseEarning();
+        double peakDrop = deliveryLeg.peakBonus();
+        double earnDrop = deliveryLeg.riderEarning();
 
         if (payType == PaymentType.ONLINE && !"PAID".equalsIgnoreCase(nzStr(order.getPaymentStatus()))) {
             throw new RuntimeException("ONLINE order must be PAID before settlement");
@@ -960,11 +1003,44 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         sendRiderEarningCreditedNotification(order.getId(), deliveryId, earnDrop, payType);
     }
 
+    private record LegEarning(
+            double legAmount,
+            double commissionAmount,
+            double baseEarning,
+            double peakBonus,
+            double riderEarning) {
+    }
+
+    private LegEarning computeLegEarning(double legAmount, double commissionPercent, double peakBonus) {
+        double comm = round2(legAmount * (commissionPercent / 100.0));
+        double base = round2(Math.max(0.0, legAmount - comm));
+        double earn = round2(Math.max(0.0, base + peakBonus));
+        return new LegEarning(legAmount, comm, base, peakBonus, earn);
+    }
+
+    /** Destination hub → customer drop, commission deducted from drop leg only. */
+    private LegEarning computeDeliveryLegEarning(OrderEntity order, double commissionPercent, double peakBonusTotal) {
+        OutstationPayableLegSplit leg = OutstationPayableLegSplit.fromOrder(order);
+        double oaDrop = leg.lastMileAmount();
+        double oaPick = leg.pickupAmount();
+        double riderLegDen = oaPick + oaDrop;
+        double peakDrop = riderLegDen > 0.0 ? round2(peakBonusTotal * (oaDrop / riderLegDen)) : peakBonusTotal;
+        return computeLegEarning(oaDrop, commissionPercent, peakDrop);
+    }
+
+    private LegEarning computePickupLegEarning(
+            double oaPick, double oaDrop, double commissionPercent, double peakBonusTotal) {
+        double riderLegDen = oaPick + oaDrop;
+        double peakPick = riderLegDen > 0.0 ? round2(peakBonusTotal * (oaPick / riderLegDen)) : peakBonusTotal;
+        return computeLegEarning(oaPick, commissionPercent, peakPick);
+    }
+
     private boolean isOrderDeliveryWalletAlreadyCredited(OrderEntity order, int expectedLegs) {
         if (order == null || order.getId() == null) {
             return true;
         }
-        Long payeeRiderId = expectedLegs >= 2
+        Long payeeRiderId = OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(order)
+                        || expectedLegs >= 2
                 ? order.getDeliveryRiderId()
                 : (order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId());
         if (payeeRiderId == null) {
@@ -1163,8 +1239,10 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             double dropNet = round2(
                     Math.max(0.0, leg.lastMileAmount() - (leg.lastMileAmount() * (commissionPercent / 100.0))));
             if (split) {
-                // Both legs assigned to different riders: report combined for admin/summary use
                 return round2(pickupNet + dropNet);
+            }
+            if (OutstationCodPolicy.isDeliveryLegOnlyOrder(order) || OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(order)) {
+                return dropNet;
             }
             // Pre-assignment or single rider: show pickup leg earning as the dispatch estimate
             return pickupNet;
