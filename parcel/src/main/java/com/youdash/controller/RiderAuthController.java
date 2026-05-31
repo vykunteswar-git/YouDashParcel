@@ -67,15 +67,17 @@ public class RiderAuthController {
             }
             String phone = PhoneNumberUtil.normalizeNational(request.getPhoneNumber());
 
-            OtpEntity otpEntity = otpRepository
-                    .findTopByPhoneNumberOrderByIdDesc(phone)
-                    .orElseThrow(() -> new RuntimeException("OTP not found"));
+            if (!authService.isTestLoginBypass(phone, request.getOtp())) {
+                OtpEntity otpEntity = otpRepository
+                        .findTopByPhoneNumberOrderByIdDesc(phone)
+                        .orElseThrow(() -> new RuntimeException("OTP not found"));
 
-            if (otpEntity.getExpiryTime() != null && otpEntity.getExpiryTime().isBefore(LocalDateTime.now())) {
-                throw new RuntimeException("OTP expired");
-            }
-            if (!request.getOtp().trim().equals(otpEntity.getOtp())) {
-                throw new RuntimeException("Invalid OTP");
+                if (otpEntity.getExpiryTime() != null && otpEntity.getExpiryTime().isBefore(LocalDateTime.now())) {
+                    throw new RuntimeException("OTP expired");
+                }
+                if (!request.getOtp().trim().equals(otpEntity.getOtp())) {
+                    throw new RuntimeException("Invalid OTP");
+                }
             }
 
             RiderEntity rider = riderRepository.findByPhone(phone)

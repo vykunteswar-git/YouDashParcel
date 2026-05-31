@@ -11,4 +11,10 @@ public interface AuthService {
     ApiResponse<OtpResponseDTO> sendOtp(OtpRequestDTO request);
 
     ApiResponse<UserResponseDTO> verifyOtp(VerifyOtpRequestDTO request);
+
+    /** True when test-login is enabled and this phone may skip Msg91 SMS. */
+    boolean isTestLoginPhone(String normalizedNationalPhone);
+
+    /** True when test-login is enabled and the OTP matches the configured bypass code. */
+    boolean isTestLoginBypass(String normalizedNationalPhone, String otp);
 }

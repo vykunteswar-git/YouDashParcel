@@ -35,6 +35,10 @@ public class AuthServiceImpl implements AuthService {
   @Value("${auth.test-login.phone:}")
   private String testLoginPhone;
 
+  /** Optional comma-separated list; merged with {@link #testLoginPhone}. */
+  @Value("${auth.test-login.phones:}")
+  private String testLoginPhones;
+
   @Value("${auth.test-login.otp:1234}")
   private String testLoginOtp;
 
@@ -70,7 +74,7 @@ public class AuthServiceImpl implements AuthService {
       }
 
       String phone = PhoneNumberUtil.normalizeNational(request.getPhoneNumber());
-      boolean isTestPhone = isTestLoginPhone(phone);
+      boolean isTestPhone = matchesConfiguredTestLoginPhone(phone);
 
       String otp = isTestPhone
           ? testLoginOtp
@@ -118,14 +122,51 @@ public class AuthServiceImpl implements AuthService {
     return response;
   }
 
-  private boolean isTestLoginPhone(String nationalPhone) {
-    if (!testLoginEnabled || testLoginPhone == null || testLoginPhone.isBlank()) {
+  private boolean matchesConfiguredTestLoginPhone(String nationalPhone) {
+    if (!testLoginEnabled || nationalPhone == null || nationalPhone.isBlank()) {
       return false;
     }
+    for (String configured : configuredTestLoginPhones()) {
+      if (nationalPhone.equals(configured)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @Override
+  public boolean isTestLoginPhone(String normalizedNationalPhone) {
+    return matchesConfiguredTestLoginPhone(normalizedNationalPhone);
+  }
+
+  @Override
+  public boolean isTestLoginBypass(String normalizedNationalPhone, String otp) {
+    return matchesConfiguredTestLoginPhone(normalizedNationalPhone)
+        && otp != null
+        && testLoginOtp.equals(otp.trim());
+  }
+
+  private java.util.List<String> configuredTestLoginPhones() {
+    java.util.LinkedHashSet<String> phones = new java.util.LinkedHashSet<>();
+    if (testLoginPhones != null && !testLoginPhones.isBlank()) {
+      for (String part : testLoginPhones.split(",")) {
+        addNormalizedTestPhone(phones, part);
+      }
+    }
+    if (testLoginPhone != null && !testLoginPhone.isBlank()) {
+      addNormalizedTestPhone(phones, testLoginPhone);
+    }
+    return java.util.List.copyOf(phones);
+  }
+
+  private void addNormalizedTestPhone(java.util.Set<String> phones, String raw) {
+    if (raw == null || raw.isBlank()) {
+      return;
+    }
     try {
-      return PhoneNumberUtil.normalizeNational(testLoginPhone).equals(nationalPhone);
+      phones.add(PhoneNumberUtil.normalizeNational(raw.trim()));
     } catch (SmsDeliveryException e) {
-      return testLoginPhone.trim().replaceAll("\\D", "").equals(nationalPhone);
+      phones.add(raw.trim().replaceAll("\\D", ""));
     }
   }
 
@@ -137,7 +178,7 @@ public class AuthServiceImpl implements AuthService {
       System.out.println("Verifying OTP for " + request.getPhoneNumber() + " (Entered: " + request.getOtp() + ")");
 
       String phone = PhoneNumberUtil.normalizeNational(request.getPhoneNumber());
-      boolean isTestPhone = isTestLoginPhone(phone);
+      boolean isTestPhone = matchesConfiguredTestLoginPhone(phone);
 
       if (isTestPhone && testLoginOtp.equals(request.getOtp())) {
         // Test-login fast path: skip DB OTP lookup and expiry check.
