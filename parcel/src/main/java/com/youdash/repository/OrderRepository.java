@@ -83,6 +83,18 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     Optional<OrderEntity> findFirstByRiderIdAndStatusInOrderByIdDesc(
             Long riderId, List<OrderStatus> statuses);
 
+    /** Latest active order where rider is primary, pickup, or delivery assignee. */
+    @Query("""
+            SELECT o FROM OrderEntity o
+            WHERE o.status IN :statuses
+              AND (o.riderId = :riderId OR o.pickupRiderId = :riderId OR o.deliveryRiderId = :riderId)
+            ORDER BY o.id DESC
+            """)
+    List<OrderEntity> findActiveOrdersForRiderAnyRole(
+            @Param("riderId") Long riderId,
+            @Param("statuses") List<OrderStatus> statuses,
+            Pageable pageable);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             update OrderEntity o

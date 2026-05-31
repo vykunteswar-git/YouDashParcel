@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 
 import com.youdash.dto.realtime.RiderActiveOrderEventDTO;
 import com.youdash.model.OrderStatus;
+import com.youdash.model.ServiceMode;
 
 @Component
 public class RiderActiveOrderTopicPublisher {
@@ -18,23 +19,23 @@ public class RiderActiveOrderTopicPublisher {
     }
 
     public void publish(Long riderId, Long orderId, OrderStatus status, String event) {
-        publish(riderId, orderId, status, event, null, null);
-    }
-
-    /** Immediate snapshot-style push so rider UI can sync without waiting for reconnect. */
-    public void publishSnapshot(Long riderId, Long orderId, OrderStatus status) {
-        publish(riderId, orderId, status, "snapshot", null, null);
+        publish(riderId, orderId, status, event, null, null, null);
     }
 
     public void publish(Long riderId, Long orderId, OrderStatus status, String event, Double collectAmount) {
-        publish(riderId, orderId, status, event, null, collectAmount);
+        publish(riderId, orderId, status, event, null, collectAmount, null);
     }
 
     public void publish(Long riderId, Long orderId, OrderStatus status, String event, String reason) {
-        publish(riderId, orderId, status, event, reason, null);
+        publish(riderId, orderId, status, event, reason, null, null);
     }
 
     public void publish(Long riderId, Long orderId, OrderStatus status, String event, String reason, Double collectAmount) {
+        publish(riderId, orderId, status, event, reason, collectAmount, null);
+    }
+
+    public void publish(Long riderId, Long orderId, OrderStatus status, String event, String reason, Double collectAmount,
+            ServiceMode serviceMode) {
         if (riderId == null || orderId == null) {
             return;
         }
@@ -46,18 +47,22 @@ public class RiderActiveOrderTopicPublisher {
         dto.setEventVersion(1);
         dto.setTsEpochMs(Instant.now().toEpochMilli());
         dto.setSource("backend");
-        dto.setServiceMode("INCITY");
+        dto.setServiceMode(serviceMode == null ? "INCITY" : serviceMode.name());
         dto.setReason(reason);
         dto.setCollectAmount(collectAmount);
         dto.setHasActiveOrder(hasActiveOrderForLifecycleEvent(event));
-        dto.setNextStatus(nextStatusForEvent(status, event));
+        dto.setNextStatus(nextStatusForEvent(status, event, serviceMode));
         messagingTemplate.convertAndSend("/topic/riders/" + riderId + "/active-order", dto);
     }
 
-    /**
-     * Snapshot messages set {@code hasActiveOrder} in {@link RiderActiveOrderSubscriptionListener}.
-     * Lifecycle pushes set it here so clients can treat {@code hasActiveOrder} consistently.
-     */
+    public void publishSnapshot(Long riderId, Long orderId, OrderStatus status) {
+        publishSnapshot(riderId, orderId, status, null);
+    }
+
+    public void publishSnapshot(Long riderId, Long orderId, OrderStatus status, ServiceMode serviceMode) {
+        publish(riderId, orderId, status, "snapshot", null, null, serviceMode);
+    }
+
     private static Boolean hasActiveOrderForLifecycleEvent(String event) {
         if (event == null) {
             return true;
@@ -68,9 +73,12 @@ public class RiderActiveOrderTopicPublisher {
         };
     }
 
-    private static String nextStatusForEvent(OrderStatus status, String event) {
+    private static String nextStatusForEvent(OrderStatus status, String event, ServiceMode serviceMode) {
         if (event != null && (event.equals("released") || event.equals("delivered"))) {
             return null;
+        }
+        if (serviceMode == ServiceMode.OUTSTATION) {
+            return OutstationActiveOrderNextStatus.resolve(status);
         }
         return IncityActiveOrderNextStatus.resolve(status);
     }

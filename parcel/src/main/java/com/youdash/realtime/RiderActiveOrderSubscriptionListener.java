@@ -5,6 +5,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.springframework.context.event.EventListener;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Component;
@@ -14,6 +15,7 @@ import com.youdash.dto.realtime.RiderActiveOrderEventDTO;
 import com.youdash.entity.OrderEntity;
 import com.youdash.model.OrderStatus;
 import com.youdash.model.PaymentType;
+import com.youdash.model.ServiceMode;
 import com.youdash.repository.OrderRepository;
 
 /**
@@ -32,7 +34,10 @@ public class RiderActiveOrderSubscriptionListener {
             OrderStatus.PAYMENT_PENDING,
             OrderStatus.RIDER_ASSIGNED,
             OrderStatus.PICKED_UP,
-            OrderStatus.IN_TRANSIT);
+            OrderStatus.AT_ORIGIN_HUB,
+            OrderStatus.IN_TRANSIT,
+            OrderStatus.AT_DESTINATION_HUB,
+            OrderStatus.OUT_FOR_DELIVERY);
 
     private final OrderRepository orderRepository;
     private final SimpMessagingTemplate messagingTemplate;
@@ -58,8 +63,9 @@ public class RiderActiveOrderSubscriptionListener {
         Long riderId = Long.valueOf(m.group(1));
 
         RiderActiveOrderEventDTO payload = orderRepository
-                .findFirstByRiderIdAndStatusInOrderByIdDesc(
-                        riderId, ACTIVE_STATUSES)
+                .findActiveOrdersForRiderAnyRole(riderId, ACTIVE_STATUSES, PageRequest.of(0, 1))
+                .stream()
+                .findFirst()
                 .map(this::snapshotFromOrder)
                 .orElseGet(this::snapshotIdle);
 
@@ -72,7 +78,12 @@ public class RiderActiveOrderSubscriptionListener {
         dto.setHasActiveOrder(true);
         dto.setOrderId(o.getId());
         dto.setStatus(o.getStatus() == null ? null : o.getStatus().name());
-        dto.setNextStatus(IncityActiveOrderNextStatus.resolve(o.getStatus()));
+        dto.setServiceMode(o.getServiceMode() == null ? "INCITY" : o.getServiceMode().name());
+        if (o.getServiceMode() == ServiceMode.OUTSTATION) {
+            dto.setNextStatus(OutstationActiveOrderNextStatus.resolve(o.getStatus()));
+        } else {
+            dto.setNextStatus(IncityActiveOrderNextStatus.resolve(o.getStatus()));
+        }
         dto.setReason(null);
         dto.setCollectAmount(resolveCollectAmount(o));
         return dto;

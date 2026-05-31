@@ -935,20 +935,49 @@ public class OrderServiceImpl implements OrderService {
                 o.setDeliveryOtp(DeliveryOtpGenerator.generate());
                 o.setDeliveryOtpGeneratedAt(Instant.now());
             }
-            if (o.getServiceMode() == ServiceMode.OUTSTATION
+            if (pickupRiderId != null
+                    && o.getServiceMode() == ServiceMode.OUTSTATION
                     && (o.getPickupOtp() == null || o.getPickupOtp().isBlank())) {
                 o.setPickupOtp(DeliveryOtpGenerator.generate());
             }
             OrderEntity saved = orderRepository.save(o);
-            appendTimeline(
-                    saved,
-                    saved.getStatus(),
-                    "rider_assigned",
-                    saved.getOriginHubId(),
-                    primaryRiderId,
-                    "Rider assignment updated by admin");
+
+            final String publishedStatus = saved.getStatus().name();
+            final boolean deliveryOnlyAssign = deliveryRiderId != null && pickupRiderId == null;
+            final boolean pickupAssign = pickupRiderId != null;
+            final boolean splitLegAssign = deliveryRiderId != null
+                    && pickupRiderId != null
+                    && !Objects.equals(deliveryRiderId, pickupRiderId);
+
+            if (pickupAssign && !deliveryOnlyAssign) {
+                appendTimeline(
+                        saved,
+                        OrderStatus.RIDER_ASSIGNED,
+                        "pickup_rider_assigned",
+                        saved.getOriginHubId(),
+                        pickupRiderId,
+                        "Pickup rider assigned by admin");
+            }
+            if (deliveryOnlyAssign || splitLegAssign) {
+                appendTimeline(
+                        saved,
+                        OrderStatus.OUT_FOR_DELIVERY,
+                        "delivery_rider_assigned",
+                        saved.getDestinationHubId(),
+                        deliveryRiderId,
+                        "Delivery rider assigned by admin");
+            } else if (pickupAssign && deliveryRiderId != null && Objects.equals(pickupRiderId, deliveryRiderId)) {
+                appendTimeline(
+                        saved,
+                        saved.getStatus(),
+                        "rider_assigned",
+                        saved.getOriginHubId(),
+                        primaryRiderId,
+                        "Rider assigned by admin");
+            }
+
             try {
-                if (pickupRiderId != null) {
+                if (pickupRiderId != null && !deliveryOnlyAssign) {
                     notificationService.sendToRider(
                             pickupRiderId,
                             "New pickup assigned",
@@ -962,7 +991,7 @@ public class OrderServiceImpl implements OrderService {
                             deliveryRiderId,
                             "New delivery assigned",
                             "Order #" + saved.getId() + " assigned for delivery stage.",
-                            NotificationService.baseData(saved.getId(), OrderStatus.RIDER_ASSIGNED.name(),
+                            NotificationService.baseData(saved.getId(), OrderStatus.OUT_FOR_DELIVERY.name(),
                                     NotificationType.RIDER_JOB_ASSIGNED),
                             NotificationType.RIDER_JOB_ASSIGNED);
                 }
@@ -970,11 +999,15 @@ public class OrderServiceImpl implements OrderService {
                 // Keep assignment successful even if one notification channel fails.
             }
             try {
+                String userTitle = deliveryOnlyAssign ? "Delivery rider assigned" : "Rider assigned";
+                String userBody = deliveryOnlyAssign
+                        ? "A delivery rider has been assigned to order #" + saved.getId() + "."
+                        : "A rider has been assigned to order #" + saved.getId() + ".";
                 notificationService.sendToUser(
                         saved.getUserId(),
-                        "Rider assigned",
-                        "A rider has been assigned to order #" + saved.getId() + ".",
-                        NotificationService.baseData(saved.getId(), OrderStatus.RIDER_ASSIGNED.name(),
+                        userTitle,
+                        userBody,
+                        NotificationService.baseData(saved.getId(), publishedStatus,
                                 NotificationType.RIDER_ASSIGNED),
                         NotificationType.RIDER_ASSIGNED);
             } catch (Exception ignored) {
@@ -983,12 +1016,12 @@ public class OrderServiceImpl implements OrderService {
             try {
                 UserOrderEventDTO userEvt = new UserOrderEventDTO();
                 userEvt.setOrderId(saved.getId());
-                userEvt.setEvent("rider_found");
-                userEvt.setEventType("rider_assigned");
+                userEvt.setEvent(deliveryOnlyAssign ? "delivery_rider_assigned" : "rider_found");
+                userEvt.setEventType(deliveryOnlyAssign ? "delivery_rider_assigned" : "rider_assigned");
                 userEvt.setEventVersion(1);
                 userEvt.setTsEpochMs(Instant.now().toEpochMilli());
                 userEvt.setSource("backend");
-                userEvt.setStatus(OrderStatus.RIDER_ASSIGNED.name());
+                userEvt.setStatus(publishedStatus);
                 userEvt.setServiceMode(saved.getServiceMode() == null ? null : saved.getServiceMode().name());
                 userEvt.setRiderId(primaryRiderId);
                 messagingTemplate.convertAndSend("/topic/users/" + saved.getUserId() + "/order-events", userEvt);
@@ -1000,15 +1033,13 @@ public class OrderServiceImpl implements OrderService {
                 userActiveOrderTopicPublisher.publishStatusUpdated(
                         saved.getUserId(),
                         saved.getId(),
-                        OrderStatus.RIDER_ASSIGNED.name(),
+                        publishedStatus,
                         saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
                         primaryRiderId);
-                // Also push a snapshot immediately so connected clients update even if
-                // they missed a transient incremental event.
                 userActiveOrderTopicPublisher.publishSnapshot(
                         saved.getUserId(),
                         saved.getId(),
-                        OrderStatus.RIDER_ASSIGNED.name(),
+                        publishedStatus,
                         saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
                         primaryRiderId,
                         null,
@@ -1017,29 +1048,40 @@ public class OrderServiceImpl implements OrderService {
                 // Keep assignment successful even if one notification channel fails.
             }
             try {
-                if (pickupRiderId != null) {
+                ServiceMode mode = saved.getServiceMode();
+                Double codAmount = saved.getPaymentType() == PaymentType.COD ? saved.getTotalAmount() : null;
+                if (pickupRiderId != null && !deliveryOnlyAssign) {
                     riderActiveOrderTopicPublisher.publish(
                             pickupRiderId,
                             saved.getId(),
                             OrderStatus.RIDER_ASSIGNED,
                             "assigned",
-                            saved.getPaymentType() == PaymentType.COD ? saved.getTotalAmount() : null);
+                            null,
+                            codAmount,
+                            mode);
                     riderActiveOrderTopicPublisher.publishSnapshot(
                             pickupRiderId,
                             saved.getId(),
-                            OrderStatus.RIDER_ASSIGNED);
+                            OrderStatus.RIDER_ASSIGNED,
+                            mode);
                 }
                 if (deliveryRiderId != null && !Objects.equals(deliveryRiderId, pickupRiderId)) {
+                    OrderStatus deliveryStage = saved.getStatus() == OrderStatus.OUT_FOR_DELIVERY
+                            ? OrderStatus.OUT_FOR_DELIVERY
+                            : OrderStatus.RIDER_ASSIGNED;
                     riderActiveOrderTopicPublisher.publish(
                             deliveryRiderId,
                             saved.getId(),
-                            OrderStatus.RIDER_ASSIGNED,
+                            deliveryStage,
                             "assigned",
-                            saved.getPaymentType() == PaymentType.COD ? saved.getTotalAmount() : null);
+                            null,
+                            codAmount,
+                            mode);
                     riderActiveOrderTopicPublisher.publishSnapshot(
                             deliveryRiderId,
                             saved.getId(),
-                            OrderStatus.RIDER_ASSIGNED);
+                            deliveryStage,
+                            mode);
                 }
             } catch (Exception ignored) {
                 // Keep assignment successful even if one notification channel fails.
