@@ -61,15 +61,7 @@ public class AppConfigServiceImpl implements AppConfigService {
             if (dto.getOutstationPlatformFee() != null) {
                 e.setOutstationPlatformFee(dto.getOutstationPlatformFee());
             }
-            if (dto.getPlatformFee() != null) {
-                e.setPlatformFee(dto.getPlatformFee());
-                if (dto.getIncityPlatformFee() == null) {
-                    e.setIncityPlatformFee(dto.getPlatformFee());
-                }
-                if (dto.getOutstationPlatformFee() == null) {
-                    e.setOutstationPlatformFee(dto.getPlatformFee());
-                }
-            }
+            applyLegacyPlatformFeeInput(e, dto);
             if (dto.getPickupRatePerKm() != null) {
                 e.setPickupRatePerKm(dto.getPickupRatePerKm());
             }
@@ -196,11 +188,12 @@ public class AppConfigServiceImpl implements AppConfigService {
         AppConfigDTO d = new AppConfigDTO();
         d.setId(e.getId());
         d.setGstPercent(e.getGstPercent());
-        d.setPlatformFee(e.getPlatformFee());
+        Double legacy = e.getPlatformFee();
         d.setIncityPlatformFee(
-                e.getIncityPlatformFee() != null ? e.getIncityPlatformFee() : e.getPlatformFee());
+                e.getIncityPlatformFee() != null ? e.getIncityPlatformFee() : legacy);
         d.setOutstationPlatformFee(
-                e.getOutstationPlatformFee() != null ? e.getOutstationPlatformFee() : e.getPlatformFee());
+                e.getOutstationPlatformFee() != null ? e.getOutstationPlatformFee() : legacy);
+        setDeprecatedLegacyPlatformFee(d, legacy);
         d.setPickupRatePerKm(e.getPickupRatePerKm());
         d.setDropRatePerKm(e.getDropRatePerKm());
         d.setPerKgRate(e.getPerKgRate());
@@ -254,6 +247,25 @@ public class AppConfigServiceImpl implements AppConfigService {
 
     private static double nz(Double v) {
         return v != null ? v : 0.0;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static void applyLegacyPlatformFeeInput(AppConfigEntity e, AppConfigDTO dto) {
+        if (dto.getPlatformFee() == null) {
+            return;
+        }
+        e.setPlatformFee(dto.getPlatformFee());
+        if (dto.getIncityPlatformFee() == null) {
+            e.setIncityPlatformFee(dto.getPlatformFee());
+        }
+        if (dto.getOutstationPlatformFee() == null) {
+            e.setOutstationPlatformFee(dto.getPlatformFee());
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private static void setDeprecatedLegacyPlatformFee(AppConfigDTO dto, Double legacy) {
+        dto.setPlatformFee(legacy);
     }
 
     private void setError(ApiResponse<?> response, String message) {

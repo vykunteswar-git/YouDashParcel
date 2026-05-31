@@ -11,6 +11,7 @@ public class AppConfigDTO {
     private Long id;
     private Double gstPercent;
     /** @deprecated Use {@link #incityPlatformFee} / {@link #outstationPlatformFee}. */
+    @Deprecated
     private Double platformFee;
     private Double incityPlatformFee;
     private Double outstationPlatformFee;
