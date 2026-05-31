@@ -7,6 +7,7 @@ import com.youdash.util.DeliveryOtpGenerator;
 import com.youdash.util.OutstationCodPolicy;
 import com.youdash.util.OutstationHubHandover;
 import com.youdash.util.OutstationPayableLegSplit;
+import com.youdash.util.OutstationRiderLegPolicy;
 import com.youdash.exception.BadRequestException;
 import com.youdash.model.*;
 import com.youdash.repository.*;
@@ -1271,14 +1272,6 @@ public class OrderServiceImpl implements OrderService {
             throw new BadRequestException("Order payment type is missing");
         }
 
-        if (o.getServiceMode() == ServiceMode.OUTSTATION
-                && o.getPaymentType() == PaymentType.COD
-                && nz(o.getCodCollectedAmount()) <= 0.0
-                && OutstationCodPolicy.pickupRiderCollectsCod(o)) {
-            throw new BadRequestException(
-                    "COD must be collected from the sender before completing delivery");
-        }
-
         if (o.getPaymentType() == PaymentType.ONLINE) {
             // Amount was settled at payment gateway; order row holds totalAmount + PAID —
             // body only needs orderId.
@@ -1289,8 +1282,16 @@ public class OrderServiceImpl implements OrderService {
             o.setCodCollectionMode(null);
             o.setCodSettlementStatus(CodSettlementStatus.SETTLED);
         } else if (o.getPaymentType() == PaymentType.COD) {
-            // If collectPayment was already called (new flow), skip re-setting.
-            if (o.getCodCollectionMode() == null || o.getCodCollectedAmount() == null) {
+            if (OutstationCodPolicy.codCollectedAtPickupLeg(o)) {
+                // D2D/D2H: pickup rider collected from sender; delivery rider only verifies OTP.
+                if (!alreadyDelivered && nz(o.getCodCollectedAmount()) <= 0.0) {
+                    throw new BadRequestException(
+                            "COD must be collected from the sender at pickup before completing delivery");
+                }
+                if (o.getCodCollectionMode() == null && nz(o.getCodCollectedAmount()) > 0.0) {
+                    o.setCodCollectionMode(CodCollectionMode.CASH);
+                }
+            } else if (o.getCodCollectionMode() == null || o.getCodCollectedAmount() == null) {
                 if (dto.getCodCollectionMode() == null || dto.getCodCollectionMode().isBlank()) {
                     throw new BadRequestException("codCollectionMode is required for COD (CASH or QR)");
                 }
@@ -2047,28 +2048,12 @@ public class OrderServiceImpl implements OrderService {
         applyOutstationRiderFacingAddresses(dto, o, riderOrderApi, viewerRiderId, originHub, destinationHub);
         applyOutstationRiderContactVisibility(dto, o, riderOrderApi, viewerRiderId);
         // Pickup rider's job ends at AT_ORIGIN_HUB — show as DELIVERED to them.
-        if (riderOrderApi && isPickupRiderHubTransit(o, viewerRiderId)) {
+        if (riderOrderApi && OutstationRiderLegPolicy.isSplitPickupRiderLegComplete(o, viewerRiderId)) {
             dto.setStatus(OrderStatus.DELIVERED);
             dto.setAllowedNextStatuses(java.util.Set.of());
             dto.setAdminSelectableNextStatuses(java.util.Set.of());
         }
         return dto;
-    }
-
-    private static final java.util.Set<OrderStatus> HUB_TRANSIT_STATUSES = java.util.Set.of(
-            OrderStatus.AT_ORIGIN_HUB,
-            OrderStatus.IN_TRANSIT,
-            OrderStatus.AT_DESTINATION_HUB);
-
-    private static boolean isPickupRiderHubTransit(OrderEntity o, Long viewerRiderId) {
-        if (o == null || viewerRiderId == null) return false;
-        if (o.getServiceMode() != ServiceMode.OUTSTATION) return false;
-        if (!HUB_TRANSIT_STATUSES.contains(o.getStatus())) return false;
-        // Must be the pickup rider (not the delivery rider)
-        Long pickupId = o.getPickupRiderId() != null ? o.getPickupRiderId() : o.getRiderId();
-        if (!Objects.equals(viewerRiderId, pickupId)) return false;
-        // If same rider handles both legs, they're not done yet
-        return !Objects.equals(o.getPickupRiderId(), o.getDeliveryRiderId());
     }
 
     private static String resolveLegTypeForRider(OrderEntity order, boolean riderOrderApi, Long viewerRiderId) {
@@ -2509,6 +2494,21 @@ public class OrderServiceImpl implements OrderService {
         String event = resolveRiderSocketEventForAdminStatus(target);
         for (Long riderId : riderIds) {
             try {
+                if (OutstationRiderLegPolicy.isSplitPickupRiderLegComplete(saved, riderId)) {
+                    riderActiveOrderTopicPublisher.publish(
+                            riderId,
+                            saved.getId(),
+                            OrderStatus.DELIVERED,
+                            "delivered",
+                            "pickup_leg_complete",
+                            null,
+                            mode);
+                    markRiderAvailableAfterDelivery(riderId);
+                    continue;
+                }
+                if (!OutstationRiderLegPolicy.shouldRiderHaveActiveOrder(saved, riderId)) {
+                    continue;
+                }
                 riderActiveOrderTopicPublisher.publish(
                         riderId,
                         saved.getId(),

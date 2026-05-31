@@ -27,6 +27,8 @@ import com.youdash.realtime.RiderActiveOrderTopicPublisher;
 import com.youdash.realtime.UserActiveOrderTopicPublisher;
 import com.youdash.realtime.AdminOrderTopicPublisher;
 import com.youdash.util.DeliveryOtpGenerator;
+import com.youdash.util.OutstationCodPolicy;
+import com.youdash.util.OutstationRiderLegPolicy;
 import com.youdash.util.TransactionAfterCommit;
 import com.youdash.service.DispatchService;
 import com.youdash.service.NotificationService;
@@ -233,6 +235,11 @@ public class RiderOrderServiceImpl implements RiderOrderService {
             if (!order.getPickupOtp().equals(pickupOtp.trim())) {
                 throw new BadRequestException("Invalid pickup OTP");
             }
+            if (order.getPaymentType() == PaymentType.COD
+                    && OutstationCodPolicy.pickupRiderCollectsCod(order)
+                    && (order.getCodCollectedAmount() == null || order.getCodCollectedAmount() <= 0.0)) {
+                throw new BadRequestException("Collect COD from the sender before confirming pickup");
+            }
             order.setPickupOtp(null);
         }
         transitionStatus(order, OrderStatus.PICKED_UP);
@@ -252,7 +259,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                 saved.getId(),
                 saved.getStatus(),
                 "status_updated",
-                resolveCollectAmount(saved));
+                resolveCollectAmount(saved, riderId));
         response.setData(orderServiceImpl.toOrderDtoForRider(saved, riderId));
         response.setMessage("Pickup recorded");
         response.setMessageKey("SUCCESS");
@@ -295,7 +302,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                 saved.getId(),
                 saved.getStatus(),
                 "status_updated",
-                resolveCollectAmount(saved));
+                resolveCollectAmount(saved, riderId));
         response.setData(orderServiceImpl.toOrderDtoForRider(saved, riderId));
         response.setMessage("Transit started");
         response.setMessageKey("SUCCESS");
@@ -424,12 +431,24 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                 saved.getStatus().name(),
                 saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
                 riderId);
-        riderActiveOrderTopicPublisher.publish(
-                riderId,
-                saved.getId(),
-                saved.getStatus(),
-                "reach_destination",
-                resolveCollectAmount(saved));
+        if (OutstationRiderLegPolicy.isSplitPickupRiderLegComplete(saved, riderId)) {
+            markRiderAvailableAfterDelivery(riderId);
+            riderActiveOrderTopicPublisher.publish(
+                    riderId,
+                    saved.getId(),
+                    OrderStatus.DELIVERED,
+                    "delivered",
+                    "pickup_leg_complete",
+                    null,
+                    ServiceMode.OUTSTATION);
+        } else {
+            riderActiveOrderTopicPublisher.publish(
+                    riderId,
+                    saved.getId(),
+                    saved.getStatus(),
+                    "reach_destination",
+                    resolveCollectAmount(saved, riderId));
+        }
         response.setData(orderServiceImpl.toOrderDtoForRider(saved, riderId));
         response.setMessage("Destination reached");
         response.setMessageKey("SUCCESS");
@@ -609,16 +628,23 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         orderTimelineService.appendEvent(order, status, eventType, hubId, riderId, null, notes);
     }
 
-    private static Double resolveCollectAmount(OrderEntity order) {
-        if (order == null || order.getPaymentType() != PaymentType.COD) {
-            return null;
-        }
-        return order.getTotalAmount();
+    private static Double resolveCollectAmount(OrderEntity order, Long riderId) {
+        return OutstationCodPolicy.resolveRiderCollectAmount(order, riderId);
     }
 
     @SuppressWarnings("unused")
     private RiderEntity requireRider(Long riderId) {
         return riderRepository.findById(riderId).orElseThrow(() -> new RuntimeException("Rider not found"));
+    }
+
+    private void markRiderAvailableAfterDelivery(Long riderId) {
+        if (riderId == null) {
+            return;
+        }
+        riderRepository.findById(riderId).ifPresent(r -> {
+            r.setIsAvailable(true);
+            riderRepository.save(r);
+        });
     }
 
 }

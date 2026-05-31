@@ -4,8 +4,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 @Data
-@Schema(description = "Rider completes delivery. ONLINE (pre-paid): send only orderId — amount comes from the order/gateway. "
-        + "COD: send orderId + codCollectionMode. COD amount is auto-picked from order total.")
+@Schema(description = "Rider completes delivery. ONLINE (pre-paid): send only orderId. "
+        + "COD incity/H2D: send orderId + codCollectionMode. "
+        + "OUTSTATION D2D/D2H (COD collected at pickup): send only orderId after OTP verification.")
 public class OrderCompleteRequestDTO {
     @Schema(description = "Numeric internal id or YP- display reference", requiredMode = Schema.RequiredMode.REQUIRED)
     private String orderId;

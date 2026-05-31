@@ -65,4 +65,27 @@ public final class OutstationCodPolicy {
         }
         return order.getRiderId();
     }
+
+    /** OUTSTATION D2D/D2H: COD is taken from the sender at pickup, not at delivery. */
+    public static boolean codCollectedAtPickupLeg(OrderEntity order) {
+        return isOutstation(order) && pickupRiderCollectsCod(order);
+    }
+
+    /**
+     * Socket / UI collect hint for a specific rider. Null when COD already recorded or this rider
+     * is not the collector (e.g. delivery rider on a split D2D leg).
+     */
+    public static Double resolveRiderCollectAmount(OrderEntity order, Long riderId) {
+        if (order == null || order.getPaymentType() != com.youdash.model.PaymentType.COD) {
+            return null;
+        }
+        if (order.getCodCollectedAmount() != null && order.getCodCollectedAmount() > 0.0) {
+            return null;
+        }
+        Long collector = resolveCodCollectorRiderId(order);
+        if (collector != null && riderId != null && !java.util.Objects.equals(collector, riderId)) {
+            return null;
+        }
+        return order.getTotalAmount();
+    }
 }

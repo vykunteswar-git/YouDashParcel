@@ -14,9 +14,10 @@ import org.springframework.web.socket.messaging.SessionSubscribeEvent;
 import com.youdash.dto.realtime.RiderActiveOrderEventDTO;
 import com.youdash.entity.OrderEntity;
 import com.youdash.model.OrderStatus;
-import com.youdash.model.PaymentType;
 import com.youdash.model.ServiceMode;
 import com.youdash.repository.OrderRepository;
+import com.youdash.util.OutstationCodPolicy;
+import com.youdash.util.OutstationRiderLegPolicy;
 
 /**
  * When a rider subscribes to {@code /topic/riders/{riderId}/active-order}, publishes an immediate
@@ -63,16 +64,17 @@ public class RiderActiveOrderSubscriptionListener {
         Long riderId = Long.valueOf(m.group(1));
 
         RiderActiveOrderEventDTO payload = orderRepository
-                .findActiveOrdersForRiderAnyRole(riderId, ACTIVE_STATUSES, PageRequest.of(0, 1))
+                .findActiveOrdersForRiderAnyRole(riderId, ACTIVE_STATUSES, PageRequest.of(0, 10))
                 .stream()
+                .filter(o -> OutstationRiderLegPolicy.shouldRiderHaveActiveOrder(o, riderId))
                 .findFirst()
-                .map(this::snapshotFromOrder)
+                .map(o -> snapshotFromOrder(o, riderId))
                 .orElseGet(this::snapshotIdle);
 
         messagingTemplate.convertAndSend(destination, payload);
     }
 
-    private RiderActiveOrderEventDTO snapshotFromOrder(OrderEntity o) {
+    private RiderActiveOrderEventDTO snapshotFromOrder(OrderEntity o, Long riderId) {
         RiderActiveOrderEventDTO dto = new RiderActiveOrderEventDTO();
         dto.setEvent("snapshot");
         dto.setHasActiveOrder(true);
@@ -85,7 +87,7 @@ public class RiderActiveOrderSubscriptionListener {
             dto.setNextStatus(IncityActiveOrderNextStatus.resolve(o.getStatus()));
         }
         dto.setReason(null);
-        dto.setCollectAmount(resolveCollectAmount(o));
+        dto.setCollectAmount(OutstationCodPolicy.resolveRiderCollectAmount(o, riderId));
         return dto;
     }
 
@@ -99,12 +101,5 @@ public class RiderActiveOrderSubscriptionListener {
         dto.setReason(null);
         dto.setCollectAmount(null);
         return dto;
-    }
-
-    private static Double resolveCollectAmount(OrderEntity o) {
-        if (o == null || o.getPaymentType() != PaymentType.COD) {
-            return null;
-        }
-        return o.getTotalAmount();
     }
 }
