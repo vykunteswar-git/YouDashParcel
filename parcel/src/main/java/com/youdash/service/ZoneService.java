@@ -1,6 +1,7 @@
 package com.youdash.service;
 
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.PublicZoneOptionDTO;
 import com.youdash.dto.ZoneRequestDTO;
 import com.youdash.dto.ZoneResponseDTO;
 import com.youdash.entity.ZoneEntity;
@@ -13,6 +14,9 @@ public interface ZoneService {
     ApiResponse<ZoneResponseDTO> createZone(ZoneRequestDTO dto);
 
     ApiResponse<List<ZoneResponseDTO>> listZones();
+
+    /** Active zones for rider signup dropdown (id, name, city only). */
+    ApiResponse<List<PublicZoneOptionDTO>> listActivePublic();
 
     ApiResponse<ZoneResponseDTO> updateZone(Long id, ZoneRequestDTO dto);
 

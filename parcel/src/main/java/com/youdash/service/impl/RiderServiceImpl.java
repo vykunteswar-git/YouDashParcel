@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -31,6 +30,7 @@ import com.youdash.entity.RiderEntity;
 import com.youdash.entity.RiderLocationHistoryEntity;
 import com.youdash.entity.RiderOnlineSessionEntity;
 import com.youdash.entity.VehicleEntity;
+import com.youdash.entity.ZoneEntity;
 import com.youdash.entity.wallet.RiderWalletEntity;
 import com.youdash.entity.wallet.RiderWalletTransactionEntity;
 import com.youdash.entity.wallet.RiderWithdrawalEntity;
@@ -44,12 +44,14 @@ import com.youdash.repository.RiderLocationHistoryRepository;
 import com.youdash.repository.RiderOnlineSessionRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.repository.VehicleRepository;
+import com.youdash.repository.ZoneRepository;
 import com.youdash.repository.wallet.RiderWalletRepository;
 import com.youdash.repository.wallet.RiderWalletTransactionRepository;
 import com.youdash.repository.wallet.RiderWithdrawalRepository;
 import com.youdash.service.NotificationDedupService;
 import com.youdash.service.NotificationService;
 import com.youdash.service.RiderService;
+import com.youdash.service.ZoneService;
 import com.youdash.service.wallet.RiderWalletService;
 import com.youdash.realtime.UserActiveOrderTopicPublisher;
 import com.youdash.util.GeoUtils;
@@ -68,7 +70,12 @@ public class RiderServiceImpl implements RiderService {
             OrderStatus.RIDER_ASSIGNED,
             OrderStatus.PICKED_UP,
             OrderStatus.IN_TRANSIT);
-    private static final double ASSIGNMENT_NEARBY_RADIUS_KM = 12.0;
+
+    @Autowired
+    private ZoneRepository zoneRepository;
+
+    @Autowired
+    private ZoneService zoneService;
 
     @Autowired
     private RiderRepository riderRepository;
@@ -168,6 +175,14 @@ public class RiderServiceImpl implements RiderService {
             if (dto.getVehicleNumber() == null || dto.getVehicleNumber().trim().isEmpty()) {
                 throw new RuntimeException("Vehicle number is required");
             }
+            if (dto.getZoneId() == null) {
+                throw new RuntimeException("Service zone is required");
+            }
+            ZoneEntity zone = zoneRepository.findById(dto.getZoneId())
+                    .orElseThrow(() -> new RuntimeException("Zone not found with id: " + dto.getZoneId()));
+            if (!Boolean.TRUE.equals(zone.getIsActive())) {
+                throw new RuntimeException("Selected zone is not active");
+            }
             String vehicleNumber = dto.getVehicleNumber().trim().toUpperCase(Locale.ROOT);
             if (vehicleNumber.length() < 4) {
                 throw new RuntimeException("Invalid vehicle number");
@@ -195,6 +210,7 @@ public class RiderServiceImpl implements RiderService {
             }
             rider.setVehicleType(resolvedVehicleType);
             rider.setVehicleNumber(vehicleNumber);
+            rider.setZoneId(zone.getId());
             rider.setEmergencyPhone(dto.getEmergencyPhone().trim());
 
             rider.setProfileImageUrl(dto.getProfileImageUrl().trim());
@@ -654,12 +670,6 @@ public class RiderServiceImpl implements RiderService {
 
     @Override
     public ApiResponse<List<RiderResponseDTO>> listRidersEligibleForOrder(Long orderId, String assignmentRole) {
-        if (assignmentRole != null && !assignmentRole.isBlank()) {
-            String role = assignmentRole.trim().toUpperCase(Locale.ROOT);
-            if ("DELIVERY".equals(role) || "BOTH".equals(role)) {
-                return listByApprovalStatus(RiderApprovalStatus.APPROVED.name());
-            }
-        }
         ApiResponse<List<RiderResponseDTO>> response = new ApiResponse<>();
         try {
             if (orderId == null) {
@@ -667,42 +677,15 @@ public class RiderServiceImpl implements RiderService {
             }
             OrderEntity order = orderRepository.findById(orderId)
                     .orElseThrow(() -> new RuntimeException("Order not found"));
-            double refLat;
-            double refLng;
-            if (useDeliveryReferenceForEligibleRiders(order, assignmentRole)) {
-                if (order.getDropLat() == null || order.getDropLng() == null) {
-                    throw new RuntimeException("Order drop coordinates are missing");
-                }
-                refLat = order.getDropLat();
-                refLng = order.getDropLng();
-                if (order.getServiceMode() == ServiceMode.OUTSTATION && order.getDestinationHubId() != null) {
-                    HubEntity destHub = hubRepository.findById(order.getDestinationHubId()).orElse(null);
-                    if (destHub != null && destHub.getLat() != null && destHub.getLng() != null) {
-                        refLat = destHub.getLat();
-                        refLng = destHub.getLng();
-                    }
-                }
-            } else {
-                if (order.getPickupLat() == null || order.getPickupLng() == null) {
-                    throw new RuntimeException("Order pickup coordinates are missing");
-                }
-                refLat = order.getPickupLat();
-                refLng = order.getPickupLng();
-            }
+            Long targetZoneId = resolveAssignmentZoneId(order, assignmentRole);
 
-            final double anchorLat = refLat;
-            final double anchorLng = refLng;
-            List<RiderResponseDTO> dtos = riderRepository.findByIsAvailableTrue().stream()
+            List<RiderResponseDTO> dtos = riderRepository
+                    .findByApprovalStatusOrderByCreatedAtDesc(RiderApprovalStatus.APPROVED)
+                    .stream()
                     .filter(this::isApprovedOrLegacy)
                     .filter(r -> !riderWalletService.isRiderDispatchBlocked(r.getId()))
-                    .filter(r -> "ONLINE".equalsIgnoreCase(computeRiderStatus(r)))
-                    .filter(r -> r.getCurrentLat() != null && r.getCurrentLng() != null)
                     .filter(r -> !orderRepository.existsByRiderIdAndStatusIn(r.getId(), ACTIVE_ASSIGNMENT_STATUSES))
-                    .filter(r -> GeoUtils.haversineKm(anchorLat, anchorLng, r.getCurrentLat(), r.getCurrentLng())
-                            <= ASSIGNMENT_NEARBY_RADIUS_KM)
-                    .sorted(Comparator.comparingDouble(r -> GeoUtils.haversineKm(
-                            anchorLat, anchorLng, r.getCurrentLat(), r.getCurrentLng())))
-                    .limit(25)
+                    .filter(r -> targetZoneId == null || targetZoneId.equals(r.getZoneId()))
                     .map(this::mapToResponseDTO)
                     .collect(Collectors.toList());
 
@@ -719,6 +702,36 @@ public class RiderServiceImpl implements RiderService {
             response.setSuccess(false);
         }
         return response;
+    }
+
+    /** Hub zone for pickup (origin) or delivery (destination), with coordinate fallback. */
+    private Long resolveAssignmentZoneId(OrderEntity order, String assignmentRole) {
+        if (order == null) {
+            return null;
+        }
+        boolean deliveryPhase = useDeliveryReferenceForEligibleRiders(order, assignmentRole);
+        if (deliveryPhase) {
+            if (order.getDestinationHubId() != null) {
+                HubEntity destHub = hubRepository.findById(order.getDestinationHubId()).orElse(null);
+                if (destHub != null && destHub.getZoneId() != null) {
+                    return destHub.getZoneId();
+                }
+            }
+            if (order.getDropLat() != null && order.getDropLng() != null) {
+                return zoneService.resolveServingZoneIdAt(order.getDropLat(), order.getDropLng()).orElse(null);
+            }
+            return null;
+        }
+        if (order.getOriginHubId() != null) {
+            HubEntity originHub = hubRepository.findById(order.getOriginHubId()).orElse(null);
+            if (originHub != null && originHub.getZoneId() != null) {
+                return originHub.getZoneId();
+            }
+        }
+        if (order.getPickupLat() != null && order.getPickupLng() != null) {
+            return zoneService.resolveServingZoneIdAt(order.getPickupLat(), order.getPickupLng()).orElse(null);
+        }
+        return null;
     }
 
     private boolean useDeliveryReferenceForEligibleRiders(OrderEntity order, String assignmentRole) {
@@ -865,6 +878,10 @@ public class RiderServiceImpl implements RiderService {
         dto.setName(rider.getName());
         dto.setPhone(rider.getPhone());
         dto.setEmail(rider.getEmail());
+        dto.setZoneId(rider.getZoneId());
+        if (rider.getZoneId() != null) {
+            zoneRepository.findById(rider.getZoneId()).ifPresent(z -> dto.setZoneName(z.getName()));
+        }
         dto.setVehicleId(rider.getVehicleId());
         dto.setVehicleType(rider.getVehicleType());
         dto.setVehicleNumber(rider.getVehicleNumber());

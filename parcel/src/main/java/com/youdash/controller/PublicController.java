@@ -4,6 +4,7 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.BannerDTO;
 import com.youdash.dto.CheckoutPaymentOptionsDTO;
 import com.youdash.dto.PackageCategoryDTO;
+import com.youdash.dto.PublicZoneOptionDTO;
 import com.youdash.dto.VehicleDTO;
 import com.youdash.dto.VersionCheckResponseDTO;
 import com.youdash.service.AdminService;
@@ -11,6 +12,7 @@ import com.youdash.service.AppConfigService;
 import com.youdash.service.AppVersionService;
 import com.youdash.service.BannerService;
 import com.youdash.service.PackageCategoryService;
+import com.youdash.service.ZoneService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,10 +50,19 @@ public class PublicController {
     @Autowired
     private AppVersionService appVersionService;
 
+    @Autowired
+    private ZoneService zoneService;
+
     @GetMapping("/vehicles")
     @Operation(summary = "List active vehicles")
     public ApiResponse<List<VehicleDTO>> getActiveVehicles() {
         return adminService.getActiveVehicles();
+    }
+
+    @GetMapping("/zones")
+    @Operation(summary = "List active zones", description = "Used by rider app signup to select primary service zone.")
+    public ApiResponse<List<PublicZoneOptionDTO>> getActiveZones() {
+        return zoneService.listActivePublic();
     }
 
     @GetMapping("/package-categories")

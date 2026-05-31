@@ -32,6 +32,10 @@ public class RiderEntity {
     @Column(name = "public_id", unique = true, length = 32)
     private String publicId;
 
+    /** Primary service zone selected at registration (matches hub zone for assignment). */
+    @Column(name = "zone_id")
+    private Long zoneId;
+
     @Column(name = "vehicle_id")
     private Long vehicleId;
 

@@ -9,6 +9,11 @@ public class RiderRequestDTO {
     /** Optional at signup; used for important notices (e.g. insurance, compliance). */
     private String email;
     /**
+     * Primary service zone (dropdown uses GET /public/zones).
+     */
+    private Long zoneId;
+
+    /**
      * Preferred: vehicle selected from admin-created vehicles (dropdown uses GET /public/vehicles).
      * If provided, backend resolves to vehicle name and stores/returns it as {@code vehicleType}.
      */

@@ -3,6 +3,7 @@ package com.youdash.service.impl;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.PublicZoneOptionDTO;
 import com.youdash.dto.ZoneRequestDTO;
 import com.youdash.dto.ZoneResponseDTO;
 import com.youdash.entity.ZoneEntity;
@@ -68,6 +69,33 @@ public class ZoneServiceImpl implements ZoneService {
             setErrorResponse(response, e.getMessage());
         }
         return response;
+    }
+
+    @Override
+    public ApiResponse<List<PublicZoneOptionDTO>> listActivePublic() {
+        ApiResponse<List<PublicZoneOptionDTO>> response = new ApiResponse<>();
+        try {
+            List<PublicZoneOptionDTO> list = zoneRepository.findByIsActiveTrueOrderByIdAsc().stream()
+                    .map(this::toPublicOption)
+                    .collect(Collectors.toList());
+            response.setData(list);
+            response.setMessage("Active zones fetched successfully");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+            response.setTotalCount(list.size());
+        } catch (Exception e) {
+            setErrorResponse(response, e.getMessage());
+        }
+        return response;
+    }
+
+    private PublicZoneOptionDTO toPublicOption(ZoneEntity entity) {
+        PublicZoneOptionDTO dto = new PublicZoneOptionDTO();
+        dto.setId(entity.getId());
+        dto.setName(entity.getName());
+        dto.setCity(entity.getCity());
+        return dto;
     }
 
     @Override
