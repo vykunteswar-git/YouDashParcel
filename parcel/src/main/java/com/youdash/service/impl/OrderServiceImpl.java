@@ -1253,8 +1253,14 @@ public class OrderServiceImpl implements OrderService {
         }
 
         if (!alreadyDelivered) {
-            if (o.getStatus() != OrderStatus.IN_TRANSIT) {
+            boolean outstationLastMile = o.getServiceMode() == ServiceMode.OUTSTATION
+                    && o.getStatus() == OrderStatus.OUT_FOR_DELIVERY
+                    && isOutstationDoorDeliveryType(o.getDeliveryType());
+            if (o.getStatus() != OrderStatus.IN_TRANSIT && !outstationLastMile) {
                 throw new BadRequestException("Order cannot be completed from status: " + o.getStatus());
+            }
+            if (outstationLastMile && !Boolean.TRUE.equals(o.getIsOtpVerified())) {
+                throw new BadRequestException("Delivery OTP not verified");
             }
             if (o.getServiceMode() != ServiceMode.OUTSTATION && !Boolean.TRUE.equals(o.getIsOtpVerified())) {
                 throw new BadRequestException("OTP not verified");
@@ -1267,7 +1273,8 @@ public class OrderServiceImpl implements OrderService {
 
         if (o.getServiceMode() == ServiceMode.OUTSTATION
                 && o.getPaymentType() == PaymentType.COD
-                && nz(o.getCodCollectedAmount()) <= 0.0) {
+                && nz(o.getCodCollectedAmount()) <= 0.0
+                && OutstationCodPolicy.pickupRiderCollectsCod(o)) {
             throw new BadRequestException(
                     "COD must be collected from the sender before completing delivery");
         }
@@ -1373,7 +1380,8 @@ public class OrderServiceImpl implements OrderService {
             allowed = true;
         } else if ("RIDER".equals(tokenType)) {
             Long actingRiderId = riderAccessVerifier.resolveActingRiderIdFromToken(tokenUserId, tokenType);
-            allowed = Objects.equals(o.getRiderId(), actingRiderId);
+            allowed = Objects.equals(o.getRiderId(), actingRiderId)
+                    || Objects.equals(o.getDeliveryRiderId(), actingRiderId);
         }
         if (!allowed) {
             throw new BadRequestException("Access denied");
@@ -1917,7 +1925,7 @@ public class OrderServiceImpl implements OrderService {
      */
     OrderResponseDTO toOrderDto(OrderEntity o, Map<Long, RiderEntity> riderBatch, Map<Long, VehicleEntity> vehicleBatch,
             boolean riderOrderApi, Long viewerRiderId) {
-        RiderEntity rider = resolveRiderForOrderDto(o.getRiderId(), riderBatch);
+        RiderEntity rider = resolveRiderForOrderDto(resolveDisplayRiderId(o, riderOrderApi), riderBatch);
         String riderName = rider != null ? rider.getName() : null;
         String riderPhone = rider != null ? rider.getPhone() : null;
         String deliveryOtp = resolveDeliveryOtpForResponse(o, riderOrderApi);
@@ -1990,6 +1998,7 @@ public class OrderServiceImpl implements OrderService {
                 .destinationHubCity(destinationHub != null ? destinationHub.getCity() : null)
                 .destinationHubLat(destinationHub != null ? destinationHub.getLat() : null)
                 .destinationHubLng(destinationHub != null ? destinationHub.getLng() : null)
+                .destinationHubCollectedByRider(o.getDestinationHubCollectedAt() != null)
                 .weight(o.getWeight())
                 .distanceKm(o.getDistanceKm())
                 .paymentType(o.getPaymentType())
@@ -2578,6 +2587,29 @@ public class OrderServiceImpl implements OrderService {
             }
         }
         return dto;
+    }
+
+    private static Long resolveDisplayRiderId(OrderEntity o, boolean riderOrderApi) {
+        if (o == null) {
+            return null;
+        }
+        if (riderOrderApi) {
+            return o.getRiderId();
+        }
+        if (o.getServiceMode() != ServiceMode.OUTSTATION) {
+            return o.getRiderId();
+        }
+        OrderStatus s = o.getStatus();
+        if (s == OrderStatus.OUT_FOR_DELIVERY && o.getDeliveryRiderId() != null) {
+            return o.getDeliveryRiderId();
+        }
+        if (o.getPickupRiderId() != null
+                && (s == OrderStatus.BOOKED
+                        || s == OrderStatus.RIDER_ASSIGNED
+                        || s == OrderStatus.PICKED_UP)) {
+            return o.getPickupRiderId();
+        }
+        return o.getRiderId();
     }
 
     private RiderEntity resolveRiderForOrderDto(Long riderId, Map<Long, RiderEntity> riderBatch) {

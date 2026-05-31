@@ -76,6 +76,8 @@ public class OrderResponseDTO {
     private String destinationHubCity;
     private Double destinationHubLat;
     private Double destinationHubLng;
+    /** True when delivery rider confirmed parcel collected at destination hub. */
+    private Boolean destinationHubCollectedByRider;
     private Double weight;
     private Double distanceKm;
     private PaymentType paymentType;

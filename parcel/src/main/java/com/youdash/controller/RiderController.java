@@ -248,4 +248,11 @@ public class RiderController {
         Long riderId = riderAccessVerifier.resolveActingRiderId(request);
         return riderOrderService.reachDestination(riderId, orderId);
     }
+
+    @PutMapping("/orders/{orderId}/collect-from-hub")
+    @Operation(summary = "OUTSTATION delivery rider: confirm parcel collected from destination hub")
+    public ApiResponse<?> collectFromHub(@PathVariable Long orderId, HttpServletRequest request) {
+        Long riderId = riderAccessVerifier.resolveActingRiderId(request);
+        return riderOrderService.collectParcelFromDestinationHub(riderId, orderId);
+    }
 }

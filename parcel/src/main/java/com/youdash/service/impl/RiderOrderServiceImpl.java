@@ -306,11 +306,96 @@ public class RiderOrderServiceImpl implements RiderOrderService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public ApiResponse<OrderResponseDTO> collectParcelFromDestinationHub(Long riderId, Long orderId) {
+        ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
+        OrderEntity order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new BadRequestException("Order not found"));
+        requireAssignedRider(order, riderId);
+        requireOutstationDeliveryRiderLeg(order, riderId);
+        if (order.getStatus() != OrderStatus.OUT_FOR_DELIVERY) {
+            throw new BadRequestException("Order must be OUT_FOR_DELIVERY to collect from hub");
+        }
+        if (order.getDestinationHubCollectedAt() != null) {
+            throw new BadRequestException("Parcel already collected from destination hub");
+        }
+        order.setDestinationHubCollectedAt(Instant.now());
+        OrderEntity saved = orderRepository.save(order);
+        appendTimeline(
+                saved,
+                saved.getStatus(),
+                "delivery_hub_collected",
+                saved.getDestinationHubId(),
+                riderId,
+                "Delivery rider collected parcel from destination hub");
+        sendTypedUserEvent(saved.getUserId(), saved.getId(), "delivery_hub_collected", saved.getStatus(), riderId);
+        adminOrderTopicPublisher.publishStatusUpdated(saved);
+        userActiveOrderTopicPublisher.publishStatusUpdated(
+                saved.getUserId(),
+                saved.getId(),
+                saved.getStatus().name(),
+                saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
+                riderId);
+        riderActiveOrderTopicPublisher.publish(
+                riderId,
+                saved.getId(),
+                saved.getStatus(),
+                "delivery_hub_collected",
+                null,
+                null,
+                ServiceMode.OUTSTATION);
+        response.setData(orderServiceImpl.toOrderDtoForRider(saved, riderId));
+        response.setMessage("Parcel collected from hub");
+        response.setMessageKey("SUCCESS");
+        response.setStatus(200);
+        response.setSuccess(true);
+        return response;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public ApiResponse<OrderResponseDTO> reachDestination(Long riderId, Long orderId) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         OrderEntity order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BadRequestException("Order not found"));
         requireAssignedRider(order, riderId);
+        if (order.getServiceMode() == ServiceMode.OUTSTATION && isOutstationDeliveryRiderLeg(order, riderId)) {
+            if (order.getStatus() != OrderStatus.OUT_FOR_DELIVERY) {
+                throw new BadRequestException("Delivery leg must be OUT_FOR_DELIVERY to reach customer");
+            }
+            if (order.getDestinationHubCollectedAt() == null) {
+                throw new BadRequestException("Collect parcel from destination hub first");
+            }
+            OrderEntity saved = orderRepository.save(order);
+            sendTypedUserEvent(saved.getUserId(), saved.getId(), "reach_destination", saved.getStatus(), riderId);
+            adminOrderTopicPublisher.publish("reach_destination", saved);
+            appendTimeline(
+                    saved,
+                    saved.getStatus(),
+                    "reached_customer",
+                    saved.getDestinationHubId(),
+                    riderId,
+                    "Delivery rider reached customer");
+            userActiveOrderTopicPublisher.publishStatusUpdated(
+                    saved.getUserId(),
+                    saved.getId(),
+                    saved.getStatus().name(),
+                    saved.getServiceMode() == null ? null : saved.getServiceMode().name(),
+                    riderId);
+            riderActiveOrderTopicPublisher.publish(
+                    riderId,
+                    saved.getId(),
+                    saved.getStatus(),
+                    "reach_destination",
+                    null,
+                    null,
+                    ServiceMode.OUTSTATION);
+            response.setData(orderServiceImpl.toOrderDtoForRider(saved, riderId));
+            response.setMessage("Customer location reached");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setSuccess(true);
+            return response;
+        }
         if (order.getServiceMode() == ServiceMode.OUTSTATION) {
             if (order.getStatus() != OrderStatus.PICKED_UP) {
                 throw new BadRequestException("OUTSTATION order must be PICKED_UP to record origin hub arrival");
@@ -471,8 +556,38 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         }
     }
 
+    private static boolean isOutstationDoorDeliveryType(String deliveryType) {
+        if (deliveryType == null || deliveryType.isBlank()) {
+            return true;
+        }
+        String t = deliveryType.trim().toUpperCase(java.util.Locale.ROOT);
+        return "HUB_TO_DOOR".equals(t) || "DOOR_TO_DOOR".equals(t);
+    }
+
+    private static void requireOutstationDeliveryRiderLeg(OrderEntity order, Long riderId) {
+        if (!isOutstationDeliveryRiderLeg(order, riderId)) {
+            throw new BadRequestException("Only the assigned delivery rider can perform this action");
+        }
+    }
+
+    private static boolean isOutstationDeliveryRiderLeg(OrderEntity order, Long riderId) {
+        if (order == null || riderId == null || order.getServiceMode() != ServiceMode.OUTSTATION) {
+            return false;
+        }
+        if (!isOutstationDoorDeliveryType(order.getDeliveryType())) {
+            return false;
+        }
+        Long deliveryId = order.getDeliveryRiderId() != null ? order.getDeliveryRiderId() : order.getRiderId();
+        return Objects.equals(riderId, deliveryId);
+    }
+
     private void transitionStatus(OrderEntity order, OrderStatus toStatus) {
-        orderStatusTransitionGuard.ensureAllowed(order.getServiceMode(), order.getStatus(), toStatus);
+        if (order.getServiceMode() == ServiceMode.OUTSTATION) {
+            orderStatusTransitionGuard.ensureAllowed(
+                    order.getServiceMode(), order.getDeliveryType(), order.getStatus(), toStatus);
+        } else {
+            orderStatusTransitionGuard.ensureAllowed(order.getServiceMode(), order.getStatus(), toStatus);
+        }
         order.setStatus(toStatus);
     }
 

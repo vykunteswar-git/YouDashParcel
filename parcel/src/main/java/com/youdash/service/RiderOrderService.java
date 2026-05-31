@@ -14,5 +14,8 @@ public interface RiderOrderService {
 
     /** No status change; emits a user socket event for UI/logging. */
     ApiResponse<OrderResponseDTO> reachDestination(Long riderId, Long orderId);
+
+    /** OUTSTATION last mile: delivery rider confirms parcel collected from destination hub. */
+    ApiResponse<OrderResponseDTO> collectParcelFromDestinationHub(Long riderId, Long orderId);
 }
 

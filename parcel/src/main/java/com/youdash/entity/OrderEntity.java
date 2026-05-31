@@ -144,6 +144,10 @@ public class OrderEntity {
     @Column(name = "delivery_rider_id")
     private Long deliveryRiderId;
 
+    /** When delivery rider confirmed parcel collected at destination hub (last mile). */
+    @Column(name = "destination_hub_collected_at")
+    private Instant destinationHubCollectedAt;
+
     @Column(name = "accepted_at")
     private Instant acceptedAt;
 
