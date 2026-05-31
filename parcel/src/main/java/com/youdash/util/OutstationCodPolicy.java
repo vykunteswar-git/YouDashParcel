@@ -1,14 +1,11 @@
 package com.youdash.util;
 
 import com.youdash.entity.OrderEntity;
-import com.youdash.model.OrderStatus;
 import com.youdash.model.PaymentType;
 import com.youdash.model.ServiceMode;
 import com.youdash.model.wallet.CodCollectionMode;
 
-import java.util.Locale;
 import java.util.Objects;
-import java.util.function.BiPredicate;
 
 
 /**
@@ -22,18 +19,11 @@ public final class OutstationCodPolicy {
         return order != null && order.getServiceMode() == ServiceMode.OUTSTATION;
     }
 
-    public static String normalizeDeliveryType(String deliveryType) {
-        if (deliveryType == null || deliveryType.isBlank()) {
-            return "";
-        }
-        return deliveryType.trim().toUpperCase(Locale.ROOT).replace(' ', '_');
-    }
-
     public static String deliveryTypeUpper(OrderEntity order) {
         if (order == null || order.getDeliveryType() == null) {
             return "";
         }
-        return normalizeDeliveryType(order.getDeliveryType());
+        return order.getDeliveryType().trim().toUpperCase();
     }
 
     public static boolean isHubToDoor(OrderEntity order) {
@@ -41,7 +31,7 @@ public final class OutstationCodPolicy {
     }
 
     public static boolean isHubToDoor(String deliveryType) {
-        return "HUB_TO_DOOR".equals(normalizeDeliveryType(deliveryType));
+        return "HUB_TO_DOOR".equals(deliveryType == null ? "" : deliveryType.trim().toUpperCase());
     }
 
     public static boolean isDoorToHub(OrderEntity order) {
@@ -49,7 +39,7 @@ public final class OutstationCodPolicy {
     }
 
     public static boolean isDoorToHub(String deliveryType) {
-        return "DOOR_TO_HUB".equals(normalizeDeliveryType(deliveryType));
+        return "DOOR_TO_HUB".equals(deliveryType == null ? "" : deliveryType.trim().toUpperCase());
     }
 
     public static boolean isDoorToDoor(OrderEntity order) {
@@ -57,7 +47,7 @@ public final class OutstationCodPolicy {
     }
 
     public static boolean isDoorToDoor(String deliveryType) {
-        return "DOOR_TO_DOOR".equals(normalizeDeliveryType(deliveryType));
+        return "DOOR_TO_DOOR".equals(deliveryType == null ? "" : deliveryType.trim().toUpperCase());
     }
 
     /**
@@ -79,45 +69,10 @@ public final class OutstationCodPolicy {
         if (pickup != null && rider != null && !Objects.equals(pickup, rider)) {
             return rider;
         }
-        if (rider != null && pickup == null && (isDoorToDoor(order) || isHubToDoor(order))) {
+        if (isDoorToDoor(order) && rider != null && pickup == null) {
             return rider;
         }
         return null;
-    }
-
-    /** True when {@code riderId} is the outstation last-mile (drop) rider for this order. */
-    public static boolean isOutstationLastMileRider(OrderEntity order, Long riderId) {
-        if (order == null || riderId == null || !isOutstation(order)) {
-            return false;
-        }
-        Long deliveryId = resolveDeliveryRiderId(order);
-        return deliveryId != null && Objects.equals(deliveryId, riderId);
-    }
-
-    /**
-     * DELIVERED outstation order still missing withdrawable wallet credit for the delivery rider.
-     */
-    public static boolean needsDeliveryWalletCredit(
-            OrderEntity order,
-            Long deliveryRiderId,
-            BiPredicate<Long, Long> hasWalletCredit) {
-        if (order == null || deliveryRiderId == null || order.getStatus() != OrderStatus.DELIVERED) {
-            return false;
-        }
-        if (!isOutstation(order) || !isOutstationLastMileRider(order, deliveryRiderId)) {
-            return false;
-        }
-        if (hasWalletCredit.test(deliveryRiderId, order.getId())) {
-            return false;
-        }
-        if (isHubToDoor(order)) {
-            return true;
-        }
-        if (isDoorToDoor(order)) {
-            Long pickup = OutstationRiderLegPolicy.resolvePickupRiderId(order);
-            return pickup == null || !Objects.equals(pickup, deliveryRiderId);
-        }
-        return false;
     }
 
     /** D2D with distinct pickup and delivery riders — each leg settles separately. */

@@ -547,11 +547,6 @@ public class OrderServiceImpl implements OrderService {
             }
             List<OrderEntity> orders = orderRepository.findRiderOrdersPaged(
                     riderId, startDate, endDate, PageRequest.of(safePage, safeSize));
-            try {
-                riderWalletService.repairPendingDeliveryWalletCredits(riderId);
-            } catch (RuntimeException ex) {
-                log.warn("DELIVERY_WALLET_REPAIR_FAILED riderId={}: {}", riderId, ex.getMessage());
-            }
             long totalCount = orderRepository.countRiderOrdersPaged(riderId, startDate, endDate);
             Set<Long> riderIds = orders.stream()
                     .flatMap(o -> java.util.stream.Stream.of(o.getRiderId(), o.getPickupRiderId(),
@@ -565,22 +560,6 @@ public class OrderServiceImpl implements OrderService {
             Map<Long, VehicleEntity> vehicleMap = buildVehicleBatchForOrders(orders, riderMap);
             List<OrderResponseDTO> list = new ArrayList<>(orders.size());
             for (OrderEntity o : orders) {
-                if (o.getStatus() == OrderStatus.DELIVERED && o.getServiceMode() == ServiceMode.OUTSTATION) {
-                    Long beforeDelivery = o.getDeliveryRiderId();
-                    ensureOutstationDeliveryRiderRecorded(o, riderId);
-                    if (!Objects.equals(beforeDelivery, o.getDeliveryRiderId())) {
-                        o = orderRepository.save(o);
-                    }
-                    try {
-                        riderWalletService.ensureDeliverySettlementIfNeeded(o);
-                    } catch (RuntimeException ex) {
-                        log.warn(
-                                "DELIVERY_SETTLE_ENSURE_FAILED orderId={} riderId={}: {}",
-                                o.getId(),
-                                riderId,
-                                ex.getMessage());
-                    }
-                }
                 OrderResponseDTO d = stripCommercialDetailsForRider(toOrderDto(o, riderMap, vehicleMap, true, riderId));
                 d.setEarnedAmount(riderWalletService.resolveRiderEarningForOrder(o, riderId));
                 list.add(d);
