@@ -494,6 +494,9 @@ public class OrderServiceImpl implements OrderService {
                 }
             }
             boolean riderOrderApi = "RIDER".equals(tokenType);
+            if (!admin && !riderOrderApi) {
+                o = ensureHubDropOtpIfNeeded(o);
+            }
             OrderResponseDTO data = toOrderDto(o, null, null, riderOrderApi, riderOrderApi ? tokenUserId : null);
             Integer riderStars = riderRatingRepository.findByOrderId(o.getId())
                     .map(RiderRatingEntity::getStars)
@@ -2357,7 +2360,10 @@ public class OrderServiceImpl implements OrderService {
         }
         OrderStatus s = o.getStatus();
         if (OutstationCodPolicy.isHubToDoor(o)) {
-            return null;
+            if (s != OrderStatus.BOOKED) {
+                return null;
+            }
+            return otp;
         }
         if (!OrderStatus.isOutstationPickupAssigned(s)) {
             return null;
@@ -2381,7 +2387,29 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private void applyOutstationOtpsOnCreate(OrderEntity order) {
-        // OTPs are generated on admin rider assignment / hub-ready transitions per spec.
+        if (order == null || order.getServiceMode() != ServiceMode.OUTSTATION) {
+            return;
+        }
+        // HUB_TO_DOOR: sender drops parcel at origin hub using pickupOtp while still BOOKED.
+        if (OutstationCodPolicy.isHubToDoor(order)
+                && (order.getPickupOtp() == null || order.getPickupOtp().isBlank())) {
+            order.setPickupOtp(DeliveryOtpGenerator.generate());
+        }
+    }
+
+    /** Backfill hub-drop OTP for legacy H2D rows still at BOOKED. */
+    private OrderEntity ensureHubDropOtpIfNeeded(OrderEntity order) {
+        if (order == null || order.getServiceMode() != ServiceMode.OUTSTATION) {
+            return order;
+        }
+        if (!OutstationCodPolicy.isHubToDoor(order) || order.getStatus() != OrderStatus.BOOKED) {
+            return order;
+        }
+        if (order.getPickupOtp() != null && !order.getPickupOtp().isBlank()) {
+            return order;
+        }
+        order.setPickupOtp(DeliveryOtpGenerator.generate());
+        return orderRepository.save(order);
     }
 
     private void recordSenderCodAtHubIfNeeded(
