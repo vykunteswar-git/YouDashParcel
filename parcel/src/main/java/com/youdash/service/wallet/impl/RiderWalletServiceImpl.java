@@ -714,7 +714,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (deliveryId == null) {
             return;
         }
-        if (hasCompletedWalletCreditForOrder(deliveryId, order.getId())) {
+        if (!deliveryLegWalletCreditStillDue(order, deliveryId)) {
             return;
         }
         log.info("DELIVERY_SETTLE_ENSURE orderId={} deliveryRider={}", order.getId(), deliveryId);
@@ -1080,6 +1080,13 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (payType == PaymentType.ONLINE) {
             finD.setCodSettlementStatus(CodSettlementStatus.SETTLED);
             finD.setSettledAt(Instant.now());
+        } else if (OutstationCodPolicy.codCollectedAtPickupLeg(order)) {
+            finP.setCodCollectedAmount(collected);
+            finP.setCodCollectionMode(codMode);
+            finP.setCodSettlementStatus(CodSettlementStatus.PENDING);
+            finD.setCodCollectedAmount(null);
+            finD.setCodCollectionMode(null);
+            finD.setCodSettlementStatus(CodSettlementStatus.SETTLED);
         } else {
             Long codCollectorRiderId = resolveCodCollectorRiderId(order);
             boolean pickupCollectsCod = codCollectorRiderId != null && Objects.equals(codCollectorRiderId, pickupId);
@@ -1189,7 +1196,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (deliveryId == null) {
             return;
         }
-        if (!OutstationCodPolicy.needsDeliveryWalletCredit(order, deliveryId, this::hasCompletedWalletCreditForOrder)) {
+        if (!deliveryLegWalletCreditStillDue(order, deliveryId)) {
             return;
         }
         log.warn(
@@ -1313,20 +1320,41 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         return computeLegEarning(oaPick, commissionPercent, peakPick);
     }
 
+    /** True when the delivery rider still needs a withdrawable wallet credit for this order. */
+    private boolean deliveryLegWalletCreditStillDue(OrderEntity order, Long deliveryId) {
+        if (order == null || order.getId() == null || deliveryId == null) {
+            return false;
+        }
+        if (hasCompletedWalletCreditForOrder(deliveryId, order.getId())) {
+            return false;
+        }
+        if (OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(order)) {
+            return Objects.equals(OutstationCodPolicy.resolveDeliveryRiderId(order), deliveryId);
+        }
+        return OutstationCodPolicy.needsDeliveryWalletCredit(order, deliveryId, this::hasCompletedWalletCreditForOrder);
+    }
+
     private boolean isOrderDeliveryWalletAlreadyCredited(OrderEntity order, int expectedLegs) {
         if (order == null || order.getId() == null) {
             return true;
         }
         Long deliveryId = OutstationCodPolicy.resolveDeliveryRiderId(order);
+        // Split D2D: pickup rider wallet credit must not satisfy delivery settlement.
+        if (OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(order)) {
+            if (deliveryId == null) {
+                return false;
+            }
+            return hasCompletedWalletCreditForOrder(deliveryId, order.getId());
+        }
         if (order.getServiceMode() == ServiceMode.OUTSTATION && deliveryId != null) {
-            if (OutstationCodPolicy.needsDeliveryWalletCredit(order, deliveryId, this::hasCompletedWalletCreditForOrder)) {
+            if (deliveryLegWalletCreditStillDue(order, deliveryId)) {
                 return false;
             }
             if (OutstationCodPolicy.isOutstationLastMileRider(order, deliveryId)) {
                 return hasCompletedWalletCreditForOrder(deliveryId, order.getId());
             }
         }
-        if (OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(order) || expectedLegs >= 2) {
+        if (expectedLegs >= 2) {
             if (deliveryId == null) {
                 return false;
             }

@@ -1380,6 +1380,15 @@ public class OrderServiceImpl implements OrderService {
                     ex.getMessage(),
                     ex);
         }
+        try {
+            riderWalletService.repairPendingDeliveryWalletCredits(actingRiderId);
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "DELIVERY_WALLET_REPAIR_AFTER_COMPLETE orderId={} riderId={}: {}",
+                    saved.getId(),
+                    actingRiderId,
+                    ex.getMessage());
+        }
 
         UserOrderEventDTO deliveredEvt = new UserOrderEventDTO();
         deliveredEvt.setOrderId(saved.getId());

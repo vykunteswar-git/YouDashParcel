@@ -155,6 +155,11 @@ public final class OutstationCodPolicy {
         if (order.getPickupRiderId() != null) {
             return order.getPickupRiderId();
         }
+        // D2D/D2H: after delivery assign, riderId often equals deliveryRiderId — not the pickup collector.
+        Long deliveryId = resolveDeliveryRiderId(order);
+        if (deliveryId != null && Objects.equals(order.getRiderId(), deliveryId)) {
+            return null;
+        }
         return order.getRiderId();
     }
 
@@ -175,9 +180,13 @@ public final class OutstationCodPolicy {
         if (codAmount(order) <= 0.0) {
             return false;
         }
+        // D2D/D2H: COD is from sender at pickup — last-mile rider always gets withdrawable wallet credit.
+        if (codCollectedAtPickupLeg(order) && isOutstationLastMileRider(order, riderId)) {
+            return true;
+        }
         Long collector = resolveCodCollectorRiderId(order);
         if (collector == null) {
-            return isOutstation(order);
+            return isOutstation(order) && isOutstationLastMileRider(order, riderId);
         }
         return !Objects.equals(collector, riderId);
     }
@@ -207,6 +216,9 @@ public final class OutstationCodPolicy {
             return false;
         }
         if (order.getCodCollectionMode() == CodCollectionMode.QR) {
+            return false;
+        }
+        if (codCollectedAtPickupLeg(order) && isOutstationLastMileRider(order, riderId)) {
             return false;
         }
         Long collector = resolveCodCollectorRiderId(order);

@@ -60,7 +60,7 @@ ON DUPLICATE KEY UPDATE id = id;
 
 CREATE TABLE IF NOT EXISTS youdash_order_rider_financials (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  order_id BIGINT NOT NULL UNIQUE,
+  order_id BIGINT NOT NULL,
   rider_id BIGINT NOT NULL,
   order_amount DOUBLE NOT NULL,
   commission_percent_applied DOUBLE NULL,
@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS youdash_order_rider_financials (
   cod_settlement_status VARCHAR(16) NULL,
   settled_at TIMESTAMP(3) NULL,
   created_at TIMESTAMP(3) NULL,
+  UNIQUE KEY uk_orf_order_rider (order_id, rider_id),
+  INDEX idx_orf_order (order_id),
   INDEX idx_orf_rider (rider_id)
 );
 
