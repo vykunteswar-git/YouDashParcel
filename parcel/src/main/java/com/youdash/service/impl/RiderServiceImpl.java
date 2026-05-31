@@ -654,12 +654,6 @@ public class RiderServiceImpl implements RiderService {
 
     @Override
     public ApiResponse<List<RiderResponseDTO>> listRidersEligibleForOrder(Long orderId, String assignmentRole) {
-        if (assignmentRole != null && !assignmentRole.isBlank()) {
-            String role = assignmentRole.trim().toUpperCase(Locale.ROOT);
-            if ("DELIVERY".equals(role) || "BOTH".equals(role)) {
-                return listByApprovalStatus(RiderApprovalStatus.APPROVED.name());
-            }
-        }
         ApiResponse<List<RiderResponseDTO>> response = new ApiResponse<>();
         try {
             if (orderId == null) {
