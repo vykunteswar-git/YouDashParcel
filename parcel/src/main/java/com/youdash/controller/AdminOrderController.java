@@ -60,7 +60,7 @@ public class AdminOrderController {
         }
         OrderStatus st = OrderStatus.fromLegacy(dto.getStatus());
         boolean override = Boolean.TRUE.equals(dto.getAdminOverride());
-        return orderService.adminUpdateStatus(id, st, dto.getOtp(), override, dto.getCodCollectionMode());
+        return orderService.adminUpdateStatus(id, st, dto.getOtp(), override);
     }
 
     @PostMapping("/{id}/verify-hub-handover")

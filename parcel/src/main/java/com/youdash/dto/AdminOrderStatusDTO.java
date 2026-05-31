@@ -10,6 +10,4 @@ public class AdminOrderStatusDTO {
     private String otp;
     /** Emergency skip of OTP checks (logged on timeline). */
     private Boolean adminOverride;
-    /** CASH or QR when admin confirms sender COD at pickup (D2D / D2H). */
-    private String codCollectionMode;
 }

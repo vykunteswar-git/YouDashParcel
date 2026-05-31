@@ -897,13 +897,6 @@ public class OrderServiceImpl implements OrderService {
                 throw new RuntimeException(
                         "Door-to-hub orders use hub collection only; assign a pickup rider or verify hub collection instead of a delivery rider");
             }
-            if (deliveryRiderId != null
-                    && o.getServiceMode() == ServiceMode.OUTSTATION
-                    && isOutstationDoorDeliveryType(o.getDeliveryType())
-                    && !isOutstationDestinationDeliveryPhase(o.getStatus())) {
-                throw new RuntimeException(
-                        "Delivery rider can only be assigned when the parcel is at the destination hub");
-            }
 
             Long primaryRiderId = deliveryRiderId != null ? deliveryRiderId : pickupRiderId;
             if (pickupRiderId != null) {
@@ -1058,12 +1051,11 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ApiResponse<OrderResponseDTO> adminUpdateStatus(
-            Long orderId, OrderStatus status, String otp, boolean adminOverride, String codCollectionMode) {
+            Long orderId, OrderStatus status, String otp, boolean adminOverride) {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         OrderEntity o = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found"));
         OrderStatus target = normalizeAdminTargetStatus(o, status);
-        validateAdminOutstationStatusUpdate(o, target, codCollectionMode, adminOverride);
         if (target == OrderStatus.DELIVERED && o.getPaymentType() == PaymentType.COD) {
             if (o.getCodCollectionMode() == null || o.getCodCollectedAmount() == null) {
                 throw new RuntimeException("COD details missing. Use /order/complete");
@@ -2356,35 +2348,7 @@ public class OrderServiceImpl implements OrderService {
         if (dto.getCodCollectionMode() == null || dto.getCodCollectionMode().isBlank()) {
             throw new RuntimeException("COD: codCollectionMode (CASH or QR) is required when collecting from sender at hub");
         }
-        recordSenderCodCollection(order, dto.getCodCollectionMode());
-    }
-
-    private void validateAdminOutstationStatusUpdate(
-            OrderEntity order, OrderStatus target, String codCollectionMode, boolean adminOverride) {
-        if (order == null || target == null || order.getServiceMode() != ServiceMode.OUTSTATION) {
-            return;
-        }
-        if (target == OrderStatus.OUT_FOR_DELIVERY
-                && isOutstationDoorDeliveryType(order.getDeliveryType())
-                && order.getDeliveryRiderId() == null) {
-            throw new RuntimeException(
-                    "Assign a delivery rider first — Out for Delivery is set automatically when a delivery rider is assigned");
-        }
-        if (target == OrderStatus.PICKED_UP
-                && OutstationCodPolicy.pickupRiderCollectsCod(order)
-                && order.getPaymentType() == PaymentType.COD
-                && nz(order.getCodCollectedAmount()) <= 0.0
-                && !adminOverride) {
-            if (codCollectionMode == null || codCollectionMode.isBlank()) {
-                throw new RuntimeException(
-                        "COD: select collection mode (CASH or QR) when confirming pickup from sender");
-            }
-            recordSenderCodCollection(order, codCollectionMode);
-        }
-    }
-
-    private void recordSenderCodCollection(OrderEntity order, String codCollectionMode) {
-        CodCollectionMode mode = CodCollectionMode.parseClientValue(codCollectionMode);
+        CodCollectionMode mode = CodCollectionMode.parseClientValue(dto.getCodCollectionMode());
         double collected = round2(nz(order.getTotalAmount()));
         if (collected <= 0) {
             throw new RuntimeException("Invalid order total for COD collection");
