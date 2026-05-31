@@ -2165,14 +2165,10 @@ public class OrderServiceImpl implements OrderService {
             return;
         }
         Long riderId = viewerRiderId != null ? viewerRiderId : order.getRiderId();
-        boolean split = order.getPickupRiderId() != null
-                && order.getDeliveryRiderId() != null
-                && !Objects.equals(order.getPickupRiderId(), order.getDeliveryRiderId());
+        String legType = resolveLegTypeForRider(order, true, riderId);
 
-        if (split && riderId != null && Objects.equals(riderId, order.getDeliveryRiderId())
-                && !Objects.equals(riderId, order.getPickupRiderId())
-                && destinationHub != null) {
-            // Delivery rider: pickup starts from destination hub.
+        if ("DROP".equals(legType) && destinationHub != null) {
+            // Delivery rider: collect parcel at destination hub, deliver to customer drop.
             String hubLine = formatHubAddressLine(destinationHub);
             dto.setPickupAddress(hubLine);
             dto.setPickupTag("HUB");
@@ -2185,6 +2181,7 @@ public class OrderServiceImpl implements OrderService {
 
         boolean pickupOnlyRider = riderId != null
                 && Objects.equals(riderId, order.getPickupRiderId())
+                && order.getDeliveryRiderId() != null
                 && !Objects.equals(order.getPickupRiderId(), order.getDeliveryRiderId());
         if (pickupOnlyRider && originHub != null) {
             // Pickup rider: drop target is origin hub handover.
@@ -2490,6 +2487,67 @@ public class OrderServiceImpl implements OrderService {
                     "ADMIN");
         }
         sendMilestoneUserStatusPush(saved, target);
+        publishAdminStatusToAssignedRiders(saved, target);
+    }
+
+    private void publishAdminStatusToAssignedRiders(OrderEntity saved, OrderStatus target) {
+        if (saved == null) {
+            return;
+        }
+        Set<Long> riderIds = new HashSet<>();
+        if (saved.getPickupRiderId() != null) {
+            riderIds.add(saved.getPickupRiderId());
+        }
+        if (saved.getDeliveryRiderId() != null) {
+            riderIds.add(saved.getDeliveryRiderId());
+        }
+        if (saved.getRiderId() != null) {
+            riderIds.add(saved.getRiderId());
+        }
+        if (riderIds.isEmpty()) {
+            return;
+        }
+
+        ServiceMode mode = saved.getServiceMode();
+        String event = resolveRiderSocketEventForAdminStatus(target);
+        for (Long riderId : riderIds) {
+            try {
+                riderActiveOrderTopicPublisher.publish(
+                        riderId,
+                        saved.getId(),
+                        saved.getStatus(),
+                        event,
+                        "admin_status_update",
+                        null,
+                        mode);
+                if ("status_updated".equals(event)) {
+                    riderActiveOrderTopicPublisher.publishSnapshot(
+                            riderId,
+                            saved.getId(),
+                            saved.getStatus(),
+                            mode);
+                }
+            } catch (Exception ignored) {
+                // Keep admin update successful even if rider socket publish fails.
+            }
+        }
+
+        if (target == OrderStatus.DELIVERED || target == OrderStatus.COLLECTED) {
+            for (Long riderId : riderIds) {
+                markRiderAvailableAfterDelivery(riderId);
+            }
+        }
+    }
+
+    private static String resolveRiderSocketEventForAdminStatus(OrderStatus target) {
+        if (target == null) {
+            return "status_updated";
+        }
+        return switch (target) {
+            case DELIVERED, COLLECTED -> "delivered";
+            case CANCELLED, EXPIRED, FAILED, RETURNED, RETURNED_TO_SENDER -> "released";
+            default -> "status_updated";
+        };
     }
 
     private void transitionStatus(OrderEntity order, OrderStatus toStatus) {
