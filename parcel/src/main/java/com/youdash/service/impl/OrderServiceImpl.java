@@ -28,6 +28,8 @@ import com.youdash.security.RiderAccessVerifier;
 import com.youdash.dto.wallet.OrderCompleteRequestDTO;
 import com.youdash.model.wallet.CodCollectionMode;
 import com.youdash.model.wallet.CodSettlementStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -57,6 +59,8 @@ import java.time.Instant;
 
 @Service
 public class OrderServiceImpl implements OrderService {
+
+    private static final Logger log = LoggerFactory.getLogger(OrderServiceImpl.class);
 
     private static final int ADDRESS_SUGGESTION_DEFAULT_LIMIT = 7;
     private static final int ADDRESS_SUGGESTION_MAX_LIMIT = 7;
@@ -1257,7 +1261,7 @@ public class OrderServiceImpl implements OrderService {
 
         if (alreadyDelivered && financialExists) {
             OrderEntity refreshed = orderRepository.findById(o.getId()).orElse(o);
-            markRiderAvailableAfterDelivery(refreshed.getRiderId());
+            markRiderAvailableAfterDelivery(actingRiderId);
             OrderResponseDTO earlyDto = stripCommercialDetailsForRider(toOrderDto(refreshed, null, null, true, actingRiderId));
             earlyDto.setEarnedAmount(riderWalletService.resolveRiderEarningForOrder(refreshed, actingRiderId));
             response.setData(earlyDto);
@@ -1334,7 +1338,13 @@ public class OrderServiceImpl implements OrderService {
                     actingRiderId,
                     "RIDER");
         } catch (RuntimeException ex) {
-            // Keep DELIVERED even if wallet settlement fails (e.g. split-leg race); ops can retry settlement.
+            // Settlement runs in REQUIRES_NEW; DELIVERED must persist even when wallet credit fails.
+            log.warn(
+                    "ORDER_SETTLE_FAILED orderId={} riderId={}: {}",
+                    saved.getId(),
+                    actingRiderId,
+                    ex.getMessage(),
+                    ex);
         }
 
         UserOrderEventDTO deliveredEvt = new UserOrderEventDTO();

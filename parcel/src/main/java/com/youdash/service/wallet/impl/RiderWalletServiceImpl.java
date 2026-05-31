@@ -138,7 +138,21 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             return false;
         }
         int need = expectedSettlementLegCount(order);
-        return orderRiderFinancialRepository.countByOrderId(order.getId()) >= need;
+        long finCount = orderRiderFinancialRepository.countByOrderId(order.getId());
+        if (finCount < need) {
+            return false;
+        }
+        // Split / delivery-leg outstation: delivery rider must have a wallet credit txn.
+        if (OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(order)) {
+            Long deliveryId = order.getDeliveryRiderId();
+            return deliveryId != null && hasCompletedWalletCreditForOrder(deliveryId, order.getId());
+        }
+        if (order.getServiceMode() == ServiceMode.OUTSTATION
+                && OutstationCodPolicy.isDeliveryLegOnlyOrder(order)
+                && order.getDeliveryRiderId() != null) {
+            return hasCompletedWalletCreditForOrder(order.getDeliveryRiderId(), order.getId());
+        }
+        return finCount >= need;
     }
 
     private int expectedSettlementLegCount(OrderEntity orderEntity) {
@@ -557,7 +571,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class, propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     public void settleOrderDelivered(OrderEntity order, CodCollectionMode codMode, Double codCollectedAmount,
             Long actorUserId, String actorType) {
         if (order == null || order.getId() == null) {
@@ -987,6 +1001,16 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         }
 
         // Delivery rider always receives last-mile earning on complete — independent of pickup hub settlement.
+        if (earnDrop <= 0.0001) {
+            log.warn(
+                    "DELIVERY_LEG_ZERO_EARNING orderId={} deliveryRider={} oaDrop={} pickupCost={} hubCost={} dropCost={}",
+                    order.getId(),
+                    deliveryId,
+                    oaDrop,
+                    order.getOutstationPickupCost(),
+                    order.getOutstationHubCost(),
+                    order.getOutstationDropCost());
+        }
         creditOnlineEarningToWallet(order, deliveryId, earnDrop, oaDrop, commissionPercent, commDrop, baseDrop, peakDrop);
 
         log.info(
