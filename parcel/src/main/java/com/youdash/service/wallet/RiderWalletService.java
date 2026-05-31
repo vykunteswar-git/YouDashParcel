@@ -37,6 +37,11 @@ public interface RiderWalletService {
         void ensureDeliverySettlementIfNeeded(OrderEntity order);
 
         /**
+         * Scans recent DELIVERED outstation orders and credits any missing delivery-leg wallet rows.
+         */
+        void repairPendingDeliveryWalletCredits(Long riderId);
+
+        /**
          * True when this rider already has a completed ORDER wallet credit for the
          * given order.
          */
