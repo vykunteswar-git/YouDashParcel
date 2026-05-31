@@ -44,7 +44,8 @@ public interface OrderService {
             Long pickupRiderId,
             Long deliveryRiderId);
 
-    ApiResponse<OrderResponseDTO> adminUpdateStatus(Long orderId, OrderStatus status, String otp, boolean adminOverride);
+    ApiResponse<OrderResponseDTO> adminUpdateStatus(
+            Long orderId, OrderStatus status, String otp, boolean adminOverride, String codCollectionMode);
 
     ApiResponse<OrderResponseDTO> completeOrderForRider(Long tokenUserId, String tokenType, OrderCompleteRequestDTO dto);
 

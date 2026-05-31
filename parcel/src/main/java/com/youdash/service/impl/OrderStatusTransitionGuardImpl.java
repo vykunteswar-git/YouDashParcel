@@ -59,7 +59,7 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             Map.entry(OrderStatus.PICKED_UP, Set.of(OrderStatus.AT_ORIGIN_HUB, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.AT_ORIGIN_HUB, Set.of(OrderStatus.IN_TRANSIT, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.IN_TRANSIT, Set.of(OrderStatus.AT_DESTINATION_HUB, OrderStatus.FAILED_DELIVERY)),
-            Map.entry(OrderStatus.AT_DESTINATION_HUB, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.FAILED_DELIVERY)),
+            Map.entry(OrderStatus.AT_DESTINATION_HUB, Set.of(OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.OUT_FOR_DELIVERY, Set.of(OrderStatus.DELIVERED, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RETURNED)));
 
@@ -77,7 +77,7 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             Map.entry(OrderStatus.BOOKED, Set.of(OrderStatus.CANCELLED)),
             Map.entry(OrderStatus.AT_ORIGIN_HUB, Set.of(OrderStatus.IN_TRANSIT, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.IN_TRANSIT, Set.of(OrderStatus.AT_DESTINATION_HUB, OrderStatus.FAILED_DELIVERY)),
-            Map.entry(OrderStatus.AT_DESTINATION_HUB, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.FAILED_DELIVERY)),
+            Map.entry(OrderStatus.AT_DESTINATION_HUB, Set.of(OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.OUT_FOR_DELIVERY, Set.of(OrderStatus.DELIVERED, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RETURNED)));
 
