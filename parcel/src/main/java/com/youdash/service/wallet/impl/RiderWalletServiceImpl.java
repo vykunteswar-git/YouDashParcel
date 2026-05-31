@@ -16,9 +16,11 @@ import java.time.temporal.TemporalAdjusters;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -127,6 +129,10 @@ public class RiderWalletServiceImpl implements RiderWalletService {
     @Autowired
     private PeakIncentiveService peakIncentiveService;
 
+    @Autowired
+    @Lazy
+    private RiderWalletService self;
+
     @PostConstruct
     void initDefaults() {
         ensureDefaultCommissionConfig();
@@ -183,11 +189,20 @@ public class RiderWalletServiceImpl implements RiderWalletService {
     }
 
     @Override
-    @Transactional
     public ApiResponse<RiderWalletSummaryDTO> getWalletSummary(Long riderId) {
+        try {
+            self.repairPendingDeliveryWalletCredits(riderId);
+        } catch (Exception ex) {
+            log.warn("DELIVERY_WALLET_REPAIR_SKIPPED riderId={}: {}", riderId, ex.getMessage());
+        }
+        return self.readWalletSummary(riderId);
+    }
+
+    @Override
+    @Transactional
+    public ApiResponse<RiderWalletSummaryDTO> readWalletSummary(Long riderId) {
         ApiResponse<RiderWalletSummaryDTO> response = new ApiResponse<>();
         try {
-            repairPendingDeliveryWalletCredits(riderId);
             RiderWalletEntity w = getOrCreateWallet(riderId);
             RiderWalletSummaryDTO dto = new RiderWalletSummaryDTO();
             dto.setCurrentBalance(round2(w.getCurrentBalance()));
@@ -699,23 +714,27 @@ public class RiderWalletServiceImpl implements RiderWalletService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     public void repairPendingDeliveryWalletCredits(Long riderId) {
         if (riderId == null) {
             return;
         }
-        List<OrderEntity> orders = orderRepository.findDeliveredOutstationOrdersForRider(
-                riderId, PageRequest.of(0, 100));
-        for (OrderEntity order : orders) {
-            try {
-                creditOutstationDeliveryLegIfNeeded(order, riderId, "REPAIR");
-            } catch (RuntimeException ex) {
-                log.warn(
-                        "DELIVERY_WALLET_REPAIR_FAILED orderId={} riderId={}: {}",
-                        order.getId(),
-                        riderId,
-                        ex.getMessage());
+        try {
+            List<OrderEntity> orders = orderRepository.findDeliveredOutstationOrdersForRider(
+                    riderId, PageRequest.of(0, 100));
+            for (OrderEntity order : orders) {
+                try {
+                    creditOutstationDeliveryLegIfNeeded(order, riderId, "REPAIR");
+                } catch (RuntimeException ex) {
+                    log.warn(
+                            "DELIVERY_WALLET_REPAIR_FAILED orderId={} riderId={}: {}",
+                            order.getId(),
+                            riderId,
+                            ex.getMessage());
+                }
             }
+        } catch (Exception ex) {
+            log.warn("DELIVERY_WALLET_REPAIR_ABORTED riderId={}: {}", riderId, ex.getMessage(), ex);
         }
     }
 

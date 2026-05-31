@@ -9,6 +9,9 @@ public interface RiderWalletService {
 
         ApiResponse<RiderWalletSummaryDTO> getWalletSummary(Long riderId);
 
+        /** Transactional wallet read/build; invoked via Spring proxy from {@link #getWalletSummary}. */
+        ApiResponse<RiderWalletSummaryDTO> readWalletSummary(Long riderId);
+
         ApiResponse<java.util.List<RiderWalletTransactionDTO>> listTransactions(Long riderId, int page, int size);
 
         ApiResponse<java.util.List<RiderWithdrawalDTO>> listWithdrawals(Long riderId, int page, int size);
