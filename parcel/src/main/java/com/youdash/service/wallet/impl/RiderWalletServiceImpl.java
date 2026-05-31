@@ -186,6 +186,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
     public ApiResponse<RiderWalletSummaryDTO> getWalletSummary(Long riderId) {
         ApiResponse<RiderWalletSummaryDTO> response = new ApiResponse<>();
         try {
+            repairPendingDeliveryWalletCredits(riderId);
             RiderWalletEntity w = getOrCreateWallet(riderId);
             RiderWalletSummaryDTO dto = new RiderWalletSummaryDTO();
             dto.setCurrentBalance(round2(w.getCurrentBalance()));
@@ -602,10 +603,11 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         double orderAmount = nz(order.getTotalAmount());
         PaymentType payType = order.getPaymentType();
 
-        if (payType == PaymentType.COD && codMode == null) {
-            throw new RuntimeException("codCollectionMode is required for COD orders");
+        CodCollectionMode effectiveCodMode = codMode;
+        if (payType == PaymentType.COD && effectiveCodMode == null) {
+            effectiveCodMode = resolveSettlementCodMode(order);
         }
-        double commissionPercent = resolveCommissionPercent(cfg, payType, codMode);
+        double commissionPercent = resolveCommissionPercent(cfg, payType, effectiveCodMode);
         double commissionAmount = round2(orderAmount * (commissionPercent / 100.0));
         double baseRiderEarning = round2(orderAmount - commissionAmount);
         double peakBonusTotal = peakIncentiveService.resolveBonusForDeliveredOrder(order, Instant.now());
@@ -619,7 +621,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             settleSplitOutstationOrderDelivered(
                     order,
                     payType,
-                    codMode,
+                    effectiveCodMode,
                     orderAmount,
                     commissionPercent,
                     commissionAmount,
@@ -627,7 +629,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                     peakBonusTotal,
                     actorUserId,
                     actorType);
-            ensureSplitDeliveryLegWalletCredited(order, payType, codMode, actorUserId, actorType);
+            ensureSplitDeliveryLegWalletCredited(order, payType, effectiveCodMode, actorUserId, actorType);
             return;
         }
 
@@ -637,7 +639,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 settleSingleRiderOrderDelivered(
                         order,
                         payType,
-                        codMode,
+                        effectiveCodMode,
                         deliveryLeg.legAmount(),
                         commissionPercent,
                         deliveryLeg.commissionAmount(),
@@ -651,7 +653,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             settleSingleRiderOrderDelivered(
                     order,
                     payType,
-                    codMode,
+                    effectiveCodMode,
                     orderAmount,
                     commissionPercent,
                     commissionAmount,
@@ -666,7 +668,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         settleSplitOutstationOrderDelivered(
                 order,
                 payType,
-                codMode,
+                effectiveCodMode,
                 orderAmount,
                 commissionPercent,
                 commissionAmount,
@@ -675,7 +677,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 actorUserId,
                 actorType);
 
-        ensureSplitDeliveryLegWalletCredited(order, payType, codMode, actorUserId, actorType);
+        ensureSplitDeliveryLegWalletCredited(order, payType, effectiveCodMode, actorUserId, actorType);
     }
 
     @Override
@@ -685,17 +687,35 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             return;
         }
         Long deliveryId = OutstationCodPolicy.resolveDeliveryRiderId(order);
-        if (deliveryId != null && hasCompletedWalletCreditForOrder(deliveryId, order.getId())) {
+        if (deliveryId == null) {
             return;
         }
-        CodCollectionMode codMode = order.getPaymentType() == PaymentType.COD ? order.getCodCollectionMode() : null;
+        if (hasCompletedWalletCreditForOrder(deliveryId, order.getId())) {
+            return;
+        }
         log.info("DELIVERY_SETTLE_ENSURE orderId={} deliveryRider={}", order.getId(), deliveryId);
-        settleOrderDelivered(
-                order,
-                codMode,
-                order.getCodCollectedAmount(),
-                deliveryId,
-                "ENSURE");
+        creditOutstationDeliveryLegIfNeeded(order, deliveryId, "ENSURE");
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void repairPendingDeliveryWalletCredits(Long riderId) {
+        if (riderId == null) {
+            return;
+        }
+        List<OrderEntity> orders = orderRepository.findDeliveredOutstationOrdersForRider(
+                riderId, PageRequest.of(0, 100));
+        for (OrderEntity order : orders) {
+            try {
+                creditOutstationDeliveryLegIfNeeded(order, riderId, "REPAIR");
+            } catch (RuntimeException ex) {
+                log.warn(
+                        "DELIVERY_WALLET_REPAIR_FAILED orderId={} riderId={}: {}",
+                        order.getId(),
+                        riderId,
+                        ex.getMessage());
+            }
+        }
     }
 
     @Override
@@ -1068,7 +1088,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
     }
 
     /**
-     * Safety net: after split D2D settlement, guarantee delivery rider wallet credit exists.
+     * Safety net: guarantee outstation delivery-rider wallet credit after settlement.
      */
     private void ensureSplitDeliveryLegWalletCredited(
             OrderEntity order,
@@ -1076,20 +1096,36 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             CodCollectionMode codMode,
             Long actorUserId,
             String actorType) {
+        Long deliveryId = OutstationCodPolicy.resolveDeliveryRiderId(order);
+        Long actor = actorUserId != null ? actorUserId : deliveryId;
+        creditOutstationDeliveryLegIfNeeded(order, actor, actorType);
+    }
+
+    /**
+     * Direct delivery-leg wallet credit — bypasses {@link #settleOrderDelivered} early returns and COD mode throws.
+     */
+    private void creditOutstationDeliveryLegIfNeeded(OrderEntity order, Long actorUserId, String actorType) {
         if (order == null || order.getId() == null || order.getStatus() != OrderStatus.DELIVERED) {
             return;
         }
-        if (!OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(order)) {
+        if (order.getServiceMode() != ServiceMode.OUTSTATION) {
             return;
         }
         Long deliveryId = OutstationCodPolicy.resolveDeliveryRiderId(order);
-        if (deliveryId == null || hasCompletedWalletCreditForOrder(deliveryId, order.getId())) {
+        if (deliveryId == null) {
+            return;
+        }
+        if (!OutstationCodPolicy.needsDeliveryWalletCredit(order, deliveryId, this::hasCompletedWalletCreditForOrder)) {
             return;
         }
         log.warn(
-                "DELIVERY_WALLET_REPAIR orderId={} deliveryRider={} — forcing delivery leg credit",
+                "DELIVERY_WALLET_CREDIT orderId={} deliveryRider={} actor={}",
                 order.getId(),
-                deliveryId);
+                deliveryId,
+                actorType);
+
+        PaymentType payType = order.getPaymentType();
+        CodCollectionMode codMode = resolveSettlementCodMode(order);
         ensureDefaultCommissionConfig();
         RiderCommissionConfigEntity cfg = riderCommissionConfigRepository.findById(COMMISSION_CONFIG_ID).orElseThrow();
         double commissionPercent = resolveCommissionPercent(cfg, payType, codMode);
@@ -1112,25 +1148,66 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             try {
                 orderRiderFinancialRepository.saveAndFlush(finD);
             } catch (DataIntegrityViolationException ex) {
-                log.info("DELIVERY_WALLET_REPAIR fin row exists orderId={} deliveryRider={}", order.getId(), deliveryId);
+                log.info("DELIVERY_CREDIT fin row exists orderId={} deliveryRider={}", order.getId(), deliveryId);
             }
         }
 
-        creditOnlineEarningToWallet(
-                order,
-                deliveryId,
-                earnDrop,
-                oaDrop,
-                commissionPercent,
-                deliveryLeg.commissionAmount(),
-                deliveryLeg.baseEarning(),
-                deliveryLeg.peakBonus());
-        if (earnDrop > 0.0001) {
+        if (earnDrop <= 0.0001) {
+            log.warn(
+                    "DELIVERY_LEG_ZERO_EARNING orderId={} deliveryRider={} oaDrop={} pickupCost={} hubCost={} dropCost={}",
+                    order.getId(),
+                    deliveryId,
+                    oaDrop,
+                    order.getOutstationPickupCost(),
+                    order.getOutstationHubCost(),
+                    order.getOutstationDropCost());
+            return;
+        }
+
+        if (payType == PaymentType.COD
+                && OutstationCodPolicy.riderHoldsCodCash(order, deliveryId)
+                && !OutstationCodPolicy.riderEarnsWalletCreditWithoutCodCash(order, deliveryId)) {
+            double collected = round2(nz(order.getCodCollectedAmount()));
+            if (collected <= 0) {
+                collected = round2(nz(order.getTotalAmount()));
+            }
+            recordCodCashCommissionPending(
+                    order,
+                    deliveryId,
+                    earnDrop,
+                    oaDrop,
+                    commissionPercent,
+                    deliveryLeg.commissionAmount(),
+                    deliveryLeg.baseEarning(),
+                    deliveryLeg.peakBonus(),
+                    codMode,
+                    collected);
+        } else {
+            creditOnlineEarningToWallet(
+                    order,
+                    deliveryId,
+                    earnDrop,
+                    oaDrop,
+                    commissionPercent,
+                    deliveryLeg.commissionAmount(),
+                    deliveryLeg.baseEarning(),
+                    deliveryLeg.peakBonus());
             sendRiderEarningCreditedNotification(order.getId(), deliveryId, earnDrop, payType);
         }
+
         audit("ORDER_SETTLE_DELIVERY_REPAIR", actorType, actorUserId, "ORDER", order.getId(), Map.of(
                 "deliveryRiderId", deliveryId,
                 "deliveryEarning", earnDrop));
+    }
+
+    private CodCollectionMode resolveSettlementCodMode(OrderEntity order) {
+        if (order == null || order.getPaymentType() != PaymentType.COD) {
+            return null;
+        }
+        if (order.getCodCollectionMode() != null) {
+            return order.getCodCollectionMode();
+        }
+        return CodCollectionMode.CASH;
     }
 
     private record LegEarning(
@@ -1170,6 +1247,14 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             return true;
         }
         Long deliveryId = OutstationCodPolicy.resolveDeliveryRiderId(order);
+        if (order.getServiceMode() == ServiceMode.OUTSTATION && deliveryId != null) {
+            if (OutstationCodPolicy.needsDeliveryWalletCredit(order, deliveryId, this::hasCompletedWalletCreditForOrder)) {
+                return false;
+            }
+            if (OutstationCodPolicy.isOutstationLastMileRider(order, deliveryId)) {
+                return hasCompletedWalletCreditForOrder(deliveryId, order.getId());
+            }
+        }
         if (OutstationCodPolicy.hasSplitPickupAndDeliveryRiders(order) || expectedLegs >= 2) {
             if (deliveryId == null) {
                 return false;

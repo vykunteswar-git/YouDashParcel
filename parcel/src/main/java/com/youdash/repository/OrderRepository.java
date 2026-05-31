@@ -16,6 +16,17 @@ import java.util.Optional;
 
 public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
 
+    @Query("""
+            SELECT o FROM OrderEntity o
+            WHERE o.status = com.youdash.model.OrderStatus.DELIVERED
+              AND o.serviceMode = com.youdash.model.ServiceMode.OUTSTATION
+              AND (o.deliveryRiderId = :riderId OR o.riderId = :riderId)
+            ORDER BY o.createdAt DESC
+            """)
+    List<OrderEntity> findDeliveredOutstationOrdersForRider(
+            @Param("riderId") Long riderId,
+            Pageable pageable);
+
     List<OrderEntity> findByUserIdOrderByCreatedAtDesc(Long userId);
 
     /** User history feed excluding transiently expired search attempts. */
