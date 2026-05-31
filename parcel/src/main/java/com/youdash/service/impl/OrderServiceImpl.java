@@ -2179,12 +2179,9 @@ public class OrderServiceImpl implements OrderService {
             dto.setDistanceKm(order.getDropDistanceKm());
         }
 
-        boolean pickupOnlyRider = riderId != null
-                && Objects.equals(riderId, order.getPickupRiderId())
-                && order.getDeliveryRiderId() != null
-                && !Objects.equals(order.getPickupRiderId(), order.getDeliveryRiderId());
-        if (pickupOnlyRider && originHub != null) {
-            // Pickup rider: drop target is origin hub handover.
+        boolean pickupLegRider = "PICKUP".equals(legType);
+        if (pickupLegRider && originHub != null) {
+            // Pickup rider: handover at origin hub (not customer destination city).
             String hubLine = formatHubAddressLine(originHub);
             dto.setDropAddress(hubLine);
             dto.setDropTag("HUB");
