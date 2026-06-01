@@ -5,10 +5,10 @@ import com.youdash.entity.OrderEntity;
 /**
  * Outstation leg amounts shown to riders and used for commission (pickup / hub
  * / last mile).
- * Prefers persisted quote line items from checkout, scaled by payable vs
- * pre-coupon total; falls back to
- * splitting {@link OrderEntity#getTotalAmount()} by leg distances when quote
- * legs are absent (legacy rows).
+ * Prefers persisted quote line items from checkout; coupon discounts are
+ * deducted from the hub-to-hub leg only. Falls back to splitting
+ * {@link OrderEntity#getTotalAmount()} by leg distances when quote legs are
+ * absent (legacy rows).
  */
 public record OutstationPayableLegSplit(double pickupAmount, double hubToHubAmount, double lastMileAmount) {
 
@@ -17,19 +17,13 @@ public record OutstationPayableLegSplit(double pickupAmount, double hubToHubAmou
             return new OutstationPayableLegSplit(0.0, 0.0, 0.0);
         }
         double payable = Math.max(0.0, nz(order.getTotalAmount()));
-        double sf = payableScaleFactor(order);
         if (hasPersistedQuoteLegs(order)) {
-            double p = round2(nz(order.getOutstationPickupCost()) * sf);
-            double h = round2(nz(order.getOutstationHubCost()) * sf);
-            double d = round2(nz(order.getOutstationDropCost()) * sf);
-            return new OutstationPayableLegSplit(p, h, d);
+            return fromQuoteLegCosts(order);
         }
         if (order.getOutstationDropCost() != null || order.getOutstationPickupCost() != null) {
-            double p = round2(nz(order.getOutstationPickupCost()) * sf);
-            double h = round2(nz(order.getOutstationHubCost()) * sf);
-            double d = round2(nz(order.getOutstationDropCost()) * sf);
-            if (p + h + d > 0.0) {
-                return new OutstationPayableLegSplit(p, h, d);
+            OutstationPayableLegSplit split = fromQuoteLegCosts(order);
+            if (split.pickupAmount() + split.hubToHubAmount() + split.lastMileAmount() > 0.0) {
+                return split;
             }
         }
         return distanceSplitFallback(order, payable);
@@ -42,19 +36,20 @@ public record OutstationPayableLegSplit(double pickupAmount, double hubToHubAmou
     }
 
     /**
-     * Ratio of final payable to pre-coupon quote total (subtotal + GST + platform),
-     * so leg lines shrink
-     * proportionally when a coupon applies.
+     * Quote pickup/drop legs stay at checkout freight; coupon is taken only from hub leg.
      */
-    static double payableScaleFactor(OrderEntity order) {
-        double pre = round2(nz(order.getSubtotal()) + nz(order.getGstAmount()) + nz(order.getPlatformFee()));
-        if (pre <= 0.0) {
-            return 1.0;
-        }
-        return round2(Math.max(0.0, nz(order.getTotalAmount())) / pre);
+    private static OutstationPayableLegSplit fromQuoteLegCosts(OrderEntity order) {
+        double coupon = round2(Math.max(0.0, nz(order.getCouponAmount())));
+        double pickup = round2(nz(order.getOutstationPickupCost()));
+        double hub = round2(Math.max(0.0, nz(order.getOutstationHubCost()) - coupon));
+        double drop = round2(nz(order.getOutstationDropCost()));
+        return new OutstationPayableLegSplit(pickup, hub, drop);
     }
 
     private static OutstationPayableLegSplit distanceSplitFallback(OrderEntity order, double orderAmount) {
+        double coupon = round2(Math.max(0.0, nz(order.getCouponAmount())));
+        double preCouponTotal = round2(orderAmount + coupon);
+
         double pickupKm = Math.max(0.0, nz(order.getPickupDistanceKm()));
         double hubKm = Math.max(0.0, nz(order.getHubDistanceKm()));
         double dropKm = Math.max(0.0, nz(order.getDropDistanceKm()));
@@ -68,24 +63,35 @@ public record OutstationPayableLegSplit(double pickupAmount, double hubToHubAmou
             }
             if (OutstationCodPolicy.isDoorToDoor(order)) {
                 double drop = order.getOutstationDropCost() != null
-                        ? round2(nz(order.getOutstationDropCost()) * payableScaleFactor(order))
+                        ? round2(nz(order.getOutstationDropCost()))
                         : round2(orderAmount * 0.5);
                 drop = round2(Math.min(orderAmount, Math.max(0.0, drop)));
-                return new OutstationPayableLegSplit(round2(Math.max(0.0, orderAmount - drop)), 0.0, drop);
+                double hub = round2(Math.max(0.0,
+                        nz(order.getOutstationHubCost()) - coupon));
+                double pickup = round2(Math.max(0.0, orderAmount - drop - hub));
+                return new OutstationPayableLegSplit(pickup, hub, drop);
             }
             return new OutstationPayableLegSplit(round2(orderAmount), 0.0, 0.0);
         }
-        double pickupAmount = round2(orderAmount * (pickupKm / den));
-        double hubAmount = round2(orderAmount * (hubKm / den));
-        double dropAmount = round2(orderAmount - pickupAmount - hubAmount);
+
+        double hubAmount = round2(Math.max(0.0, preCouponTotal * (hubKm / den) - coupon));
+        double pickupAmount;
+        double dropAmount;
+
         // Rider pool excludes inter-hub transport; pickup + delivery share pickup + drop km only.
         if (OutstationCodPolicy.isDoorToDoor(order) || OutstationCodPolicy.isHubToDoor(order)) {
             double riderKm = pickupKm + dropKm;
             if (riderKm > 0.0) {
-                double riderPool = round2(orderAmount - hubAmount);
+                double riderPool = round2(Math.max(0.0, orderAmount - hubAmount));
                 pickupAmount = round2(riderPool * (pickupKm / riderKm));
                 dropAmount = round2(riderPool - pickupAmount);
+            } else {
+                pickupAmount = round2(preCouponTotal * (pickupKm / den));
+                dropAmount = round2(orderAmount - pickupAmount - hubAmount);
             }
+        } else {
+            pickupAmount = round2(preCouponTotal * (pickupKm / den));
+            dropAmount = round2(orderAmount - pickupAmount - hubAmount);
         }
         return new OutstationPayableLegSplit(pickupAmount, hubAmount, dropAmount);
     }
