@@ -92,6 +92,11 @@ public class OrderResponseDTO {
     /** Populated when {@code riderId} is set (rider profile name / phone). */
     private String riderName;
     private String riderPhone;
+    /** Admin/customer display helpers for split outstation rider assignments. */
+    private String pickupRiderName;
+    private String pickupRiderPhone;
+    private String deliveryRiderName;
+    private String deliveryRiderPhone;
     /**
      * Customer: visible from post-accept job states until verified. Rider APIs: only in {@code IN_TRANSIT}.
      * Cleared after OTP verification.

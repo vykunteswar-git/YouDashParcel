@@ -607,10 +607,7 @@ public class OrderServiceImpl implements OrderService {
             List<OrderEntity> orders = admin
                     ? orderRepository.findByUserIdOrderByCreatedAtDesc(userId)
                     : orderRepository.findByUserIdAndStatusNotOrderByCreatedAtDesc(userId, OrderStatus.EXPIRED);
-            Set<Long> riderIds = orders.stream()
-                    .map(OrderEntity::getRiderId)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toSet());
+            Set<Long> riderIds = collectOrderRiderIds(orders);
             Map<Long, RiderEntity> riderMap = riderIds.isEmpty()
                     ? Map.of()
                     : riderRepository.findAllById(riderIds).stream()
@@ -889,10 +886,7 @@ public class OrderServiceImpl implements OrderService {
         ApiResponse<List<OrderResponseDTO>> response = new ApiResponse<>();
         try {
             List<OrderEntity> allOrders = orderRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
-            Set<Long> allRiderIds = allOrders.stream()
-                    .map(OrderEntity::getRiderId)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toSet());
+            Set<Long> allRiderIds = collectOrderRiderIds(allOrders);
             Map<Long, RiderEntity> riderMap = allRiderIds.isEmpty()
                     ? Map.of()
                     : riderRepository.findAllById(allRiderIds).stream()
@@ -1947,6 +1941,16 @@ public class OrderServiceImpl implements OrderService {
                 .collect(Collectors.toMap(VehicleEntity::getId, Function.identity()));
     }
 
+    private static Set<Long> collectOrderRiderIds(List<OrderEntity> orders) {
+        if (orders == null || orders.isEmpty()) {
+            return Set.of();
+        }
+        return orders.stream()
+                .flatMap(o -> java.util.stream.Stream.of(o.getRiderId(), o.getPickupRiderId(), o.getDeliveryRiderId()))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
+
     /**
      * Rider's catalog vehicle when assigned; otherwise the order's booked vehicle
      * (INCITY).
@@ -2001,6 +2005,8 @@ public class OrderServiceImpl implements OrderService {
         RiderEntity rider = resolveRiderForOrderDto(resolveDisplayRiderId(o, riderOrderApi), riderBatch);
         String riderName = rider != null ? rider.getName() : null;
         String riderPhone = rider != null ? rider.getPhone() : null;
+        RiderEntity pickupRider = resolveRiderForOrderDto(o.getPickupRiderId(), riderBatch);
+        RiderEntity deliveryRider = resolveRiderForOrderDto(o.getDeliveryRiderId(), riderBatch);
         String deliveryOtp = resolveDeliveryOtpForResponse(o, riderOrderApi);
         String pickupOtp = resolvePickupOtpForResponse(o, riderOrderApi);
         String hubCollectionOtp = resolveHubCollectionOtpForResponse(o, riderOrderApi);
@@ -2085,6 +2091,10 @@ public class OrderServiceImpl implements OrderService {
                 .deliveryRiderId(o.getDeliveryRiderId())
                 .riderName(riderName)
                 .riderPhone(riderPhone)
+                .pickupRiderName(pickupRider != null ? pickupRider.getName() : null)
+                .pickupRiderPhone(pickupRider != null ? pickupRider.getPhone() : null)
+                .deliveryRiderName(deliveryRider != null ? deliveryRider.getName() : null)
+                .deliveryRiderPhone(deliveryRider != null ? deliveryRider.getPhone() : null)
                 .deliveryOtp(deliveryOtp)
                 .pickupOtp(pickupOtp)
                 .hubCollectionOtp(hubCollectionOtp)
