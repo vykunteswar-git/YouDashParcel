@@ -15,7 +15,13 @@ public class UserActiveOrderTopicPublisher {
     private static final Set<String> OUTSTATION_ONLY_STATUSES = Set.of(
             "AT_ORIGIN_HUB",
             "AT_DESTINATION_HUB",
-            "AWAITING_HUB_COLLECTION");
+            "AWAITING_HUB_COLLECTION",
+            "PICKUP_ASSIGNED",
+            "RIDER_ASSIGNED",
+            "OUT_FOR_DELIVERY",
+            "PICKED_UP",
+            "IN_TRANSIT",
+            "BOOKED");
 
     private static final Set<String> INCITY_STATUSES = Set.of(
             "SEARCHING_RIDER",

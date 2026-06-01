@@ -28,6 +28,7 @@ public class UserActiveOrderSubscriptionListener {
             OrderStatus.RIDER_ACCEPTED,
             OrderStatus.PAYMENT_PENDING,
             OrderStatus.RIDER_ASSIGNED,
+            OrderStatus.PICKUP_ASSIGNED,
             OrderStatus.PICKED_UP,
             OrderStatus.AT_ORIGIN_HUB,
             OrderStatus.IN_TRANSIT,
