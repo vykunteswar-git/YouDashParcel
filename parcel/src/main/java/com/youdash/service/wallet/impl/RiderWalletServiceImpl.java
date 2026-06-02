@@ -90,6 +90,19 @@ public class RiderWalletServiceImpl implements RiderWalletService {
 
     private static final double COD_HANDOVER_WARNING_RATIO = 0.8;
 
+    // Statuses where a COD order is in-flight (rider accepted, cash not yet collected/settled).
+    private static final List<OrderStatus> COD_INFLIGHT_STATUSES = List.of(
+            OrderStatus.RIDER_ACCEPTED,
+            OrderStatus.PAYMENT_PENDING,
+            OrderStatus.RIDER_ASSIGNED,
+            OrderStatus.PICKUP_ASSIGNED,
+            OrderStatus.PICKED_UP,
+            OrderStatus.AT_ORIGIN_HUB,
+            OrderStatus.IN_TRANSIT,
+            OrderStatus.AT_DESTINATION_HUB,
+            OrderStatus.OUT_FOR_DELIVERY,
+            OrderStatus.AWAITING_HUB_COLLECTION);
+
     @Autowired
     private RiderWalletRepository riderWalletRepository;
 
@@ -1876,9 +1889,16 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (riderId == null) {
             return false;
         }
+        double limit = resolveHandoverLimit(riderId);
         RiderWalletEntity w = riderWalletRepository.findByRiderId(riderId).orElse(null);
         double pending = w != null ? round2(nz(w.getCodPendingAmount())) : 0.0;
-        return isDispatchBlocked(pending, resolveHandoverLimit(riderId));
+        if (isDispatchBlocked(pending, limit)) {
+            return true;
+        }
+        // Also block if total inflight COD order amounts already meet or exceed the limit,
+        // preventing the rider from accumulating more cash than the ceiling allows.
+        double inflightCod = round2(orderRepository.sumInflightCodAmountForRider(riderId, COD_INFLIGHT_STATUSES));
+        return isDispatchBlocked(inflightCod, limit);
     }
 
     @Override

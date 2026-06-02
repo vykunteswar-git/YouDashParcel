@@ -76,6 +76,16 @@ public class RiderServiceImpl implements RiderService {
             OrderStatus.OUT_FOR_DELIVERY,
             OrderStatus.AWAITING_HUB_COLLECTION);
 
+    // Statuses where a split-leg outstation pickup rider's leg is complete — they are no longer "busy".
+    private static final List<OrderStatus> PICKUP_RIDER_DONE_STATUSES = List.of(
+            OrderStatus.AT_ORIGIN_HUB,
+            OrderStatus.IN_TRANSIT,
+            OrderStatus.AT_DESTINATION_HUB,
+            OrderStatus.OUT_FOR_DELIVERY,
+            OrderStatus.AWAITING_HUB_COLLECTION,
+            OrderStatus.DELIVERED,
+            OrderStatus.COLLECTED);
+
     @Autowired
     private ZoneRepository zoneRepository;
 
@@ -656,7 +666,7 @@ public class RiderServiceImpl implements RiderService {
             List<RiderResponseDTO> dtos = riderRepository.findByIsAvailableTrue().stream()
                     .filter(this::isApprovedOrLegacy)
                     .filter(r -> !riderWalletService.isRiderDispatchBlocked(r.getId()))
-                    .filter(r -> !orderRepository.existsByAnyRiderFieldAndStatusIn(r.getId(), ACTIVE_ASSIGNMENT_STATUSES))
+                    .filter(r -> !orderRepository.existsByRiderActiveRoleAndStatusIn(r.getId(), ACTIVE_ASSIGNMENT_STATUSES, PICKUP_RIDER_DONE_STATUSES))
                     .map(this::mapToResponseDTO)
                     .collect(Collectors.toList());
             response.setData(dtos);
@@ -694,7 +704,7 @@ public class RiderServiceImpl implements RiderService {
                     .map(r -> {
                         RiderResponseDTO dto = mapToResponseDTO(r);
                         boolean blocked = riderWalletService.isRiderDispatchBlocked(r.getId());
-                        boolean busy = orderRepository.existsByAnyRiderFieldAndStatusIn(r.getId(), ACTIVE_ASSIGNMENT_STATUSES);
+                        boolean busy = orderRepository.existsByRiderActiveRoleAndStatusIn(r.getId(), ACTIVE_ASSIGNMENT_STATUSES, PICKUP_RIDER_DONE_STATUSES);
                         dto.setDispatchBlocked(blocked);
                         dto.setHasActiveOrder(busy);
                         return dto;
@@ -899,6 +909,9 @@ public class RiderServiceImpl implements RiderService {
         dto.setVehicleNumber(rider.getVehicleNumber());
         dto.setIsAvailable(rider.getIsAvailable());
         dto.setIsBlocked(rider.getIsBlocked());
+        String riderStatus = computeRiderStatus(rider);
+        dto.setRiderStatus(riderStatus);
+        dto.setHasActiveOrder("ORDER_ASSIGNED".equals(riderStatus));
         dto.setRating(rider.getRating());
         dto.setApprovalStatus(rider.getApprovalStatus());
         dto.setEmergencyPhone(rider.getEmergencyPhone());
@@ -914,6 +927,8 @@ public class RiderServiceImpl implements RiderService {
 
     /**
      * BLOCKED → ORDER_ASSIGNED (active trip) → ONLINE → OFFLINE.
+     * Uses the split-leg-aware query so outstation pickup riders are correctly
+     * released after hub drop-off.
      */
     private String computeRiderStatus(RiderEntity rider) {
         if (Boolean.TRUE.equals(rider.getIsBlocked())) {
@@ -921,7 +936,7 @@ public class RiderServiceImpl implements RiderService {
         }
         Long id = rider.getId();
         if (id != null) {
-            if (orderRepository.existsByRiderIdAndStatusIn(id, ACTIVE_ASSIGNMENT_STATUSES)) {
+            if (orderRepository.existsByRiderActiveRoleAndStatusIn(id, ACTIVE_ASSIGNMENT_STATUSES, PICKUP_RIDER_DONE_STATUSES)) {
                 return "ORDER_ASSIGNED";
             }
         }

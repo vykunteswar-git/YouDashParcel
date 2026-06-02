@@ -267,6 +267,37 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             @Param("riderId") Long riderId,
             @Param("statuses") List<OrderStatus> statuses);
 
+    /**
+     * Busy check that respects split-leg outstation: a rider whose {@code pickupRiderId} matches
+     * and whose status is in the pickup-done set is NOT counted as busy, even if their ID also
+     * appears in the {@code riderId} column (single-pickup-only assignment case). Delivery rider
+     * and incity rider are treated normally.
+     */
+    @Query("""
+            SELECT (COUNT(o) > 0) FROM OrderEntity o
+            WHERE o.status IN :statuses
+              AND (o.riderId = :riderId OR o.deliveryRiderId = :riderId OR o.pickupRiderId = :riderId)
+              AND NOT (o.pickupRiderId = :riderId AND o.status IN :pickupDoneStatuses)
+            """)
+    boolean existsByRiderActiveRoleAndStatusIn(
+            @Param("riderId") Long riderId,
+            @Param("statuses") List<OrderStatus> statuses,
+            @Param("pickupDoneStatuses") List<OrderStatus> pickupDoneStatuses);
+
+    /**
+     * Sums totalAmount of all active (inflight) COD orders for the rider across all role columns.
+     * Used to enforce a cash-in-hand ceiling before dispatching a new COD order.
+     */
+    @Query("""
+            SELECT COALESCE(SUM(o.totalAmount), 0) FROM OrderEntity o
+            WHERE o.paymentType = com.youdash.model.PaymentType.COD
+              AND o.status IN :statuses
+              AND (o.riderId = :riderId OR o.pickupRiderId = :riderId OR o.deliveryRiderId = :riderId)
+            """)
+    double sumInflightCodAmountForRider(
+            @Param("riderId") Long riderId,
+            @Param("statuses") List<OrderStatus> statuses);
+
     @Modifying
     @Query("""
             update OrderEntity o

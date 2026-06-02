@@ -1197,6 +1197,10 @@ public class OrderServiceImpl implements OrderService {
         String timelineNote = adminOverride ? "Admin status update (OTP override)" : "Admin status update";
         appendTimeline(saved, target, "status_updated", saved.getDestinationHubId(), saved.getRiderId(), timelineNote);
         publishAdminStatusEvent(saved, target);
+        // Release pickup rider once their split leg is complete (status reaches origin hub or beyond).
+        if (OutstationRiderLegPolicy.isSplitPickupRiderLegComplete(saved, saved.getPickupRiderId())) {
+            markRiderAvailableAfterDelivery(saved.getPickupRiderId());
+        }
         response.setData(toOrderDto(saved, null, null, false, null));
         response.setMessage("Status updated");
         response.setMessageKey("SUCCESS");
