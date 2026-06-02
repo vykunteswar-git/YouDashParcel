@@ -29,6 +29,11 @@ public class AdminOrderController {
         return orderService.getOrder(id, null, null, true);
     }
 
+    @GetMapping("/by-ref")
+    public ApiResponse<OrderResponseDTO> getByRef(@RequestParam String ref) {
+        return orderService.getOrderByRef(ref);
+    }
+
     @PostMapping("/{id}/assign-rider")
     public ApiResponse<OrderResponseDTO> assignRider(
             @PathVariable Long id,

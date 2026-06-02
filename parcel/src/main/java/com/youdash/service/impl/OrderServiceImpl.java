@@ -532,6 +532,35 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    public ApiResponse<OrderResponseDTO> getOrderByRef(String ref) {
+        ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
+        try {
+            OrderEntity o;
+            try {
+                long numericId = Long.parseLong(ref.trim());
+                o = orderRepository.findById(numericId)
+                        .orElseThrow(() -> new RuntimeException("Order not found"));
+            } catch (NumberFormatException e) {
+                o = orderRepository.findByDisplayOrderId(ref.trim())
+                        .orElseThrow(() -> new RuntimeException("Order not found: " + ref));
+            }
+            OrderResponseDTO data = toOrderDto(o, null, null, false, null);
+            Integer riderStars = riderRatingRepository.findByOrderId(o.getId())
+                    .map(RiderRatingEntity::getStars)
+                    .orElse(null);
+            applyRiderRatingFlags(data, riderStars);
+            response.setData(data);
+            response.setMessage("OK");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            setError(response, e.getMessage());
+        }
+        return response;
+    }
+
+    @Override
     public ApiResponse<List<OrderResponseDTO>> listRiderOrders(Long riderId, int page, int size, String date) {
         ApiResponse<List<OrderResponseDTO>> response = new ApiResponse<>();
         try {

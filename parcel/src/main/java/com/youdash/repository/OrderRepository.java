@@ -16,6 +16,8 @@ import java.util.Optional;
 
 public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
 
+    Optional<OrderEntity> findByDisplayOrderId(String displayOrderId);
+
     @Query("""
             SELECT o FROM OrderEntity o
             WHERE o.status = com.youdash.model.OrderStatus.DELIVERED

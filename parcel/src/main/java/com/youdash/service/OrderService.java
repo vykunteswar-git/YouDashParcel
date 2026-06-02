@@ -15,6 +15,8 @@ public interface OrderService {
 
     ApiResponse<OrderResponseDTO> getOrder(Long orderId, Long tokenUserId, String tokenType, boolean admin);
 
+    ApiResponse<OrderResponseDTO> getOrderByRef(String ref);
+
     ApiResponse<List<OrderResponseDTO>> listUserOrders(Long userId, Long tokenUserId, boolean admin);
 
     /**
