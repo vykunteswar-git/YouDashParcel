@@ -1451,12 +1451,36 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (commissionAmountPortion <= 0.0001) {
             return;
         }
+        if (hasCompletedWalletCreditForOrder(riderId, order.getId())) {
+            log.info("COD_COMMISSION_SKIP orderId={} riderId={} — already recorded", order.getId(), riderId);
+            return;
+        }
         RiderWalletEntity wallet = riderWalletRepository.lockByRiderId(riderId)
                 .orElseGet(() -> riderWalletRepository.save(newWallet(riderId)));
         double pendingBefore = round2(nz(wallet.getCodPendingAmount()));
         wallet.setTotalEarnings(round2(wallet.getTotalEarnings() + riderEarning));
         wallet.setCodPendingAmount(round2(pendingBefore + commissionAmountPortion));
         riderWalletRepository.save(wallet);
+
+        RiderWalletTransactionEntity codTxn = new RiderWalletTransactionEntity();
+        codTxn.setRiderId(riderId);
+        codTxn.setType(WalletTxnType.CREDIT);
+        codTxn.setAmount(commissionAmountPortion);
+        codTxn.setReferenceType(WalletTxnReferenceType.ORDER);
+        codTxn.setReferenceId(order.getId());
+        codTxn.setStatus(WalletTxnStatus.COMPLETED);
+        codTxn.setNote("COD commission pending — hub deposit required");
+        codTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(
+                orderAmountPortion,
+                PaymentType.COD,
+                commissionPercent,
+                commissionAmountPortion,
+                basePortion,
+                peakPortion,
+                riderEarning,
+                null,
+                null)));
+        riderWalletTransactionRepository.save(codTxn);
 
         log.info(
                 "COD_COMMISSION_PENDING -> orderId={}, riderId={}, commission={}, codPending={}, collectedCash={}",
