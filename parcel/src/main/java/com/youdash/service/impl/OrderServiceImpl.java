@@ -2117,6 +2117,7 @@ public class OrderServiceImpl implements OrderService {
                 .createdAt(o.getCreatedAt() != null ? o.getCreatedAt().toString() : null)
                 .build();
         applyOutstationLegAmounts(dto, o, riderOrderApi, viewerRiderId);
+        applyOutstationFareDetails(dto, o);
         applyOutstationRiderFacingAddresses(dto, o, riderOrderApi, viewerRiderId, originHub, destinationHub);
         applyOutstationRiderContactVisibility(dto, o, riderOrderApi, viewerRiderId);
         // Pickup rider's job ends at AT_ORIGIN_HUB — show as DELIVERED to them.
@@ -2181,6 +2182,17 @@ public class OrderServiceImpl implements OrderService {
             dto.setLegTypeForRider(legType);
             dto.setLegAmountForRider("DROP".equals(legType) ? leg.lastMileAmount() : leg.pickupAmount());
         }
+    }
+
+    private static void applyOutstationFareDetails(OrderResponseDTO dto, OrderEntity order) {
+        if (dto == null || order == null) return;
+        dto.setPickupDistanceKm(order.getPickupDistanceKm());
+        dto.setHubDistanceKm(order.getHubDistanceKm());
+        dto.setDropDistanceKm(order.getDropDistanceKm());
+        dto.setOutstationPickupCost(order.getOutstationPickupCost());
+        dto.setOutstationHubCost(order.getOutstationHubCost());
+        dto.setOutstationDropCost(order.getOutstationDropCost());
+        dto.setOutstationWeightCost(order.getOutstationWeightCost());
     }
 
     private static void applyOutstationQuoteLegCosts(OrderEntity order, PricingService.OutstationBreakdown b) {

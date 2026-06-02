@@ -122,6 +122,15 @@ public class OrderResponseDTO {
      */
     private Double earnedAmount;
     private Double vehiclePricePerKm;
+    /** Outstation: per-leg distances stored at quote time. */
+    private Double pickupDistanceKm;
+    private Double hubDistanceKm;
+    private Double dropDistanceKm;
+    /** Outstation: pre-GST raw cost for each leg component, stored at quote time. */
+    private Double outstationPickupCost;
+    private Double outstationHubCost;
+    private Double outstationDropCost;
+    private Double outstationWeightCost;
     /** Public reference for payments (e.g. YP-…). */
     private String displayOrderId;
     private String paymentStatus;
