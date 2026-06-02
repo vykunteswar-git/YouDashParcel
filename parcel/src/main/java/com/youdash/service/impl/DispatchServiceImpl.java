@@ -43,13 +43,22 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
     private static final int RIDER_FANOUT = 5;
     private static final long RETRY_DELAY_SECONDS = 12; // 10–15s
 
-    /** Do not offer new INCITY jobs to riders who already have an active INCITY order. */
-    private static final List<OrderStatus> RIDER_BUSY_INCITY = List.of(
+    /**
+     * Statuses that mean a rider is actively on a trip and must not receive new order requests.
+     * Covers both INCITY and OUTSTATION legs (pickup rider via pickupRiderId, delivery rider via
+     * deliveryRiderId, and legacy in-city rider via riderId).
+     */
+    private static final List<OrderStatus> RIDER_BUSY_ANY = List.of(
             OrderStatus.RIDER_ACCEPTED,
             OrderStatus.PAYMENT_PENDING,
             OrderStatus.RIDER_ASSIGNED,
+            OrderStatus.PICKUP_ASSIGNED,
             OrderStatus.PICKED_UP,
-            OrderStatus.IN_TRANSIT);
+            OrderStatus.AT_ORIGIN_HUB,
+            OrderStatus.IN_TRANSIT,
+            OrderStatus.AT_DESTINATION_HUB,
+            OrderStatus.OUT_FOR_DELIVERY,
+            OrderStatus.AWAITING_HUB_COLLECTION);
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "dispatch-retry");
@@ -224,7 +233,7 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
                 .filter(r -> r.getId() != null)
                 .filter(r -> r.getCurrentLat() != null && r.getCurrentLng() != null)
                 .filter(r -> !alreadyNotified.contains(r.getId()))
-                .filter(r -> !hasActiveIncityAssignment(r.getId()))
+                .filter(r -> !hasAnyActiveAssignment(r.getId()))
                 .filter(r -> !riderWalletService.isRiderDispatchBlocked(r.getId()))
                 .sorted(Comparator.comparingDouble(r -> GeoUtils.haversineKm(
                         pickupLat, pickupLng, r.getCurrentLat(), r.getCurrentLng())))
@@ -238,11 +247,14 @@ public class DispatchServiceImpl implements DispatchService, DisposableBean {
         return ids;
     }
 
-    private boolean hasActiveIncityAssignment(Long riderId) {
+    private boolean hasAnyActiveAssignment(Long riderId) {
         if (riderId == null) {
             return true;
         }
-        return orderRepository.existsByRiderIdAndServiceModeAndStatusIn(riderId, ServiceMode.INCITY, RIDER_BUSY_INCITY);
+        // Checks riderId (incity), pickupRiderId (outstation pickup leg), and
+        // deliveryRiderId (outstation drop leg) in a single query so a rider
+        // active on any leg of any order is never sent a new request.
+        return orderRepository.existsByAnyRiderFieldAndStatusIn(riderId, RIDER_BUSY_ANY);
     }
 
     @Override

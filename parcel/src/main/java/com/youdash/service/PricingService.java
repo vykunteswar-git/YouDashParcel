@@ -35,6 +35,10 @@ public interface PricingService {
         private double dropDistanceKm;
         private double pickupRatePerKm;
         private double dropRatePerKm;
+        private double pickupBaseFare;
+        private double dropBaseFare;
+        private String pickupVehicleName;
+        private String dropVehicleName;
         private double pickupCost;
         private double hubCost;
         private double dropCost;

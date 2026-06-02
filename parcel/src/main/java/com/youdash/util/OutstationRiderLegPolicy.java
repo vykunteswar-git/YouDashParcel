@@ -51,7 +51,7 @@ public final class OutstationRiderLegPolicy {
 
     /**
      * Split-leg pickup rider finished once the order reached origin hub or progressed further.
-     * Same rider on both legs is not treated as complete until full delivery.
+     * Requires {@code pickupRiderId} to be explicitly set — D2D / single-rider orders are excluded.
      */
     public static boolean isSplitPickupRiderLegComplete(OrderEntity order, Long riderId) {
         if (order == null || riderId == null) {
@@ -60,12 +60,12 @@ public final class OutstationRiderLegPolicy {
         if (order.getServiceMode() != ServiceMode.OUTSTATION) {
             return false;
         }
-        Long pickupId = resolvePickupRiderId(order);
-        if (!Objects.equals(riderId, pickupId)) {
+        // No explicit pickupRiderId → D2D or single-rider outstation; not a split-leg order.
+        if (order.getPickupRiderId() == null) {
             return false;
         }
-        Long deliveryId = order.getDeliveryRiderId();
-        if (deliveryId == null || Objects.equals(pickupId, deliveryId)) {
+        Long pickupId = order.getPickupRiderId();
+        if (!Objects.equals(riderId, pickupId)) {
             return false;
         }
         OrderStatus status = order.getStatus();

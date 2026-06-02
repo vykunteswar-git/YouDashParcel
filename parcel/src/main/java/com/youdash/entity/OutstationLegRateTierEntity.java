@@ -25,6 +25,15 @@ public class OutstationLegRateTierEntity {
     @Column(name = "max_weight_kg", nullable = false)
     private Double maxWeightKg;
 
+    @Column(name = "vehicle_id")
+    private Long vehicleId;
+
+    @Column(name = "base_fare")
+    private Double baseFare;
+
+    @Column(name = "minimum_km")
+    private Double minimumKm;
+
     @Column(name = "rate_per_km", nullable = false)
     private Double ratePerKm;
 

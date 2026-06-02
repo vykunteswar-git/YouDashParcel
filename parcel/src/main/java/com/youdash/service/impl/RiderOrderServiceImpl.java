@@ -601,11 +601,6 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         if (deliveryId == null || !Objects.equals(riderId, deliveryId)) {
             return false;
         }
-        // Same rider on pickup + delivery: only delivery leg after OUT_FOR_DELIVERY.
-        Long pickupId = order.getPickupRiderId() != null ? order.getPickupRiderId() : order.getRiderId();
-        if (Objects.equals(pickupId, deliveryId)) {
-            return order.getStatus() == OrderStatus.OUT_FOR_DELIVERY;
-        }
         return true;
     }
 

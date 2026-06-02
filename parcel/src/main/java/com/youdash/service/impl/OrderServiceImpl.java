@@ -980,7 +980,7 @@ public class OrderServiceImpl implements OrderService {
             transitionStatus(o, assignTargetStatus);
             final boolean deliveryOnlyAssign = deliveryRiderId != null && pickupRiderId == null;
             final boolean pickupOnlyAssign = pickupRiderId != null && deliveryRiderId == null;
-            if (deliveryOnlyAssign || (deliveryRiderId != null && !Objects.equals(deliveryRiderId, pickupRiderId))) {
+            if (deliveryRiderId != null) {
                 o.setDeliveryOtp(DeliveryOtpGenerator.generate());
                 o.setDeliveryOtpGeneratedAt(Instant.now());
                 o.setIsOtpVerified(false);
@@ -995,9 +995,7 @@ public class OrderServiceImpl implements OrderService {
 
             final String publishedStatus = saved.getStatus().name();
             final boolean pickupAssign = pickupRiderId != null;
-            final boolean splitLegAssign = deliveryRiderId != null
-                    && pickupRiderId != null
-                    && !Objects.equals(deliveryRiderId, pickupRiderId);
+            final boolean splitLegAssign = deliveryRiderId != null && pickupRiderId != null;
 
             if (pickupAssign && !deliveryOnlyAssign) {
                 appendTimeline(
@@ -1016,14 +1014,6 @@ public class OrderServiceImpl implements OrderService {
                         saved.getDestinationHubId(),
                         deliveryRiderId,
                         "Delivery rider assigned by admin");
-            } else if (pickupAssign && deliveryRiderId != null && Objects.equals(pickupRiderId, deliveryRiderId)) {
-                appendTimeline(
-                        saved,
-                        saved.getStatus(),
-                        "rider_assigned",
-                        saved.getOriginHubId(),
-                        primaryRiderId,
-                        "Rider assigned by admin");
             }
 
             try {
@@ -1036,7 +1026,7 @@ public class OrderServiceImpl implements OrderService {
                                     NotificationType.RIDER_JOB_ASSIGNED),
                             NotificationType.RIDER_JOB_ASSIGNED);
                 }
-                if (deliveryRiderId != null && !Objects.equals(deliveryRiderId, pickupRiderId)) {
+                if (deliveryRiderId != null) {
                     notificationService.sendToRider(
                             deliveryRiderId,
                             "New delivery assigned",
@@ -1115,7 +1105,7 @@ public class OrderServiceImpl implements OrderService {
                             OrderStatus.PICKUP_ASSIGNED,
                             mode);
                 }
-                if (deliveryRiderId != null && !Objects.equals(deliveryRiderId, pickupRiderId)) {
+                if (deliveryRiderId != null) {
                     riderActiveOrderTopicPublisher.publish(
                             deliveryRiderId,
                             saved.getId(),

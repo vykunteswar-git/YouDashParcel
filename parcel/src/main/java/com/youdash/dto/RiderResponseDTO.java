@@ -49,6 +49,7 @@ public class RiderResponseDTO {
     private Double walletNetAvailable;
     private Double codHandoverLimit;
     private Boolean dispatchBlocked;
+    private Boolean hasActiveOrder;
 
     private List<RiderWalletTransactionDTO> recentWalletTransactions;
     private List<RiderWithdrawalDTO> recentWithdrawals;

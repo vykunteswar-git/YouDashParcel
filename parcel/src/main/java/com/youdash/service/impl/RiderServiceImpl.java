@@ -68,8 +68,13 @@ public class RiderServiceImpl implements RiderService {
             OrderStatus.RIDER_ACCEPTED,
             OrderStatus.PAYMENT_PENDING,
             OrderStatus.RIDER_ASSIGNED,
+            OrderStatus.PICKUP_ASSIGNED,
             OrderStatus.PICKED_UP,
-            OrderStatus.IN_TRANSIT);
+            OrderStatus.AT_ORIGIN_HUB,
+            OrderStatus.IN_TRANSIT,
+            OrderStatus.AT_DESTINATION_HUB,
+            OrderStatus.OUT_FOR_DELIVERY,
+            OrderStatus.AWAITING_HUB_COLLECTION);
 
     @Autowired
     private ZoneRepository zoneRepository;
@@ -651,6 +656,7 @@ public class RiderServiceImpl implements RiderService {
             List<RiderResponseDTO> dtos = riderRepository.findByIsAvailableTrue().stream()
                     .filter(this::isApprovedOrLegacy)
                     .filter(r -> !riderWalletService.isRiderDispatchBlocked(r.getId()))
+                    .filter(r -> !orderRepository.existsByAnyRiderFieldAndStatusIn(r.getId(), ACTIVE_ASSIGNMENT_STATUSES))
                     .map(this::mapToResponseDTO)
                     .collect(Collectors.toList());
             response.setData(dtos);
@@ -682,11 +688,17 @@ public class RiderServiceImpl implements RiderService {
             List<RiderResponseDTO> dtos = riderRepository
                     .findByApprovalStatusOrderByCreatedAtDesc(RiderApprovalStatus.APPROVED)
                     .stream()
+                    .filter(r -> Boolean.TRUE.equals(r.getIsAvailable()))
                     .filter(this::isApprovedOrLegacy)
-                    .filter(r -> !riderWalletService.isRiderDispatchBlocked(r.getId()))
-                    .filter(r -> !orderRepository.existsByRiderIdAndStatusIn(r.getId(), ACTIVE_ASSIGNMENT_STATUSES))
                     .filter(r -> targetZoneId == null || targetZoneId.equals(r.getZoneId()))
-                    .map(this::mapToResponseDTO)
+                    .map(r -> {
+                        RiderResponseDTO dto = mapToResponseDTO(r);
+                        boolean blocked = riderWalletService.isRiderDispatchBlocked(r.getId());
+                        boolean busy = orderRepository.existsByAnyRiderFieldAndStatusIn(r.getId(), ACTIVE_ASSIGNMENT_STATUSES);
+                        dto.setDispatchBlocked(blocked);
+                        dto.setHasActiveOrder(busy);
+                        return dto;
+                    })
                     .collect(Collectors.toList());
 
             response.setData(dtos);

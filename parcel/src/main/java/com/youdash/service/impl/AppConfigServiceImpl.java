@@ -4,12 +4,17 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.AppConfigDTO;
 import com.youdash.dto.CheckoutPaymentOptionsDTO;
 import com.youdash.dto.OutstationLegRateTierDTO;
+import com.youdash.dto.WeightCostSlabDTO;
+import com.youdash.entity.WeightCostSlabEntity;
 import com.youdash.entity.AppConfigEntity;
 import com.youdash.entity.OutstationLegRateTierEntity;
+import com.youdash.entity.VehicleEntity;
 import com.youdash.model.OutstationLegType;
 import com.youdash.model.PaymentType;
 import com.youdash.repository.AppConfigRepository;
 import com.youdash.repository.OutstationLegRateTierRepository;
+import com.youdash.repository.VehicleRepository;
+import com.youdash.repository.WeightCostSlabRepository;
 import com.youdash.service.AppConfigService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -27,6 +32,12 @@ public class AppConfigServiceImpl implements AppConfigService {
 
     @Autowired
     private OutstationLegRateTierRepository legRateTierRepository;
+
+    @Autowired
+    private VehicleRepository vehicleRepository;
+
+    @Autowired
+    private WeightCostSlabRepository weightCostSlabRepository;
 
     @Override
     public ApiResponse<AppConfigDTO> getConfig() {
@@ -92,6 +103,9 @@ public class AppConfigServiceImpl implements AppConfigService {
             if (dto.getDropLegTiers() != null) {
                 replaceLegTiers(OutstationLegType.DROP, dto.getDropLegTiers());
             }
+            if (dto.getWeightCostSlabs() != null) {
+                replaceWeightCostSlabs(dto.getWeightCostSlabs());
+            }
 
             response.setData(toDto(saved));
             response.setMessage("Config updated");
@@ -141,6 +155,9 @@ public class AppConfigServiceImpl implements AppConfigService {
             row.setLegType(legType);
             row.setMinWeightKg(t.getMinWeightKg());
             row.setMaxWeightKg(t.getMaxWeightKg());
+            row.setVehicleId(t.getVehicleId());
+            row.setBaseFare(t.getBaseFare());
+            row.setMinimumKm(t.getMinimumKm());
             row.setRatePerKm(t.getRatePerKm());
             row.setSortOrder(t.getSortOrder() != null ? t.getSortOrder() : order);
             row.setIsActive(t.getIsActive() == null || Boolean.TRUE.equals(t.getIsActive()));
@@ -162,6 +179,15 @@ public class AppConfigServiceImpl implements AppConfigService {
             double max = nz(t.getMaxWeightKg());
             if (min < 0 || max <= min) {
                 throw new RuntimeException(legType + " tier: max weight must be greater than min weight");
+            }
+            if (t.getVehicleId() == null) {
+                throw new RuntimeException(legType + " tier: vehicle must be selected");
+            }
+            if (nz(t.getBaseFare()) < 0) {
+                throw new RuntimeException(legType + " tier: base fare cannot be negative");
+            }
+            if (nz(t.getMinimumKm()) < 0) {
+                throw new RuntimeException(legType + " tier: minimum km cannot be negative");
             }
             if (nz(t.getRatePerKm()) < 0) {
                 throw new RuntimeException(legType + " tier: rate per km cannot be negative");
@@ -203,6 +229,7 @@ public class AppConfigServiceImpl implements AppConfigService {
         d.setDefaultPaymentType(e.getDefaultPaymentType());
         d.setPickupLegTiers(tiersToDto(OutstationLegType.PICKUP));
         d.setDropLegTiers(tiersToDto(OutstationLegType.DROP));
+        d.setWeightCostSlabs(weightSlabsToDto());
         return d;
     }
 
@@ -218,10 +245,76 @@ public class AppConfigServiceImpl implements AppConfigService {
         d.setLegType(row.getLegType());
         d.setMinWeightKg(row.getMinWeightKg());
         d.setMaxWeightKg(row.getMaxWeightKg());
+        d.setVehicleId(row.getVehicleId());
+        d.setBaseFare(row.getBaseFare());
+        d.setMinimumKm(row.getMinimumKm());
         d.setRatePerKm(row.getRatePerKm());
         d.setSortOrder(row.getSortOrder());
         d.setIsActive(row.getIsActive());
+        if (row.getVehicleId() != null) {
+            vehicleRepository.findById(row.getVehicleId())
+                    .map(VehicleEntity::getName)
+                    .ifPresent(d::setVehicleName);
+        }
         return d;
+    }
+
+    private void replaceWeightCostSlabs(List<WeightCostSlabDTO> slabs) {
+        validateWeightSlabList(slabs);
+        weightCostSlabRepository.deleteAll();
+        int order = 0;
+        for (WeightCostSlabDTO s : slabs) {
+            WeightCostSlabEntity row = new WeightCostSlabEntity();
+            row.setMinWeightKg(s.getMinWeightKg());
+            row.setMaxWeightKg(s.getMaxWeightKg());
+            row.setFlatCost(s.getFlatCost());
+            row.setSortOrder(s.getSortOrder() != null ? s.getSortOrder() : order);
+            row.setIsActive(s.getIsActive() == null || Boolean.TRUE.equals(s.getIsActive()));
+            weightCostSlabRepository.save(row);
+            order++;
+        }
+    }
+
+    private List<WeightCostSlabDTO> weightSlabsToDto() {
+        return weightCostSlabRepository.findAllByOrderBySortOrderAscMinWeightKgAsc().stream()
+                .map(row -> {
+                    WeightCostSlabDTO d = new WeightCostSlabDTO();
+                    d.setId(row.getId());
+                    d.setMinWeightKg(row.getMinWeightKg());
+                    d.setMaxWeightKg(row.getMaxWeightKg());
+                    d.setFlatCost(row.getFlatCost());
+                    d.setSortOrder(row.getSortOrder());
+                    d.setIsActive(row.getIsActive());
+                    return d;
+                })
+                .toList();
+    }
+
+    private static void validateWeightSlabList(List<WeightCostSlabDTO> slabs) {
+        if (slabs == null) return;
+        List<WeightCostSlabDTO> active = slabs.stream()
+                .filter(s -> s.getIsActive() == null || Boolean.TRUE.equals(s.getIsActive()))
+                .sorted(Comparator.comparing(s -> nz(s.getMinWeightKg())))
+                .toList();
+        for (WeightCostSlabDTO s : active) {
+            double min = nz(s.getMinWeightKg());
+            double max = nz(s.getMaxWeightKg());
+            if (min < 0 || max <= min) {
+                throw new RuntimeException("Weight slab: max weight must be greater than min weight");
+            }
+            if (nz(s.getFlatCost()) < 0) {
+                throw new RuntimeException("Weight slab: flat cost cannot be negative");
+            }
+        }
+        for (int i = 0; i < active.size(); i++) {
+            for (int j = i + 1; j < active.size(); j++) {
+                double aMin = nz(active.get(i).getMinWeightKg()), aMax = nz(active.get(i).getMaxWeightKg());
+                double bMin = nz(active.get(j).getMinWeightKg()), bMax = nz(active.get(j).getMaxWeightKg());
+                if (aMin < bMax && bMin < aMax) {
+                    throw new RuntimeException("Weight slabs must not overlap (kg ranges)");
+                }
+            }
+        }
     }
 
     private static List<PaymentType> resolveAvailablePaymentTypes(Boolean codEnabled, Boolean onlineEnabled) {

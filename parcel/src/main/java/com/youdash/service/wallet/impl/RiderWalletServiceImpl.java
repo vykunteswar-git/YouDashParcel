@@ -173,7 +173,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (OutstationCodPolicy.isDoorToDoor(orderEntity)) {
             Long pickupRiderId = OutstationRiderLegPolicy.resolvePickupRiderId(orderEntity);
             Long deliveryRiderId = OutstationCodPolicy.resolveDeliveryRiderId(orderEntity);
-            if (pickupRiderId != null && deliveryRiderId != null && !Objects.equals(pickupRiderId, deliveryRiderId)) {
+            if (pickupRiderId != null && deliveryRiderId != null) {
                 return 2;
             }
         }
@@ -1025,10 +1025,6 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (pickupId == null || deliveryId == null) {
             throw new RuntimeException("OUTSTATION split settlement requires pickupRiderId and deliveryRiderId");
         }
-        if (Objects.equals(pickupId, deliveryId)) {
-            throw new RuntimeException("OUTSTATION split settlement requires distinct pickup and delivery riders");
-        }
-
         OutstationPayableLegSplit leg = OutstationPayableLegSplit.fromOrder(order);
         double oaPick = leg.pickupAmount();
         LegEarning pickupLeg = computePickupLegEarning(oaPick, leg.lastMileAmount(), commissionPercent, peakBonusTotal);
@@ -1362,7 +1358,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         }
         if (OutstationCodPolicy.isDoorToDoor(order) && OutstationCodPolicy.isOutstation(order)) {
             Long pickupId = OutstationRiderLegPolicy.resolvePickupRiderId(order);
-            if (pickupId != null && deliveryId != null && !Objects.equals(pickupId, deliveryId)) {
+            if (pickupId != null && deliveryId != null) {
                 return hasCompletedWalletCreditForOrder(deliveryId, order.getId());
             }
             if (pickupId != null && deliveryId == null) {

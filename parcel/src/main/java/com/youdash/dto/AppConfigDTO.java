@@ -26,4 +26,5 @@ public class AppConfigDTO {
     private PaymentType defaultPaymentType;
     private List<OutstationLegRateTierDTO> pickupLegTiers;
     private List<OutstationLegRateTierDTO> dropLegTiers;
+    private List<WeightCostSlabDTO> weightCostSlabs;
 }

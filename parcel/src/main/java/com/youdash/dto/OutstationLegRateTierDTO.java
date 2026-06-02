@@ -10,6 +10,10 @@ public class OutstationLegRateTierDTO {
     private OutstationLegType legType;
     private Double minWeightKg;
     private Double maxWeightKg;
+    private Long vehicleId;
+    private String vehicleName;
+    private Double baseFare;
+    private Double minimumKm;
     private Double ratePerKm;
     private Integer sortOrder;
     private Boolean isActive;

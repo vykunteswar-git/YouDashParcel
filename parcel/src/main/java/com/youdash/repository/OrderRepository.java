@@ -251,6 +251,22 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     /** True if the rider has any order in one of the given statuses (any service mode). */
     boolean existsByRiderIdAndStatusIn(Long riderId, List<OrderStatus> statuses);
 
+    /**
+     * True if the rider is actively assigned on ANY order (incity or outstation) in one of the
+     * given statuses, regardless of which rider-ID column they appear in (riderId / pickupRiderId
+     * / deliveryRiderId).  Used by dispatch to avoid sending new requests to busy riders.
+     */
+    @Query("""
+            SELECT (COUNT(o) > 0) FROM OrderEntity o
+            WHERE (o.riderId = :riderId
+                OR o.pickupRiderId = :riderId
+                OR o.deliveryRiderId = :riderId)
+              AND o.status IN :statuses
+            """)
+    boolean existsByAnyRiderFieldAndStatusIn(
+            @Param("riderId") Long riderId,
+            @Param("statuses") List<OrderStatus> statuses);
+
     @Modifying
     @Query("""
             update OrderEntity o

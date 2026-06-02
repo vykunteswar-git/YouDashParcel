@@ -2,12 +2,23 @@ package com.youdash.service;
 
 import com.youdash.entity.AppConfigEntity;
 import com.youdash.model.OutstationLegType;
+import lombok.Builder;
+import lombok.Data;
 
 public interface OutstationLegRateResolver {
 
     /**
-     * ₹/km for the given leg and parcel weight. Uses active weight tiers; falls back to
-     * legacy flat {@code pickup_rate_per_km} / {@code drop_rate_per_km} when no tier matches.
+     * Resolves the full pricing tier for a leg and parcel weight.
+     * Uses active weight tiers; falls back to legacy flat rates when no tier matches.
      */
-    double resolveRatePerKm(OutstationLegType legType, double weightKg, AppConfigEntity config);
+    TierResult resolveTier(OutstationLegType legType, double weightKg, AppConfigEntity config);
+
+    @Data
+    @Builder
+    class TierResult {
+        private double baseFare;
+        private double minimumKm;
+        private double ratePerKm;
+        private String vehicleName;
+    }
 }
