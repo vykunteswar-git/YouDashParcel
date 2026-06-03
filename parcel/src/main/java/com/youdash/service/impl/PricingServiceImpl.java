@@ -27,10 +27,12 @@ public class PricingServiceImpl implements PricingService {
     @Override
     public double incityVehicleTotal(double distanceKm, double weightKg, VehicleEntity vehicle) {
         double minKm = vehicle.getMinimumKm() != null ? vehicle.getMinimumKm() : 0.0;
-        double billableKm = Math.max(distanceKm, minKm);
         double base = vehicle.getBaseFare() != null ? vehicle.getBaseFare() : 0.0;
         double rate = vehicle.getPricePerKm() != null ? vehicle.getPricePerKm() : 0.0;
-        return base + billableKm * rate;
+        if (minKm > 0.0 && distanceKm < minKm) {
+            return base;
+        }
+        return base + distanceKm * rate;
     }
 
     @Override
