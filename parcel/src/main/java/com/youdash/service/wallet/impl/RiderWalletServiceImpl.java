@@ -1464,21 +1464,25 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             log.info("COD_COMMISSION_SKIP orderId={} riderId={} — already recorded", order.getId(), riderId);
             return;
         }
+        // Deposit amount = cash collected from customer minus the rider's own leg earning.
+        // This is what the rider must physically hand over at the hub.
+        // e.g. collected=820, riderEarning=40 → deposit=780
+        // The rider's ₹40 earning is already in their pocket as cash — do NOT credit wallet.
+        double depositAmount = round2(Math.max(0.0, collected - riderEarning));
         RiderWalletEntity wallet = riderWalletRepository.lockByRiderId(riderId)
                 .orElseGet(() -> riderWalletRepository.save(newWallet(riderId)));
         double pendingBefore = round2(nz(wallet.getCodPendingAmount()));
-        wallet.setTotalEarnings(round2(wallet.getTotalEarnings() + riderEarning));
-        wallet.setCodPendingAmount(round2(pendingBefore + commissionAmountPortion));
+        wallet.setCodPendingAmount(round2(pendingBefore + depositAmount));
         riderWalletRepository.save(wallet);
 
         RiderWalletTransactionEntity codTxn = new RiderWalletTransactionEntity();
         codTxn.setRiderId(riderId);
         codTxn.setType(WalletTxnType.CREDIT);
-        codTxn.setAmount(commissionAmountPortion);
+        codTxn.setAmount(depositAmount);
         codTxn.setReferenceType(WalletTxnReferenceType.ORDER);
         codTxn.setReferenceId(order.getId());
         codTxn.setStatus(WalletTxnStatus.COMPLETED);
-        codTxn.setNote("COD commission pending — hub deposit required");
+        codTxn.setNote("COD deposit pending — rider must hand over cash at hub");
         codTxn.setMetadataJson(writeJson(buildEarningTxnMetadata(
                 orderAmountPortion,
                 PaymentType.COD,
@@ -1492,12 +1496,13 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         riderWalletTransactionRepository.save(codTxn);
 
         log.info(
-                "COD_COMMISSION_PENDING -> orderId={}, riderId={}, commission={}, codPending={}, collectedCash={}",
+                "COD_DEPOSIT_PENDING -> orderId={}, riderId={}, collected={}, riderEarning={}, depositPending={}, codPendingTotal={}",
                 order.getId(),
                 riderId,
-                commissionAmountPortion,
-                wallet.getCodPendingAmount(),
-                collected);
+                collected,
+                riderEarning,
+                depositAmount,
+                wallet.getCodPendingAmount());
 
         maybeNotifyCodHandoverThresholds(riderId, pendingBefore, wallet.getCodPendingAmount());
     }
@@ -1527,12 +1532,12 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (pendingBefore + 0.0001 < warnAt && pendingAfter + 0.0001 >= warnAt && pendingAfter + 0.0001 < limit) {
             sendCodHandoverNotification(riderId, pendingAfter, limit, NotificationType.RIDER_COD_HANDOVER_WARNING,
                     "COD deposit reminder",
-                    "Rs. " + String.format("%.2f", pendingAfter) + " commission to deposit at hub (limit Rs. "
+                    "Rs. " + String.format("%.2f", pendingAfter) + " cash to deposit at hub (limit Rs. "
                             + String.format("%.2f", limit) + ").");
         }
         if (pendingBefore + 0.0001 < limit && pendingAfter + 0.0001 >= limit) {
             sendCodHandoverNotification(riderId, pendingAfter, limit, NotificationType.RIDER_COD_HANDOVER_BLOCKED,
-                    "Orders paused — deposit COD commission",
+                    "Orders paused — deposit cash at hub",
                     "Deposit Rs. " + String.format("%.2f", pendingAfter)
                             + " at hub to receive new orders (COD and online).");
         }
@@ -1971,10 +1976,10 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                     .orElseThrow(() -> new RuntimeException("Wallet not found"));
             double pending = round2(nz(wallet.getCodPendingAmount()));
             if (pending <= 0) {
-                throw new RuntimeException("No commission pending for this rider");
+                throw new RuntimeException("No COD deposit pending for this rider");
             }
             if (amt - pending > 0.01) {
-                throw new RuntimeException("amount cannot exceed pending commission (" + pending + ")");
+                throw new RuntimeException("amount cannot exceed pending deposit (" + pending + ")");
             }
 
             CodDepositEntity deposit = new CodDepositEntity();
@@ -1992,18 +1997,18 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                 if (remaining <= 0.0001) {
                     break;
                 }
-                double lineComm = round2(nz(fin.getCommissionAmount()));
-                if (lineComm <= 0) {
+                double lineDeposit = resolveLineDepositAmount(fin);
+                if (lineDeposit <= 0) {
                     continue;
                 }
-                if (remaining + 0.0001 < lineComm) {
+                if (remaining + 0.0001 < lineDeposit) {
                     break;
                 }
                 fin.setCodSettlementStatus(CodSettlementStatus.SETTLED);
                 fin.setSettledAt(Instant.now());
                 fin.setCodDepositId(deposit.getId());
                 orderRiderFinancialRepository.save(fin);
-                remaining = round2(remaining - lineComm);
+                remaining = round2(remaining - lineDeposit);
                 OrderEntity order = orderRepository.findById(fin.getOrderId()).orElse(null);
                 if (order != null) {
                     settleOrderCodStatusIfComplete(order);
@@ -2023,7 +2028,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
                         NotificationService.baseData(null, null, NotificationType.RIDER_COD_DEPOSIT_CONFIRMED));
                 codData.put("settledAmount", String.valueOf(amt));
                 codData.put("commissionPending", String.valueOf(wallet.getCodPendingAmount()));
-                String body = "Rs. " + String.format("%.2f", amt) + " commission received at hub.";
+                String body = "Rs. " + String.format("%.2f", amt) + " COD deposit received at hub.";
                 if (wallet.getCodPendingAmount() <= resolveHandoverLimit(riderId) - 0.0001) {
                     body += " You can accept orders again.";
                 }
@@ -2314,6 +2319,19 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * Deposit amount this fin line represents.
+     * New orders: codCollectedAmount − riderEarningAmount (e.g. 820 − 40 = 780).
+     * Legacy orders (codCollectedAmount not set): falls back to commissionAmount for backward compat.
+     */
+    private static double resolveLineDepositAmount(OrderRiderFinancialEntity fin) {
+        double collected = nz(fin.getCodCollectedAmount());
+        if (collected > 0.0001) {
+            return round2(Math.max(0.0, collected - nz(fin.getRiderEarningAmount())));
+        }
+        return round2(nz(fin.getCommissionAmount()));
     }
 
     private static void setErr(ApiResponse<?> r, String msg) {
