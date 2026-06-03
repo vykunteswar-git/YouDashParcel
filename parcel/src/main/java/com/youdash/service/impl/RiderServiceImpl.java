@@ -4,9 +4,14 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
 import java.security.SecureRandom;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -15,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.youdash.bean.ApiResponse;
 import com.youdash.dto.OrderResponseDTO;
@@ -64,6 +70,11 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 public class RiderServiceImpl implements RiderService {
 
     private static final SecureRandom RIDER_ID_RANDOM = new SecureRandom();
+
+    private static final String HIDDEN_WALLET_TXN_NOTE = "COD collected by rider - pending settlement";
+
+    private static final int ADMIN_LIST_RECENT_LIMIT = 10;
+
     private static final List<OrderStatus> ACTIVE_ASSIGNMENT_STATUSES = List.of(
             OrderStatus.RIDER_ACCEPTED,
             OrderStatus.PAYMENT_PENDING,
@@ -160,7 +171,7 @@ public class RiderServiceImpl implements RiderService {
                 throw new RuntimeException("Rider phone is required");
             }
             String phone = dto.getPhone().trim();
-            if (phone.length() < 10) {
+            if (!isValidPhoneNumber(phone)) {
                 throw new RuntimeException("Invalid phone number");
             }
             if (riderRepository.findByPhone(phone).isPresent()) {
@@ -178,7 +189,7 @@ public class RiderServiceImpl implements RiderService {
             if (dto.getEmergencyPhone() == null || dto.getEmergencyPhone().trim().isEmpty()) {
                 throw new RuntimeException("Emergency phone is required");
             }
-            if (dto.getEmergencyPhone().trim().length() < 10) {
+            if (!isValidPhoneNumber(dto.getEmergencyPhone().trim())) {
                 throw new RuntimeException("Invalid emergency phone number");
             }
             if (dto.getProfileImageUrl() == null || dto.getProfileImageUrl().trim().isEmpty()) {
@@ -315,9 +326,7 @@ public class RiderServiceImpl implements RiderService {
         ApiResponse<List<RiderResponseDTO>> response = new ApiResponse<>();
         try {
             List<RiderEntity> riders = riderRepository.findAll();
-            List<RiderResponseDTO> dtos = riders.stream()
-                    .map(this::mapToResponseDTO)
-                    .collect(Collectors.toList());
+            List<RiderResponseDTO> dtos = mapRidersForAdminList(riders);
 
             response.setData(dtos);
             response.setMessage("Riders fetched successfully");
@@ -341,6 +350,7 @@ public class RiderServiceImpl implements RiderService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public ApiResponse<RiderResponseDTO> updateAvailability(Long riderId, Boolean status) {
         ApiResponse<RiderResponseDTO> response = new ApiResponse<>();
         try {
@@ -784,7 +794,6 @@ public class RiderServiceImpl implements RiderService {
         }
         OrderStatus status = order.getStatus();
         return status == OrderStatus.AT_DESTINATION_HUB
-                || status == OrderStatus.AT_DESTINATION_HUB
                 || status == OrderStatus.AWAITING_HUB_COLLECTION
                 || status == OrderStatus.OUT_FOR_DELIVERY;
     }
@@ -950,7 +959,8 @@ public class RiderServiceImpl implements RiderService {
         if (riderId == null) {
             return;
         }
-        dto.setTotalOrdersDelivered(orderRepository.countByRiderIdAndStatus(riderId, OrderStatus.DELIVERED));
+        dto.setTotalOrdersDelivered(
+                orderRepository.countDeliveredByRiderAnyField(riderId, OrderStatus.DELIVERED));
 
         RiderWalletEntity w = riderWalletRepository.findByRiderId(riderId).orElse(null);
         if (w != null) {
@@ -962,16 +972,16 @@ public class RiderServiceImpl implements RiderService {
             dto.setWalletNetAvailable(
                     round2(w.getCurrentBalance() - w.getWithdrawalPendingAmount()));
         }
-        if (riderId != null) {
-            RiderEntity riderRow = riderRepository.findById(riderId).orElse(null);
-            Double limit = riderRow != null ? riderRow.getCodHandoverLimit() : null;
-            dto.setCodHandoverLimit(limit != null && limit > 0 ? round2(limit) : 1000.0);
-            dto.setDispatchBlocked(riderWalletService.isRiderDispatchBlocked(riderId));
-        }
+        RiderEntity riderRow = riderRepository.findById(riderId).orElse(null);
+        Double limit = riderRow != null ? riderRow.getCodHandoverLimit() : null;
+        dto.setCodHandoverLimit(limit != null && limit > 0 ? round2(limit) : 1000.0);
+        dto.setDispatchBlocked(riderWalletService.isRiderDispatchBlocked(riderId));
 
-        var page = PageRequest.of(0, 10);
+        var page = PageRequest.of(0, ADMIN_LIST_RECENT_LIMIT);
         dto.setRecentWalletTransactions(
-                riderWalletTransactionRepository.findByRiderIdOrderByCreatedAtDesc(riderId, page).stream()
+                riderWalletTransactionRepository
+                        .findRiderVisibleByRiderIdOrderByCreatedAtDesc(riderId, HIDDEN_WALLET_TXN_NOTE, page)
+                        .stream()
                         .map(this::toWalletTxnDto)
                         .collect(Collectors.toList()));
         dto.setRecentWithdrawals(
@@ -984,6 +994,167 @@ public class RiderServiceImpl implements RiderService {
                             .map(this::toRiderOrderPreview)
                             .collect(Collectors.toList()));
         }
+    }
+
+    private List<RiderResponseDTO> mapRidersForAdminList(List<RiderEntity> riders) {
+        if (riders.isEmpty()) {
+            return List.of();
+        }
+        List<Long> riderIds = riders.stream().map(RiderEntity::getId).filter(Objects::nonNull).toList();
+        Set<Long> zoneIds = riders.stream()
+                .map(RiderEntity::getZoneId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, ZoneEntity> zonesById = zoneRepository.findAllById(zoneIds).stream()
+                .collect(Collectors.toMap(ZoneEntity::getId, z -> z, (a, b) -> a));
+        Map<Long, RiderWalletEntity> walletsByRiderId = riderIds.isEmpty()
+                ? Map.of()
+                : riderWalletRepository.findByRiderIdIn(riderIds).stream()
+                        .collect(Collectors.toMap(RiderWalletEntity::getRiderId, w -> w, (a, b) -> a));
+
+        int prefetchRows = Math.min(500, Math.max(riderIds.size() * ADMIN_LIST_RECENT_LIMIT, ADMIN_LIST_RECENT_LIMIT));
+        PageRequest prefetchPage = PageRequest.of(0, prefetchRows);
+        Map<Long, List<RiderWalletTransactionDTO>> txnsByRider = groupRecentByRider(
+                riderWalletTransactionRepository.findRiderVisibleByRiderIdInOrderByCreatedAtDesc(
+                        riderIds, HIDDEN_WALLET_TXN_NOTE, prefetchPage),
+                RiderWalletTransactionEntity::getRiderId,
+                ADMIN_LIST_RECENT_LIMIT,
+                this::toWalletTxnDto);
+        Map<Long, List<RiderWithdrawalDTO>> withdrawalsByRider = groupRecentByRider(
+                riderWithdrawalRepository.findByRiderIdInOrderByCreatedAtDesc(riderIds, prefetchPage),
+                RiderWithdrawalEntity::getRiderId,
+                ADMIN_LIST_RECENT_LIMIT,
+                this::toWithdrawalDto);
+        Map<Long, List<OrderResponseDTO>> ordersByRider = groupRecentOrdersForRiders(
+                orderRepository.findRecentOrdersForRiders(riderIds, prefetchPage),
+                riderIds,
+                ADMIN_LIST_RECENT_LIMIT);
+
+        return riders.stream()
+                .map(r -> mapToResponseDTOForAdminList(
+                        r, zonesById, walletsByRiderId, txnsByRider, withdrawalsByRider, ordersByRider))
+                .collect(Collectors.toList());
+    }
+
+    private RiderResponseDTO mapToResponseDTOForAdminList(
+            RiderEntity rider,
+            Map<Long, ZoneEntity> zonesById,
+            Map<Long, RiderWalletEntity> walletsByRiderId,
+            Map<Long, List<RiderWalletTransactionDTO>> txnsByRider,
+            Map<Long, List<RiderWithdrawalDTO>> withdrawalsByRider,
+            Map<Long, List<OrderResponseDTO>> ordersByRider) {
+        RiderResponseDTO dto = new RiderResponseDTO();
+        dto.setId(rider.getId());
+        dto.setPublicId(rider.getPublicId());
+        dto.setName(rider.getName());
+        dto.setPhone(rider.getPhone());
+        dto.setEmail(rider.getEmail());
+        dto.setZoneId(rider.getZoneId());
+        if (rider.getZoneId() != null) {
+            ZoneEntity zone = zonesById.get(rider.getZoneId());
+            if (zone != null) {
+                dto.setZoneName(zone.getName());
+            }
+        }
+        dto.setVehicleId(rider.getVehicleId());
+        dto.setVehicleType(rider.getVehicleType());
+        dto.setVehicleNumber(rider.getVehicleNumber());
+        dto.setIsAvailable(rider.getIsAvailable());
+        dto.setIsBlocked(rider.getIsBlocked());
+        String riderStatus = computeRiderStatus(rider);
+        dto.setRiderStatus(riderStatus);
+        dto.setHasActiveOrder("ORDER_ASSIGNED".equals(riderStatus));
+        dto.setRating(rider.getRating());
+        dto.setApprovalStatus(rider.getApprovalStatus());
+        dto.setEmergencyPhone(rider.getEmergencyPhone());
+        dto.setCurrentLat(rider.getCurrentLat());
+        dto.setCurrentLng(rider.getCurrentLng());
+        dto.setFcmToken(rider.getFcmToken());
+        dto.setProfileImageUrl(rider.getProfileImageUrl());
+        dto.setAadhaarImageUrl(rider.getAadhaarImageUrl());
+        dto.setLicenseImageUrl(rider.getLicenseImageUrl());
+
+        Long riderId = rider.getId();
+        if (riderId != null) {
+            dto.setTotalOrdersDelivered(
+                    orderRepository.countDeliveredByRiderAnyField(riderId, OrderStatus.DELIVERED));
+            RiderWalletEntity w = walletsByRiderId.get(riderId);
+            if (w != null) {
+                dto.setWalletCurrentBalance(round2(w.getCurrentBalance()));
+                dto.setWalletTotalEarnings(round2(w.getTotalEarnings()));
+                dto.setWalletTotalWithdrawn(round2(w.getTotalWithdrawn()));
+                dto.setWalletCodPendingAmount(round2(w.getCodPendingAmount()));
+                dto.setWalletWithdrawalPendingAmount(round2(w.getWithdrawalPendingAmount()));
+                dto.setWalletNetAvailable(round2(w.getCurrentBalance() - w.getWithdrawalPendingAmount()));
+            }
+            Double limit = rider.getCodHandoverLimit();
+            dto.setCodHandoverLimit(limit != null && limit > 0 ? round2(limit) : 1000.0);
+            dto.setDispatchBlocked(riderWalletService.isRiderDispatchBlocked(riderId));
+            dto.setRecentWalletTransactions(txnsByRider.getOrDefault(riderId, List.of()));
+            dto.setRecentWithdrawals(withdrawalsByRider.getOrDefault(riderId, List.of()));
+            dto.setRecentOrders(ordersByRider.getOrDefault(riderId, List.of()));
+        }
+        return dto;
+    }
+
+    private static <T, D> Map<Long, List<D>> groupRecentByRider(
+            List<T> rows,
+            Function<T, Long> riderIdFn,
+            int limit,
+            Function<T, D> mapper) {
+        Map<Long, List<D>> grouped = new HashMap<>();
+        for (T row : rows) {
+            Long riderId = riderIdFn.apply(row);
+            if (riderId == null) {
+                continue;
+            }
+            List<D> bucket = grouped.computeIfAbsent(riderId, ignored -> new ArrayList<>());
+            if (bucket.size() < limit) {
+                bucket.add(mapper.apply(row));
+            }
+        }
+        return grouped;
+    }
+
+    private Map<Long, List<OrderResponseDTO>> groupRecentOrdersForRiders(
+            List<OrderEntity> orders,
+            List<Long> riderIds,
+            int limit) {
+        Map<Long, List<OrderResponseDTO>> grouped = new HashMap<>();
+        Set<Long> riderIdSet = Set.copyOf(riderIds);
+        for (OrderEntity order : orders) {
+            addRecentOrderForRider(grouped, riderIdSet, order.getRiderId(), order, limit);
+            addRecentOrderForRider(grouped, riderIdSet, order.getPickupRiderId(), order, limit);
+            addRecentOrderForRider(grouped, riderIdSet, order.getDeliveryRiderId(), order, limit);
+        }
+        return grouped;
+    }
+
+    private void addRecentOrderForRider(
+            Map<Long, List<OrderResponseDTO>> grouped,
+            Set<Long> riderIdSet,
+            Long riderId,
+            OrderEntity order,
+            int limit) {
+        if (riderId == null || !riderIdSet.contains(riderId)) {
+            return;
+        }
+        List<OrderResponseDTO> bucket = grouped.computeIfAbsent(riderId, ignored -> new ArrayList<>());
+        if (bucket.size() >= limit) {
+            return;
+        }
+        boolean alreadyAdded = bucket.stream().anyMatch(d -> Objects.equals(d.getId(), order.getId()));
+        if (!alreadyAdded) {
+            bucket.add(toRiderOrderPreview(order));
+        }
+    }
+
+    private static boolean isValidPhoneNumber(String phone) {
+        if (phone == null || phone.isBlank()) {
+            return false;
+        }
+        long digits = phone.chars().filter(Character::isDigit).count();
+        return digits >= 10 && digits <= 15;
     }
 
     private RiderWalletTransactionDTO toWalletTxnDto(RiderWalletTransactionEntity e) {

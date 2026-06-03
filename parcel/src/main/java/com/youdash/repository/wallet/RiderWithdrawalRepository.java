@@ -1,5 +1,6 @@
 package com.youdash.repository.wallet;
 
+import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.domain.Pageable;
@@ -13,6 +14,8 @@ import com.youdash.model.wallet.WithdrawalStatus;
 public interface RiderWithdrawalRepository extends JpaRepository<RiderWithdrawalEntity, Long> {
 
     List<RiderWithdrawalEntity> findByRiderIdOrderByCreatedAtDesc(Long riderId, Pageable pageable);
+
+    List<RiderWithdrawalEntity> findByRiderIdInOrderByCreatedAtDesc(Collection<Long> riderIds, Pageable pageable);
 
     List<RiderWithdrawalEntity> findByStatusOrderByCreatedAtDesc(WithdrawalStatus status, Pageable pageable);
 

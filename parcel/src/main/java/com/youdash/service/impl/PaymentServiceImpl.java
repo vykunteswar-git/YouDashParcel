@@ -29,6 +29,7 @@ import com.youdash.service.NotificationService;
 import com.youdash.service.OrderTimelineService;
 import com.youdash.service.OrderService;
 import com.youdash.service.PaymentService;
+import com.youdash.service.wallet.RiderWalletService;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -103,6 +104,9 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Autowired
     private OrderTimelineService orderTimelineService;
+
+    @Autowired
+    private RiderWalletService riderWalletService;
 
     @PostConstruct
     void logRazorpayConfigState() {
@@ -373,6 +377,7 @@ public class PaymentServiceImpl implements PaymentService {
                         "Outstation payment verified");
             }
             notifyPaymentSuccess(order);
+            retryWalletSettlementIfDelivered(order);
 
             response.setMessage("Payment verified successfully");
             response.setMessageKey("SUCCESS");
@@ -511,6 +516,7 @@ public class PaymentServiceImpl implements PaymentService {
                     order.setPaymentUpdatedAt(now);
                     orderRepository.save(order);
                     notifyPaymentSuccess(order);
+                    retryWalletSettlementIfDelivered(order);
                 }
             } else if ("payment.failed".equalsIgnoreCase(event)) {
                 if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())) {
@@ -549,6 +555,27 @@ public class PaymentServiceImpl implements PaymentService {
         ApiResponse<OrderResponseDTO> fetched = orderService.getOrder(order.getId(), order.getUserId(), null, true);
         if (Boolean.TRUE.equals(fetched.getSuccess()) && fetched.getData() != null) {
             response.setData(fetched.getData());
+        }
+    }
+
+    private void retryWalletSettlementIfDelivered(OrderEntity order) {
+        if (order == null || order.getId() == null || order.getStatus() != OrderStatus.DELIVERED) {
+            return;
+        }
+        if (order.getPaymentType() != PaymentType.ONLINE) {
+            return;
+        }
+        if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())) {
+            return;
+        }
+        Long actorRiderId = order.getRiderId() != null ? order.getRiderId() : order.getDeliveryRiderId();
+        try {
+            riderWalletService.settleOrderDelivered(order, null, null, actorRiderId, "PAYMENT_CONFIRMED");
+            if (actorRiderId != null) {
+                riderWalletService.repairPendingDeliveryWalletCredits(actorRiderId);
+            }
+        } catch (Exception ex) {
+            log.warn("WALLET_SETTLE_ON_PAYMENT orderId={}: {}", order.getId(), ex.getMessage());
         }
     }
 

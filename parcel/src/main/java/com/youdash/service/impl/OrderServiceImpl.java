@@ -66,6 +66,27 @@ public class OrderServiceImpl implements OrderService {
     private static final int ADDRESS_SUGGESTION_MAX_LIMIT = 7;
     private static final int ADDRESS_SUGGESTION_MAX_ORDERS_SCAN = 250;
 
+    private static final List<OrderStatus> RIDER_RELEASE_ACTIVE_STATUSES = List.of(
+            OrderStatus.RIDER_ACCEPTED,
+            OrderStatus.PAYMENT_PENDING,
+            OrderStatus.RIDER_ASSIGNED,
+            OrderStatus.PICKUP_ASSIGNED,
+            OrderStatus.PICKED_UP,
+            OrderStatus.AT_ORIGIN_HUB,
+            OrderStatus.IN_TRANSIT,
+            OrderStatus.AT_DESTINATION_HUB,
+            OrderStatus.OUT_FOR_DELIVERY,
+            OrderStatus.AWAITING_HUB_COLLECTION);
+
+    private static final List<OrderStatus> RIDER_RELEASE_PICKUP_DONE_STATUSES = List.of(
+            OrderStatus.AT_ORIGIN_HUB,
+            OrderStatus.IN_TRANSIT,
+            OrderStatus.AT_DESTINATION_HUB,
+            OrderStatus.OUT_FOR_DELIVERY,
+            OrderStatus.AWAITING_HUB_COLLECTION,
+            OrderStatus.DELIVERED,
+            OrderStatus.COLLECTED);
+
     @Autowired
     private AppConfigRepository appConfigRepository;
 
@@ -2878,10 +2899,11 @@ public class OrderServiceImpl implements OrderService {
         if (riderId == null) {
             return;
         }
-        riderRepository.findById(riderId).ifPresent(r -> {
-            r.setIsAvailable(true);
-            riderRepository.save(r);
-        });
+        if (orderRepository.existsByRiderActiveRoleAndStatusIn(
+                riderId, RIDER_RELEASE_ACTIVE_STATUSES, RIDER_RELEASE_PICKUP_DONE_STATUSES)) {
+            return;
+        }
+        riderRepository.release(riderId);
     }
 
     /**

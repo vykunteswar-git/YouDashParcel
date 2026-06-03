@@ -2,6 +2,7 @@ package com.youdash.service.impl;
 
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -40,6 +41,27 @@ import com.youdash.service.wallet.RiderWalletService;
 @Slf4j
 @Service
 public class RiderOrderServiceImpl implements RiderOrderService {
+
+    private static final List<OrderStatus> ACTIVE_ASSIGNMENT_STATUSES = List.of(
+            OrderStatus.RIDER_ACCEPTED,
+            OrderStatus.PAYMENT_PENDING,
+            OrderStatus.RIDER_ASSIGNED,
+            OrderStatus.PICKUP_ASSIGNED,
+            OrderStatus.PICKED_UP,
+            OrderStatus.AT_ORIGIN_HUB,
+            OrderStatus.IN_TRANSIT,
+            OrderStatus.AT_DESTINATION_HUB,
+            OrderStatus.OUT_FOR_DELIVERY,
+            OrderStatus.AWAITING_HUB_COLLECTION);
+
+    private static final List<OrderStatus> PICKUP_RIDER_DONE_STATUSES = List.of(
+            OrderStatus.AT_ORIGIN_HUB,
+            OrderStatus.IN_TRANSIT,
+            OrderStatus.AT_DESTINATION_HUB,
+            OrderStatus.OUT_FOR_DELIVERY,
+            OrderStatus.AWAITING_HUB_COLLECTION,
+            OrderStatus.DELIVERED,
+            OrderStatus.COLLECTED);
 
     @Autowired
     private OrderRepository orderRepository;
@@ -166,16 +188,17 @@ public class RiderOrderServiceImpl implements RiderOrderService {
             refreshed.setDeliveryRiderId(riderId);
             refreshed = orderRepository.save(refreshed);
         }
-        appendTimeline(refreshed, statusAfterAccept, "rider_accepted", refreshed.getOriginHubId(), riderId, "Rider accepted order");
+        appendTimeline(refreshed, statusAfterAccept, "rider_accepted", refreshed.getOriginHubId(), riderId,
+                "Rider accepted order");
 
-        // 4) Notify user + rider topic after commit so HTTP (e.g. POST /payments/create-order) sees RIDER_ACCEPTED.
+        // 4) Notify user + rider topic after commit so HTTP (e.g. POST
+        // /payments/create-order) sees RIDER_ACCEPTED.
         final Long userId = order.getUserId();
         final Long acceptedOrderId = orderId;
         final Instant paymentDueFinal = paymentDue;
         final boolean codFinal = cod;
         final Long riderIdFinal = riderId;
-        final String serviceModeFinal =
-                refreshed.getServiceMode() == null ? null : refreshed.getServiceMode().name();
+        final String serviceModeFinal = refreshed.getServiceMode() == null ? null : refreshed.getServiceMode().name();
         TransactionAfterCommit.run(() -> {
             if (codFinal) {
                 sendUserEvent(userId, acceptedOrderId, "rider_found", OrderStatus.RIDER_ASSIGNED, null, riderIdFinal);
@@ -187,13 +210,16 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                         userRiderAcceptedPushData(acceptedOrderId, OrderStatus.RIDER_ASSIGNED, null, riderIdFinal),
                         NotificationType.USER_RIDER_ACCEPTED);
             } else {
-                sendUserEvent(userId, acceptedOrderId, "rider_found", OrderStatus.RIDER_ACCEPTED, paymentDueFinal, riderIdFinal);
-                sendUserEvent(userId, acceptedOrderId, "payment_required", OrderStatus.RIDER_ACCEPTED, paymentDueFinal, riderIdFinal);
+                sendUserEvent(userId, acceptedOrderId, "rider_found", OrderStatus.RIDER_ACCEPTED, paymentDueFinal,
+                        riderIdFinal);
+                sendUserEvent(userId, acceptedOrderId, "payment_required", OrderStatus.RIDER_ACCEPTED, paymentDueFinal,
+                        riderIdFinal);
                 notificationService.sendToUser(
                         userId,
                         "Rider accepted",
                         "Complete payment within 60 seconds to confirm order #" + acceptedOrderId + ".",
-                        userRiderAcceptedPushData(acceptedOrderId, OrderStatus.RIDER_ACCEPTED, paymentDueFinal, riderIdFinal),
+                        userRiderAcceptedPushData(acceptedOrderId, OrderStatus.RIDER_ACCEPTED, paymentDueFinal,
+                                riderIdFinal),
                         NotificationType.USER_RIDER_ACCEPTED);
             }
             riderActiveOrderTopicPublisher.publish(riderIdFinal, acceptedOrderId, statusAfterAccept, "assigned");
@@ -238,6 +264,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
             }
             if (order.getPaymentType() == PaymentType.COD
                     && OutstationCodPolicy.pickupRiderCollectsCod(order)
+                    && nz(order.getTotalAmount()) > 0.0
                     && (order.getCodCollectedAmount() == null || order.getCodCollectedAmount() <= 0.0)) {
                 throw new BadRequestException("Collect COD from the sender before confirming pickup");
             }
@@ -245,7 +272,8 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         }
         transitionStatus(order, OrderStatus.PICKED_UP);
         OrderEntity saved = orderRepository.save(order);
-        appendTimeline(saved, saved.getStatus(), "picked_up", saved.getOriginHubId(), riderId, "Parcel picked by rider");
+        appendTimeline(saved, saved.getStatus(), "picked_up", saved.getOriginHubId(), riderId,
+                "Parcel picked by rider");
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
         adminOrderTopicPublisher.publishStatusUpdated(saved);
         userActiveOrderTopicPublisher.publishStatusUpdated(
@@ -288,7 +316,8 @@ public class RiderOrderServiceImpl implements RiderOrderService {
             transitionStatus(order, OrderStatus.IN_TRANSIT);
         }
         OrderEntity saved = orderRepository.save(order);
-        appendTimeline(saved, saved.getStatus(), "in_transit", saved.getOriginHubId(), riderId, "Rider started transit");
+        appendTimeline(saved, saved.getStatus(), "in_transit", saved.getOriginHubId(), riderId,
+                "Rider started transit");
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "status_updated", saved.getStatus(), riderId);
         adminOrderTopicPublisher.publishStatusUpdated(saved);
         userActiveOrderTopicPublisher.publishStatusUpdated(
@@ -409,8 +438,11 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                 throw new BadRequestException("OUTSTATION order must be PICKED_UP to record origin hub arrival");
             }
             transitionStatus(order, OrderStatus.AT_ORIGIN_HUB);
-        } else if (order.getStatus() != OrderStatus.IN_TRANSIT) {
-            throw new BadRequestException("Order must be IN_TRANSIT to record destination arrival");
+        } else {
+            // INCITY: remain IN_TRANSIT until OTP verify + delivery complete.
+            if (order.getStatus() != OrderStatus.IN_TRANSIT) {
+                throw new BadRequestException("Order must be IN_TRANSIT to record destination arrival");
+            }
         }
         OrderEntity saved = orderRepository.save(order);
         // REQUIRES_NEW ensures wallet settlement is its own transaction — a wallet
@@ -425,7 +457,8 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         }
         sendTypedUserEvent(saved.getUserId(), saved.getId(), "reach_destination", saved.getStatus(), riderId);
         adminOrderTopicPublisher.publish("reach_destination", saved);
-        appendTimeline(saved, saved.getStatus(), "reach_destination", saved.getDestinationHubId(), riderId, "Rider reached destination");
+        appendTimeline(saved, saved.getStatus(), "reach_destination", saved.getDestinationHubId(), riderId,
+                "Rider reached destination");
         userActiveOrderTopicPublisher.publishStatusUpdated(
                 saved.getUserId(),
                 saved.getId(),
@@ -459,6 +492,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public ApiResponse<String> reject(Long riderId, Long orderId) {
         ApiResponse<String> response = new ApiResponse<>();
         if (riderId == null || orderId == null) {
@@ -637,10 +671,15 @@ public class RiderOrderServiceImpl implements RiderOrderService {
         if (riderId == null) {
             return;
         }
-        riderRepository.findById(riderId).ifPresent(r -> {
-            r.setIsAvailable(true);
-            riderRepository.save(r);
-        });
+        if (orderRepository.existsByRiderActiveRoleAndStatusIn(
+                riderId, ACTIVE_ASSIGNMENT_STATUSES, PICKUP_RIDER_DONE_STATUSES)) {
+            return;
+        }
+        riderRepository.release(riderId);
+    }
+
+    private static double nz(Double value) {
+        return value == null ? 0.0 : value;
     }
 
 }

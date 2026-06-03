@@ -1,5 +1,7 @@
 package com.youdash.repository.wallet;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -16,6 +18,8 @@ import jakarta.persistence.LockModeType;
 public interface RiderWalletRepository extends JpaRepository<RiderWalletEntity, Long> {
 
     Optional<RiderWalletEntity> findByRiderId(Long riderId);
+
+    List<RiderWalletEntity> findByRiderIdIn(Collection<Long> riderIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select w from RiderWalletEntity w where w.riderId = :riderId")

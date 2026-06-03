@@ -16,6 +16,7 @@ import java.time.temporal.TemporalAdjusters;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -102,6 +103,11 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             OrderStatus.AT_DESTINATION_HUB,
             OrderStatus.OUT_FOR_DELIVERY,
             OrderStatus.AWAITING_HUB_COLLECTION);
+
+    private static final String HIDDEN_WALLET_TXN_NOTE = "COD collected by rider - pending settlement";
+
+    @Value("${youdash.reporting.zone:Asia/Kolkata}")
+    private String reportingZone;
 
     @Autowired
     private RiderWalletRepository riderWalletRepository;
@@ -231,7 +237,7 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             if (netAvailable < -0.0001) {
                 log.warn("NEGATIVE_NET_AVAILABLE -> riderId={}, net={}", riderId, round2(netAvailable));
             }
-            ZoneId zone = ZoneId.systemDefault();
+            ZoneId zone = resolveReportingZone();
             ZonedDateTime now = ZonedDateTime.now(zone);
             Instant nowTs = now.toInstant();
             Instant startOfToday = now.toLocalDate().atStartOfDay(zone).toInstant();
@@ -274,9 +280,8 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         try {
             var pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 200));
             List<RiderWalletTransactionDTO> list = riderWalletTransactionRepository
-                    .findByRiderIdOrderByCreatedAtDesc(riderId, pageable)
+                    .findRiderVisibleByRiderIdOrderByCreatedAtDesc(riderId, HIDDEN_WALLET_TXN_NOTE, pageable)
                     .stream()
-                    .filter(this::isRiderVisibleTransaction)
                     .map(this::toTxnDto)
                     .collect(Collectors.toList());
             response.setData(list);
@@ -741,6 +746,19 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             return;
         }
         try {
+            List<OrderEntity> deliveredOrders = orderRepository.findDeliveredOrdersForRider(
+                    riderId, PageRequest.of(0, 100));
+            for (OrderEntity order : deliveredOrders) {
+                try {
+                    settleOrderDelivered(order, null, null, riderId, "REPAIR");
+                } catch (RuntimeException ex) {
+                    log.warn(
+                            "DELIVERED_SETTLE_REPAIR_FAILED orderId={} riderId={}: {}",
+                            order.getId(),
+                            riderId,
+                            ex.getMessage());
+                }
+            }
             List<OrderEntity> orders = orderRepository.findDeliveredOutstationOrdersForRider(
                     riderId, PageRequest.of(0, 100));
             for (OrderEntity order : orders) {
@@ -953,7 +971,11 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         double collected = 0.0;
         if (payType == PaymentType.ONLINE) {
             if (!"PAID".equalsIgnoreCase(nzStr(order.getPaymentStatus()))) {
-                throw new RuntimeException("ONLINE order must be PAID before settlement");
+                log.info(
+                        "ORDER_SETTLE_DEFER orderId={} riderId={}: ONLINE payment not PAID yet",
+                        order.getId(),
+                        riderId);
+                return;
             }
             fin.setCodCollectedAmount(null);
             fin.setCodCollectionMode(null);
@@ -1053,7 +1075,10 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         double earnDrop = deliveryLeg.riderEarning();
 
         if (payType == PaymentType.ONLINE && !"PAID".equalsIgnoreCase(nzStr(order.getPaymentStatus()))) {
-            throw new RuntimeException("ONLINE order must be PAID before settlement");
+            log.info(
+                    "ORDER_SETTLE_DEFER orderId={}: split OUTSTATION ONLINE payment not PAID yet",
+                    order.getId());
+            return;
         }
         double collected = payType == PaymentType.COD ? round2(orderAmount) : 0.0;
         if (payType == PaymentType.COD && collected <= 0) {
@@ -2244,16 +2269,12 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         return d;
     }
 
-    private boolean isRiderVisibleTransaction(RiderWalletTransactionEntity e) {
-        if (e == null) {
-            return false;
+    private ZoneId resolveReportingZone() {
+        try {
+            return ZoneId.of(reportingZone);
+        } catch (Exception ignored) {
+            return ZoneId.of("Asia/Kolkata");
         }
-        String note = nzStr(e.getNote());
-        // This row records COD cash collection liability movement, not rider earning.
-        if ("COD collected by rider - pending settlement".equals(note)) {
-            return false;
-        }
-        return true;
     }
 
     private double sumRiderEarningsBetween(Long riderId, Instant fromTs, Instant toTs) {

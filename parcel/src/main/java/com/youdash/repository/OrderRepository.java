@@ -11,6 +11,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -25,6 +26,27 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             """)
     List<OrderEntity> findDeliveredOutstationOrdersForRider(
             @Param("riderId") Long riderId,
+            Pageable pageable);
+
+    @Query("""
+            SELECT o FROM OrderEntity o
+            WHERE o.status = com.youdash.model.OrderStatus.DELIVERED
+              AND (o.riderId = :riderId OR o.pickupRiderId = :riderId OR o.deliveryRiderId = :riderId)
+            ORDER BY o.createdAt DESC
+            """)
+    List<OrderEntity> findDeliveredOrdersForRider(
+            @Param("riderId") Long riderId,
+            Pageable pageable);
+
+    @Query("""
+            SELECT o FROM OrderEntity o
+            WHERE o.riderId IN :riderIds
+               OR o.pickupRiderId IN :riderIds
+               OR o.deliveryRiderId IN :riderIds
+            ORDER BY o.createdAt DESC
+            """)
+    List<OrderEntity> findRecentOrdersForRiders(
+            @Param("riderIds") Collection<Long> riderIds,
             Pageable pageable);
 
     @Query("""
