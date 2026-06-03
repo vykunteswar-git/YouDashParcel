@@ -344,6 +344,26 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             @Param("paymentMethod") String paymentMethod,
             @Param("now") Instant now);
 
+    /**
+     * Promotes INCITY order status when payment is already PAID (e.g. Razorpay webhook race).
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update OrderEntity o
+               set o.status = :newStatus,
+                   o.paymentUpdatedAt = :now
+             where o.id = :orderId
+               and o.serviceMode = :serviceMode
+               and o.status in :expectedStatuses
+               and upper(o.paymentStatus) = 'PAID'
+            """)
+    int confirmPaidIncityOrderStatus(
+            @Param("orderId") Long orderId,
+            @Param("serviceMode") ServiceMode serviceMode,
+            @Param("expectedStatuses") List<OrderStatus> expectedStatuses,
+            @Param("newStatus") OrderStatus newStatus,
+            @Param("now") Instant now);
+
     Optional<OrderEntity> findByDisplayOrderId(String displayOrderId);
 
     Optional<OrderEntity> findByRazorpayOrderId(String razorpayOrderId);

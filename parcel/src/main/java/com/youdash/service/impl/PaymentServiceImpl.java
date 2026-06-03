@@ -240,7 +240,19 @@ public class PaymentServiceImpl implements PaymentService {
             assertOrderOwner(order, userId);
 
             if ("PAID".equalsIgnoreCase(order.getPaymentStatus())) {
-                response.setMessage("Payment already verified");
+                if (needsIncityOnlineStatusConfirmation(order)) {
+                    order = finalizeIncityOnlineOrderAfterPayment(
+                            order,
+                            order.getRazorpayPaymentId(),
+                            order.getPaymentMethod() != null ? order.getPaymentMethod() : "RAZORPAY",
+                            verificationStartedAt,
+                            true);
+                    notifyPaymentSuccess(order);
+                    retryWalletSettlementIfDelivered(order);
+                    response.setMessage("Payment verified successfully");
+                } else {
+                    response.setMessage("Payment already verified");
+                }
                 response.setMessageKey("SUCCESS");
                 response.setStatus(200);
                 response.setSuccess(true);
@@ -293,70 +305,12 @@ public class PaymentServiceImpl implements PaymentService {
             }
 
             if (order.getServiceMode() == ServiceMode.INCITY) {
-                int updated = orderRepository.markPaidAndConfirm(
-                        order.getId(),
-                        ServiceMode.INCITY,
-                        List.of(OrderStatus.RIDER_ACCEPTED, OrderStatus.PAYMENT_PENDING),
-                        OrderStatus.RIDER_ASSIGNED,
-                        "PAID",
+                order = finalizeIncityOnlineOrderAfterPayment(
+                        order,
                         dto.getRazorpayPaymentId().trim(),
                         "RAZORPAY",
-                        verificationStartedAt);
-                log.info(
-                        "PAY_VERIFY_FINALIZE orderId={} updated={} statusBefore={} paymentStatusBefore={} dueAt={}",
-                        order.getId(),
-                        updated,
-                        order.getStatus(),
-                        order.getPaymentStatus(),
-                        order.getPaymentDueAt());
-                // If updated==0 it could be already PAID/confirmed/cancelled; refetch to confirm state.
-                order = orderRepository.findById(order.getId()).orElse(order);
-                if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())
-                        && (order.getStatus() == OrderStatus.RIDER_ACCEPTED || order.getStatus() == OrderStatus.PAYMENT_PENDING)) {
-                    // Fallback path: if conditional bulk update misses due to race/timing,
-                    // finalize directly when order is still in a verifiable state.
-                    Instant now = Instant.now();
-                    order.setPaymentStatus("PAID");
-                    order.setStatus(OrderStatus.RIDER_ASSIGNED);
-                    order.setRazorpayPaymentId(dto.getRazorpayPaymentId().trim());
-                    order.setPaymentMethod("RAZORPAY");
-                    if (order.getPaymentCreatedAt() == null) {
-                        order.setPaymentCreatedAt(now);
-                    }
-                    order.setPaymentUpdatedAt(now);
-                    order = orderRepository.save(order);
-                    log.warn(
-                            "PAY_VERIFY_FALLBACK_APPLIED orderId={} statusAfter={} paymentStatusAfter={}",
-                            order.getId(),
-                            order.getStatus(),
-                            order.getPaymentStatus());
-                }
-                if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())) {
-                    log.warn(
-                            "PAY_VERIFY_FINALIZE_FAILED orderId={} statusAfter={} paymentStatusAfter={} dueAt={}",
-                            order.getId(),
-                            order.getStatus(),
-                            order.getPaymentStatus(),
-                            order.getPaymentDueAt());
-                    throw new RuntimeException("Payment verification failed to finalize order");
-                }
-                if (order.getRiderId() != null) {
-                    riderRepository.reserveIfAvailable(order.getRiderId());
-                }
-                sendConfirmedEvent(order.getUserId(), order.getId());
-                OrderEntity forRider = orderRepository.findById(order.getId()).orElse(order);
-                if (forRider.getRiderId() != null && forRider.getStatus() == OrderStatus.RIDER_ASSIGNED) {
-                    riderActiveOrderTopicPublisher.publish(
-                            forRider.getRiderId(), forRider.getId(), OrderStatus.RIDER_ASSIGNED, "confirmed");
-                }
-                orderTimelineService.appendEvent(
-                        order,
-                        OrderStatus.RIDER_ASSIGNED,
-                        "payment_verified",
-                        order.getOriginHubId(),
-                        order.getRiderId(),
-                        null,
-                        "Payment verified and order confirmed");
+                        verificationStartedAt,
+                        false);
             } else {
                 Instant now = Instant.now();
                 order.setPaymentStatus("PAID");
@@ -404,6 +358,120 @@ public class PaymentServiceImpl implements PaymentService {
         return response;
     }
 
+    private static boolean needsIncityOnlineStatusConfirmation(OrderEntity order) {
+        return order != null
+                && order.getServiceMode() == ServiceMode.INCITY
+                && order.getPaymentType() != PaymentType.COD
+                && (order.getStatus() == OrderStatus.RIDER_ACCEPTED
+                        || order.getStatus() == OrderStatus.PAYMENT_PENDING);
+    }
+
+    /**
+     * Marks INCITY online payment PAID and moves order to RIDER_ASSIGNED.
+     *
+     * @param paymentAlreadyPaid when true, only promotes order status (payment set elsewhere, e.g. webhook).
+     */
+    private OrderEntity finalizeIncityOnlineOrderAfterPayment(
+            OrderEntity order,
+            String razorpayPaymentId,
+            String paymentMethod,
+            Instant now,
+            boolean paymentAlreadyPaid) {
+        OrderStatus statusBefore = order.getStatus();
+        String paymentStatusBefore = order.getPaymentStatus();
+        if (paymentAlreadyPaid) {
+            int updated = orderRepository.confirmPaidIncityOrderStatus(
+                    order.getId(),
+                    ServiceMode.INCITY,
+                    List.of(OrderStatus.RIDER_ACCEPTED, OrderStatus.PAYMENT_PENDING),
+                    OrderStatus.RIDER_ASSIGNED,
+                    now);
+            log.info(
+                    "PAY_CONFIRM_PAID_STATUS orderId={} updated={} statusBefore={} paymentStatusBefore={}",
+                    order.getId(),
+                    updated,
+                    statusBefore,
+                    paymentStatusBefore);
+        } else {
+            int updated = orderRepository.markPaidAndConfirm(
+                    order.getId(),
+                    ServiceMode.INCITY,
+                    List.of(OrderStatus.RIDER_ACCEPTED, OrderStatus.PAYMENT_PENDING),
+                    OrderStatus.RIDER_ASSIGNED,
+                    "PAID",
+                    razorpayPaymentId,
+                    paymentMethod,
+                    now);
+            log.info(
+                    "PAY_VERIFY_FINALIZE orderId={} updated={} statusBefore={} paymentStatusBefore={} dueAt={}",
+                    order.getId(),
+                    updated,
+                    statusBefore,
+                    paymentStatusBefore,
+                    order.getPaymentDueAt());
+        }
+        order = orderRepository.findById(order.getId()).orElse(order);
+        if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())
+                && (order.getStatus() == OrderStatus.RIDER_ACCEPTED || order.getStatus() == OrderStatus.PAYMENT_PENDING)) {
+            order.setPaymentStatus("PAID");
+            order.setStatus(OrderStatus.RIDER_ASSIGNED);
+            if (razorpayPaymentId != null && !razorpayPaymentId.isBlank()) {
+                order.setRazorpayPaymentId(razorpayPaymentId);
+            }
+            order.setPaymentMethod(paymentMethod);
+            if (order.getPaymentCreatedAt() == null) {
+                order.setPaymentCreatedAt(now);
+            }
+            order.setPaymentUpdatedAt(now);
+            order = orderRepository.save(order);
+            log.warn(
+                    "PAY_VERIFY_FALLBACK_APPLIED orderId={} statusAfter={} paymentStatusAfter={}",
+                    order.getId(),
+                    order.getStatus(),
+                    order.getPaymentStatus());
+        } else if (needsIncityOnlineStatusConfirmation(order)) {
+            order.setStatus(OrderStatus.RIDER_ASSIGNED);
+            order.setPaymentUpdatedAt(now);
+            order = orderRepository.save(order);
+            log.warn(
+                    "PAY_CONFIRM_PAID_FALLBACK orderId={} statusAfter={} paymentStatusAfter={}",
+                    order.getId(),
+                    order.getStatus(),
+                    order.getPaymentStatus());
+        }
+        if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())) {
+            log.warn(
+                    "PAY_VERIFY_FINALIZE_FAILED orderId={} statusAfter={} paymentStatusAfter={} dueAt={}",
+                    order.getId(),
+                    order.getStatus(),
+                    order.getPaymentStatus(),
+                    order.getPaymentDueAt());
+            throw new RuntimeException("Payment verification failed to finalize order");
+        }
+        boolean statusPromoted = order.getStatus() == OrderStatus.RIDER_ASSIGNED
+                && (statusBefore == OrderStatus.RIDER_ACCEPTED || statusBefore == OrderStatus.PAYMENT_PENDING);
+        if (statusPromoted) {
+            if (order.getRiderId() != null) {
+                riderRepository.reserveIfAvailable(order.getRiderId());
+            }
+            sendConfirmedEvent(order.getUserId(), order.getId());
+            OrderEntity forRider = orderRepository.findById(order.getId()).orElse(order);
+            if (forRider.getRiderId() != null && forRider.getStatus() == OrderStatus.RIDER_ASSIGNED) {
+                riderActiveOrderTopicPublisher.publish(
+                        forRider.getRiderId(), forRider.getId(), OrderStatus.RIDER_ASSIGNED, "confirmed");
+            }
+            orderTimelineService.appendEvent(
+                    order,
+                    OrderStatus.RIDER_ASSIGNED,
+                    "payment_verified",
+                    order.getOriginHubId(),
+                    order.getRiderId(),
+                    null,
+                    "Payment verified and order confirmed");
+        }
+        return order;
+    }
+
     private void sendConfirmedEvent(Long userId, Long orderId) {
         if (userId == null || orderId == null) {
             return;
@@ -427,6 +495,7 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public ApiResponse<String> handleRazorpayWebhook(String payload, String razorpaySignature) {
         ApiResponse<String> response = new ApiResponse<>();
         try {
@@ -503,6 +572,21 @@ public class PaymentServiceImpl implements PaymentService {
                         riderActiveOrderTopicPublisher.publish(
                                 order.getRiderId(), order.getId(), order.getStatus(), "payment_confirmed",
                                 (String) null, order.getCodCollectedAmount());
+                    }
+                } else if (order.getServiceMode() == ServiceMode.INCITY && order.getPaymentType() != PaymentType.COD) {
+                    String paymentId = razorpayPaymentId != null && !razorpayPaymentId.trim().isEmpty()
+                            ? razorpayPaymentId.trim()
+                            : order.getRazorpayPaymentId();
+                    if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())
+                            || needsIncityOnlineStatusConfirmation(order)) {
+                        order = finalizeIncityOnlineOrderAfterPayment(
+                                order,
+                                paymentId,
+                                "RAZORPAY",
+                                now,
+                                "PAID".equalsIgnoreCase(order.getPaymentStatus()));
+                        notifyPaymentSuccess(order);
+                        retryWalletSettlementIfDelivered(order);
                     }
                 } else if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())) {
                     order.setPaymentStatus("PAID");
