@@ -154,7 +154,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                     "UNPAID",
                     now);
         } else {
-            paymentDue = now.plusSeconds(60);
+            paymentDue = now.plusSeconds(240);
             updated = orderRepository.tryAcceptOrder(
                     orderId,
                     riderId,
@@ -217,7 +217,7 @@ public class RiderOrderServiceImpl implements RiderOrderService {
                 notificationService.sendToUser(
                         userId,
                         "Rider accepted",
-                        "Complete payment within 60 seconds to confirm order #" + acceptedOrderId + ".",
+                        "Complete payment within 4 minutes to confirm order #" + acceptedOrderId + ".",
                         userRiderAcceptedPushData(acceptedOrderId, OrderStatus.RIDER_ACCEPTED, paymentDueFinal,
                                 riderIdFinal),
                         NotificationType.USER_RIDER_ACCEPTED);

@@ -210,7 +210,7 @@ public class RiderController {
     }
 
     @PostMapping("/orders/{orderId}/accept")
-    @Operation(summary = "Accept INCITY order request (JWT)", description = "Locks rider immediately and sets order to RIDER_ACCEPTED with 60s payment window.")
+    @Operation(summary = "Accept INCITY order request (JWT)", description = "Locks rider immediately and sets order to RIDER_ACCEPTED with 4 minute payment window.")
     public ApiResponse<?> acceptOrder(@PathVariable Long orderId, HttpServletRequest request) {
         Long riderId = riderAccessVerifier.resolveActingRiderId(request);
         return riderOrderService.accept(riderId, orderId);
