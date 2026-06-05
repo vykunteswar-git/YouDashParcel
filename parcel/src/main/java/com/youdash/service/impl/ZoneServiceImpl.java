@@ -8,6 +8,7 @@ import com.youdash.dto.ZoneRequestDTO;
 import com.youdash.dto.ZoneResponseDTO;
 import com.youdash.entity.ZoneEntity;
 import com.youdash.model.ZoneType;
+import com.youdash.repository.HubRepository;
 import com.youdash.repository.ZoneRepository;
 import com.youdash.service.ZoneService;
 import com.youdash.util.GeoUtils;
@@ -29,6 +30,9 @@ public class ZoneServiceImpl implements ZoneService {
 
     @Autowired
     private ZoneRepository zoneRepository;
+
+    @Autowired
+    private HubRepository hubRepository;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -113,6 +117,28 @@ public class ZoneServiceImpl implements ZoneService {
             ZoneEntity saved = zoneRepository.save(entity);
             response.setData(toResponse(saved));
             response.setMessage("Zone updated successfully");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            setErrorResponse(response, e.getMessage());
+        }
+        return response;
+    }
+
+    @Override
+    public ApiResponse<Void> deleteZone(Long id) {
+        ApiResponse<Void> response = new ApiResponse<>();
+        try {
+            ZoneEntity zone = zoneRepository.findById(Objects.requireNonNull(id))
+                    .orElseThrow(() -> new RuntimeException("Zone not found with id: " + id));
+            if (hubRepository.existsByZoneId(id)) {
+                throw new RuntimeException(
+                        "Cannot delete zone '" + zone.getName() + "' — it still has hubs assigned to it. " +
+                        "Reassign or delete those hubs first.");
+            }
+            zoneRepository.deleteById(id);
+            response.setMessage("Zone deleted successfully");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
             response.setStatus(200);

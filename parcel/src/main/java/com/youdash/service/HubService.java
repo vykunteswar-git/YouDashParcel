@@ -13,4 +13,6 @@ public interface HubService {
     ApiResponse<List<HubResponseDTO>> list();
 
     ApiResponse<HubResponseDTO> update(Long id, HubRequestDTO dto);
+
+    ApiResponse<Void> delete(Long id);
 }

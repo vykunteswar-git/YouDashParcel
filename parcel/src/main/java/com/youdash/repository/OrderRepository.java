@@ -395,4 +395,14 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             @Param("from") Instant from,
             @Param("to") Instant to,
             Pageable pageable);
+
+    /** True if any in-flight order (not in terminal statuses) references this hub as origin or destination. */
+    @Query("""
+            SELECT (COUNT(o) > 0) FROM OrderEntity o
+            WHERE (o.originHubId = :hubId OR o.destinationHubId = :hubId)
+              AND o.status NOT IN :terminalStatuses
+            """)
+    boolean existsActiveOrderForHub(
+            @Param("hubId") Long hubId,
+            @Param("terminalStatuses") List<OrderStatus> terminalStatuses);
 }

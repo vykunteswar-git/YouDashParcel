@@ -30,4 +30,9 @@ public class AdminHubController {
     public ApiResponse<HubResponseDTO> update(@PathVariable Long id, @RequestBody HubRequestDTO dto) {
         return hubService.update(id, dto);
     }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        return hubService.delete(id);
+    }
 }

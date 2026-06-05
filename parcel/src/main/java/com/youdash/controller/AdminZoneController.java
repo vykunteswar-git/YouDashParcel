@@ -30,4 +30,9 @@ public class AdminZoneController {
     public ApiResponse<ZoneResponseDTO> updateZone(@PathVariable Long id, @RequestBody ZoneRequestDTO dto) {
         return zoneService.updateZone(id, dto);
     }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> deleteZone(@PathVariable Long id) {
+        return zoneService.deleteZone(id);
+    }
 }

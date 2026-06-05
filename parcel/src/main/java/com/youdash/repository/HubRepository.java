@@ -10,4 +10,6 @@ public interface HubRepository extends JpaRepository<HubEntity, Long> {
     List<HubEntity> findByIsActiveTrue();
 
     List<HubEntity> findByZoneIdAndIsActiveTrue(Long zoneId);
+
+    boolean existsByZoneId(Long zoneId);
 }

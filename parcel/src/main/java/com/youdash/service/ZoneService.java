@@ -20,6 +20,8 @@ public interface ZoneService {
 
     ApiResponse<ZoneResponseDTO> updateZone(Long id, ZoneRequestDTO dto);
 
+    ApiResponse<Void> deleteZone(Long id);
+
     /**
      * First active zone that contains the point (stable order: id ascending).
      * Overlapping zones are ambiguous; avoid overlaps in admin data.

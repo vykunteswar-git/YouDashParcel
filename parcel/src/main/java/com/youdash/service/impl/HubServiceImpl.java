@@ -4,7 +4,9 @@ import com.youdash.bean.ApiResponse;
 import com.youdash.dto.HubRequestDTO;
 import com.youdash.dto.HubResponseDTO;
 import com.youdash.entity.HubEntity;
+import com.youdash.model.OrderStatus;
 import com.youdash.repository.HubRepository;
+import com.youdash.repository.OrderRepository;
 import com.youdash.service.HubService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
@@ -22,8 +24,16 @@ public class HubServiceImpl implements HubService {
 
     private static final DateTimeFormatter ISO_TIME = DateTimeFormatter.ISO_LOCAL_TIME;
 
+    private static final List<OrderStatus> TERMINAL_STATUSES = List.of(
+            OrderStatus.DELIVERED, OrderStatus.COLLECTED, OrderStatus.CANCELLED,
+            OrderStatus.RETURNED, OrderStatus.RETURNED_TO_SENDER,
+            OrderStatus.EXPIRED, OrderStatus.FAILED, OrderStatus.FAILED_DELIVERY);
+
     @Autowired
     private HubRepository hubRepository;
+
+    @Autowired
+    private OrderRepository orderRepository;
 
     @Override
     public ApiResponse<HubResponseDTO> create(HubRequestDTO dto) {
@@ -78,6 +88,28 @@ public class HubServiceImpl implements HubService {
             HubEntity saved = hubRepository.save(e);
             response.setData(toDto(saved));
             response.setMessage("Hub updated");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception ex) {
+            setError(response, ex.getMessage());
+        }
+        return response;
+    }
+
+    @Override
+    public ApiResponse<Void> delete(Long id) {
+        ApiResponse<Void> response = new ApiResponse<>();
+        try {
+            HubEntity hub = hubRepository.findById(Objects.requireNonNull(id))
+                    .orElseThrow(() -> new RuntimeException("Hub not found"));
+            if (orderRepository.existsActiveOrderForHub(id, TERMINAL_STATUSES)) {
+                throw new RuntimeException(
+                        "Cannot delete hub '" + hub.getName() + "' — it has active orders in progress. " +
+                        "Wait for those orders to complete or cancel them first.");
+            }
+            hubRepository.deleteById(id);
+            response.setMessage("Hub deleted successfully");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
             response.setStatus(200);
