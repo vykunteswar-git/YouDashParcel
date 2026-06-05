@@ -383,4 +383,16 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
 
     long countByRiderIdAndStatusAndServiceModeAndUpdatedAtGreaterThanEqualAndUpdatedAtLessThanEqual(
             Long riderId, OrderStatus status, ServiceMode serviceMode, Instant from, Instant to);
+
+    @Query("""
+            SELECT o FROM OrderEntity o
+            WHERE o.status = com.youdash.model.OrderStatus.DELIVERED
+              AND o.createdAt >= :from
+              AND o.createdAt < :to
+            ORDER BY o.createdAt DESC
+            """)
+    List<OrderEntity> findDeliveredOrdersInRange(
+            @Param("from") Instant from,
+            @Param("to") Instant to,
+            Pageable pageable);
 }

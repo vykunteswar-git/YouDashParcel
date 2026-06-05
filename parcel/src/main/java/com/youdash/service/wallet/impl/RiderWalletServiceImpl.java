@@ -644,8 +644,11 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             effectiveCodMode = resolveSettlementCodMode(order);
         }
         double commissionPercent = resolveCommissionPercent(cfg, payType, effectiveCodMode);
-        double commissionAmount = round2(orderAmount * (commissionPercent / 100.0));
-        double baseRiderEarning = round2(orderAmount - commissionAmount);
+        // Commission is charged only on the delivery base (subtotal), not on
+        // GST or platform fee — those pass through entirely to the platform.
+        double commissionBase = resolveCommissionBase(order);
+        double commissionAmount = round2(commissionBase * (commissionPercent / 100.0));
+        double baseRiderEarning = round2(commissionBase - commissionAmount);
         double peakBonusTotal = peakIncentiveService.resolveBonusForDeliveredOrder(order, Instant.now());
         double totalRiderPool = round2(baseRiderEarning + peakBonusTotal);
         if (totalRiderPool < -0.0001) {
@@ -1619,7 +1622,6 @@ public class RiderWalletServiceImpl implements RiderWalletService {
         if (payType == null) {
             return 0.0;
         }
-        double orderAmount = nz(order.getTotalAmount());
         CodCollectionMode codMode = payType == PaymentType.COD ? order.getCodCollectionMode() : null;
         double commissionPercent = resolveCommissionPercent(cfg, payType, codMode);
         if (order.getServiceMode() == com.youdash.model.ServiceMode.OUTSTATION) {
@@ -1642,8 +1644,9 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             // estimate
             return pickupNet;
         }
-        double commissionAmount = round2(orderAmount * (commissionPercent / 100.0));
-        return round2(Math.max(0.0, orderAmount - commissionAmount));
+        double commissionBase = resolveCommissionBase(order);
+        double commissionAmount = round2(commissionBase * (commissionPercent / 100.0));
+        return round2(Math.max(0.0, commissionBase - commissionAmount));
     }
 
     @Override
@@ -1774,6 +1777,20 @@ public class RiderWalletServiceImpl implements RiderWalletService {
             throw new RuntimeException("Commission percent must be between 0 and 100");
         }
         return v;
+    }
+
+    /**
+     * Commission is charged only on the delivery base amount (subtotal), not on
+     * GST or platform fee. GST and platform fee are platform pass-throughs and
+     * go to admin in full regardless of the commission rate.
+     * Falls back to totalAmount for legacy orders that have no subtotal stored.
+     */
+    private static double resolveCommissionBase(OrderEntity order) {
+        Double sub = order.getSubtotal();
+        if (sub != null && sub > 0.0) {
+            return sub;
+        }
+        return nz(order.getTotalAmount());
     }
 
     private static Long resolveCodCollectorRiderId(OrderEntity order) {
