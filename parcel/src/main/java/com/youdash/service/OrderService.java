@@ -58,4 +58,10 @@ public interface OrderService {
     ApiResponse<OrderResponseDTO> resendDeliveryOtp(Long orderId, Long tokenUserId, String tokenType);
 
     ApiResponse<OrderResponseDTO> adminVerifyHubHandover(Long orderId, VerifyHubHandoverRequestDTO dto);
+
+    ApiResponse<FinalPriceResponseDTO> adminPreviewHubToHubPrice(AdminH2hPricePreviewRequestDTO dto);
+
+    ApiResponse<OrderResponseDTO> adminCreateHubToHubOrder(AdminCreateH2hOrderRequestDTO dto);
+
+    ApiResponse<String> adminDeleteHubToHubOrder(Long orderId);
 }

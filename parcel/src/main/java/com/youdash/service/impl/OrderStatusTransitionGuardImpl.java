@@ -81,6 +81,10 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             Map.entry(OrderStatus.OUT_FOR_DELIVERY, Set.of(OrderStatus.DELIVERED, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RETURNED)));
 
+    /** Admin hub-to-hub bookings stay at BOOKED — no operational status flow. */
+    private static final Map<OrderStatus, Set<OrderStatus>> H2H_ALLOWED = Map.of();
+    private static final Map<OrderStatus, Set<OrderStatus>> H2H_ADMIN = Map.of();
+
     private static final Map<OrderStatus, Set<OrderStatus>> INCITY_ADMIN = Map.ofEntries(
             Map.entry(OrderStatus.SEARCHING_RIDER, Set.of(OrderStatus.RIDER_ASSIGNED, OrderStatus.CANCELLED)),
             Map.entry(OrderStatus.RIDER_ACCEPTED, Set.of(OrderStatus.RIDER_ASSIGNED, OrderStatus.CANCELLED)),
@@ -166,6 +170,9 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             return admin ? INCITY_ADMIN : INCITY_ALLOWED;
         }
         String type = deliveryType == null ? "" : deliveryType.trim().toUpperCase();
+        if (OutstationCodPolicy.isHubToHub(type)) {
+            return admin ? H2H_ADMIN : H2H_ALLOWED;
+        }
         if (OutstationCodPolicy.isHubToDoor(type)) {
             return admin ? H2D_ADMIN : H2D_ALLOWED;
         }

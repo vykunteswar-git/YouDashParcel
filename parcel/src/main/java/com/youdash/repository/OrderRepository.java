@@ -396,6 +396,22 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             @Param("to") Instant to,
             Pageable pageable);
 
+    /** Delivered orders plus admin hub-to-hub bookings (remain BOOKED). */
+    @Query("""
+            SELECT o FROM OrderEntity o
+            WHERE o.createdAt >= :from
+              AND o.createdAt < :to
+              AND (
+                  o.status = com.youdash.model.OrderStatus.DELIVERED
+                  OR (o.deliveryType = 'HUB_TO_HUB' AND o.status = com.youdash.model.OrderStatus.BOOKED)
+              )
+            ORDER BY o.createdAt DESC
+            """)
+    List<OrderEntity> findEarningsOrdersInRange(
+            @Param("from") Instant from,
+            @Param("to") Instant to,
+            Pageable pageable);
+
     /** True if any in-flight order (not in terminal statuses) references this hub as origin or destination. */
     @Query("""
             SELECT (COUNT(o) > 0) FROM OrderEntity o

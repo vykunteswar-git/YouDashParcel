@@ -59,6 +59,7 @@ public class PricingServiceImpl implements PricingService {
             case DOOR_TO_DOOR -> { /* use legs as passed */ }
             case DOOR_TO_HUB  -> dropDist   = 0.0;
             case HUB_TO_DOOR  -> pickupDist = 0.0;
+            case HUB_TO_HUB   -> { pickupDist = 0.0; dropDist = 0.0; }
             default -> throw new IllegalArgumentException("Unknown delivery type");
         }
 

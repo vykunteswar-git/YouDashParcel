@@ -7,4 +7,6 @@ import java.util.List;
 
 public interface OrderTimelineEventRepository extends JpaRepository<OrderTimelineEventEntity, Long> {
     List<OrderTimelineEventEntity> findByOrderIdOrderByCreatedAtAsc(Long orderId);
+
+    void deleteByOrderId(Long orderId);
 }

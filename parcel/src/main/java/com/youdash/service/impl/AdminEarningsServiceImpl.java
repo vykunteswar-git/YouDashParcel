@@ -46,7 +46,7 @@ public class AdminEarningsServiceImpl implements AdminEarningsService {
             Instant to = window[1];
 
             List<OrderEntity> orders = orderRepository
-                    .findDeliveredOrdersInRange(from, to, PageRequest.of(0, 1000));
+                    .findEarningsOrdersInRange(from, to, PageRequest.of(0, 1000));
 
             List<Long> orderIds = orders.stream().map(OrderEntity::getId).toList();
 

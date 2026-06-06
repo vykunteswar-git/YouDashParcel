@@ -60,6 +60,14 @@ public final class OutstationCodPolicy {
         return "DOOR_TO_DOOR".equals(normalizeDeliveryType(deliveryType));
     }
 
+    public static boolean isHubToHub(OrderEntity order) {
+        return isHubToHub(deliveryTypeUpper(order));
+    }
+
+    public static boolean isHubToHub(String deliveryType) {
+        return "HUB_TO_HUB".equals(normalizeDeliveryType(deliveryType));
+    }
+
     /**
      * Delivery rider for outstation last-mile settlement.
      * Prefer {@code deliveryRiderId}; when only {@code riderId} differs from pickup, treat as delivery.

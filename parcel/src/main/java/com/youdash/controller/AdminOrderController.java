@@ -1,8 +1,11 @@
 package com.youdash.controller;
 
 import com.youdash.bean.ApiResponse;
+import com.youdash.dto.AdminCreateH2hOrderRequestDTO;
+import com.youdash.dto.AdminH2hPricePreviewRequestDTO;
 import com.youdash.dto.AdminOrderAssignDTO;
 import com.youdash.dto.AdminOrderStatusDTO;
+import com.youdash.dto.FinalPriceResponseDTO;
 import com.youdash.dto.OrderResponseDTO;
 import com.youdash.dto.VerifyHubHandoverRequestDTO;
 import com.youdash.model.OrderStatus;
@@ -73,5 +76,20 @@ public class AdminOrderController {
             @PathVariable Long id,
             @RequestBody VerifyHubHandoverRequestDTO dto) {
         return orderService.adminVerifyHubHandover(id, dto);
+    }
+
+    @PostMapping("/hub-to-hub/preview")
+    public ApiResponse<FinalPriceResponseDTO> previewHubToHub(@RequestBody AdminH2hPricePreviewRequestDTO dto) {
+        return orderService.adminPreviewHubToHubPrice(dto);
+    }
+
+    @PostMapping("/hub-to-hub")
+    public ApiResponse<OrderResponseDTO> createHubToHub(@RequestBody AdminCreateH2hOrderRequestDTO dto) {
+        return orderService.adminCreateHubToHubOrder(dto);
+    }
+
+    @DeleteMapping("/{id}/hub-to-hub")
+    public ApiResponse<String> deleteHubToHub(@PathVariable Long id) {
+        return orderService.adminDeleteHubToHubOrder(id);
     }
 }

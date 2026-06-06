@@ -5,6 +5,7 @@ import com.youdash.dto.*;
 import com.youdash.entity.*;
 import com.youdash.util.DeliveryOtpGenerator;
 import com.youdash.util.OutstationCodPolicy;
+import com.youdash.service.sms.PhoneNumberUtil;
 import com.youdash.util.OutstationHubHandover;
 import com.youdash.util.OutstationPayableLegSplit;
 import com.youdash.util.OutstationRiderLegPolicy;
@@ -112,6 +113,9 @@ public class OrderServiceImpl implements OrderService {
     private OrderRepository orderRepository;
 
     @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
     private OrderAddressPreferenceRepository orderAddressPreferenceRepository;
 
     @Autowired
@@ -152,6 +156,24 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private RiderRatingRepository riderRatingRepository;
+
+    @Autowired
+    private OrderTimelineEventRepository orderTimelineEventRepository;
+
+    @Autowired
+    private CouponRedemptionRepository couponRedemptionRepository;
+
+    @Autowired
+    private com.youdash.repository.wallet.OrderRiderFinancialRepository orderRiderFinancialRepository;
+
+    @Autowired
+    private OrderDispatchRepository orderDispatchRepository;
+
+    @Autowired
+    private OrderAssignmentRepository orderAssignmentRepository;
+
+    @Autowired
+    private RiderLocationHistoryRepository riderLocationHistoryRepository;
 
     @Autowired
     private OrderTimelineService orderTimelineService;
@@ -232,6 +254,180 @@ public class OrderServiceImpl implements OrderService {
             setError(response, e.getMessage());
         }
         return response;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ApiResponse<FinalPriceResponseDTO> adminPreviewHubToHubPrice(AdminH2hPricePreviewRequestDTO dto) {
+        ApiResponse<FinalPriceResponseDTO> response = new ApiResponse<>();
+        try {
+            PricingService.OutstationBreakdown b = buildHubToHubPricing(dto.getOriginHubId(), dto.getDestinationHubId(),
+                    dto.getWeight());
+            FinalPriceResponseDTO data = FinalPriceResponseDTO.builder()
+                    .pickupDistanceKm(b.getPickupDistanceKm())
+                    .hubDistanceKm(b.getHubDistanceKm())
+                    .dropDistanceKm(b.getDropDistanceKm())
+                    .pickupCost(b.getPickupCost())
+                    .hubCost(b.getHubCost())
+                    .dropCost(b.getDropCost())
+                    .weightCost(b.getWeightCost())
+                    .subtotal(b.getSubtotal())
+                    .gstAmount(b.getGstAmount())
+                    .platformFee(b.getPlatformFee())
+                    .total(b.getTotal())
+                    .build();
+            response.setData(data);
+            response.setMessage("Hub-to-hub price calculated");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            setError(response, e.getMessage());
+        }
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public ApiResponse<OrderResponseDTO> adminCreateHubToHubOrder(AdminCreateH2hOrderRequestDTO dto) {
+        ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
+        try {
+            if (dto == null) {
+                throw new RuntimeException("Request body is required");
+            }
+            if (isBlank(dto.getSenderName()) || isBlank(dto.getSenderPhone())
+                    || isBlank(dto.getReceiverName()) || isBlank(dto.getReceiverPhone())) {
+                throw new RuntimeException("senderName, senderPhone, receiverName, and receiverPhone are required");
+            }
+            if (dto.getCategoryId() == null) {
+                throw new RuntimeException("categoryId is required");
+            }
+            if (dto.getPaymentType() == null || dto.getPaymentType().isBlank()) {
+                throw new RuntimeException("paymentType is required (COD or ONLINE)");
+            }
+            PackageCategoryEntity category = packageCategoryRepository.findById(dto.getCategoryId())
+                    .filter(c -> Boolean.TRUE.equals(c.getIsActive()))
+                    .orElseThrow(() -> new RuntimeException("Package category not found or inactive"));
+            PaymentType paymentType = PaymentType.valueOf(dto.getPaymentType().trim().toUpperCase());
+            AppConfigEntity cfg = requireConfig();
+            validatePaymentModeEnabled(paymentType, cfg);
+
+            HubEntity origin = requireActiveHub(dto.getOriginHubId(), "Origin");
+            HubEntity dest = requireActiveHub(dto.getDestinationHubId(), "Destination");
+            if (Objects.equals(origin.getId(), dest.getId())) {
+                throw new RuntimeException("Origin and destination hub must be different");
+            }
+
+            PricingService.OutstationBreakdown quote = buildHubToHubPricing(origin.getId(), dest.getId(), dto.getWeight());
+            double hubDist = quote.getHubDistanceKm();
+
+            Long userId = resolveH2hBookingUserId(dto.getSenderPhone(), dto.getReceiverPhone());
+
+            OrderEntity order = new OrderEntity();
+            order.setUserId(userId);
+            order.setPackageCategoryId(category.getId());
+            order.setSenderName(trimToNull(dto.getSenderName()));
+            order.setSenderPhone(trimToNull(dto.getSenderPhone()));
+            order.setReceiverName(trimToNull(dto.getReceiverName()));
+            order.setReceiverPhone(trimToNull(dto.getReceiverPhone()));
+            order.setPackageContents(trimToNull(dto.getPackageContents()));
+            order.setPieceCount(1);
+
+            String originLabel = hubDisplayLabel(origin);
+            String destLabel = hubDisplayLabel(dest);
+            order.setPickupAddress(originLabel);
+            order.setDropAddress(destLabel);
+            order.setPickupLat(origin.getLat());
+            order.setPickupLng(origin.getLng());
+            order.setDropLat(dest.getLat());
+            order.setDropLng(dest.getLng());
+            order.setWeight(dto.getWeight());
+
+            order.setServiceMode(ServiceMode.OUTSTATION);
+            order.setDeliveryType(OutstationDeliveryType.HUB_TO_HUB.name());
+            order.setVehicleId(null);
+            order.setOriginHubId(origin.getId());
+            order.setDestinationHubId(dest.getId());
+            order.setPickupDistanceKm(0.0);
+            order.setHubDistanceKm(hubDist);
+            order.setDropDistanceKm(0.0);
+            order.setDistanceKm(hubDist);
+            applyOutstationQuoteLegCosts(order, quote);
+            order.setSubtotal(quote.getSubtotal());
+            order.setGstAmount(quote.getGstAmount());
+            order.setPlatformFee(quote.getPlatformFee());
+            order.setCouponAmount(0.0);
+            order.setTotalAmount(quote.getTotal());
+            order.setPaymentType(paymentType);
+            order.setStatus(OrderStatus.BOOKED);
+            order.setRiderId(null);
+            order.setPickupRiderId(null);
+            order.setDeliveryRiderId(null);
+
+            if (paymentType == PaymentType.COD) {
+                order.setPaymentStatus("PAID");
+                order.setCodCollectionMode(CodCollectionMode.CASH);
+                order.setCodCollectedAmount(round2(quote.getTotal()));
+                order.setCodSettlementStatus(CodSettlementStatus.PENDING);
+            } else {
+                order.setPaymentStatus("PAID");
+            }
+
+            OrderEntity saved = orderRepository.save(order);
+            saved.setDisplayOrderId("YP-" + saved.getId() + System.currentTimeMillis());
+            saved = orderRepository.save(saved);
+            appendTimeline(saved, OrderStatus.BOOKED, "h2h_booked", origin.getId(), null,
+                    "Hub-to-hub booking created by admin");
+            adminOrderTopicPublisher.publishOrderCreated(saved);
+
+            response.setData(toOrderDto(saved, null, null, true, null));
+            response.setMessage("Hub-to-hub order created");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            setError(response, e.getMessage());
+        }
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public ApiResponse<String> adminDeleteHubToHubOrder(Long orderId) {
+        ApiResponse<String> response = new ApiResponse<>();
+        try {
+            if (orderId == null) {
+                throw new RuntimeException("orderId is required");
+            }
+            OrderEntity order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new RuntimeException("Order not found"));
+            if (!OutstationCodPolicy.isHubToHub(order)) {
+                throw new RuntimeException("Only hub-to-hub orders can be deleted");
+            }
+            String ref = order.getDisplayOrderId() != null ? order.getDisplayOrderId() : "YD-" + order.getId();
+            purgeOrderDependents(orderId);
+            orderRepository.delete(order);
+            response.setData("Deleted");
+            response.setMessage("Hub-to-hub order " + ref + " deleted");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            setError(response, e.getMessage());
+        }
+        return response;
+    }
+
+    private void purgeOrderDependents(Long orderId) {
+        orderTimelineEventRepository.deleteByOrderId(orderId);
+        if (couponRedemptionRepository.existsByOrderId(orderId)) {
+            couponRedemptionRepository.deleteByOrderId(orderId);
+        }
+        orderRiderFinancialRepository.deleteAll(orderRiderFinancialRepository.findAllByOrderId(orderId));
+        riderRatingRepository.findByOrderId(orderId).ifPresent(riderRatingRepository::delete);
+        orderDispatchRepository.deleteAll(orderDispatchRepository.findByOrderId(orderId));
+        orderAssignmentRepository.deleteAll(orderAssignmentRepository.findByOrderIdOrderByAssignedAtAsc(orderId));
+        riderLocationHistoryRepository.deleteAll(riderLocationHistoryRepository.findByOrderIdOrderByTsAsc(orderId));
     }
 
     @Override
@@ -971,6 +1167,7 @@ public class OrderServiceImpl implements OrderService {
         try {
             OrderEntity o = orderRepository.findById(orderId)
                     .orElseThrow(() -> new RuntimeException("Order not found"));
+            assertHubToHubImmutable(o, "assign riders to");
             if (pickupRiderId == null && deliveryRiderId == null) {
                 throw new RuntimeException("pickupRiderId or deliveryRiderId is required");
             }
@@ -1191,6 +1388,7 @@ public class OrderServiceImpl implements OrderService {
         ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
         OrderEntity o = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found"));
+        assertHubToHubImmutable(o, "change status of");
         OrderStatus target = normalizeAdminTargetStatus(o, status);
         validateAdminOutstationStatusUpdate(o, target, codCollectionMode, adminOverride);
         if (target == OrderStatus.DELIVERED && o.getPaymentType() == PaymentType.COD) {
@@ -1242,6 +1440,7 @@ public class OrderServiceImpl implements OrderService {
         }
         OrderEntity o = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found"));
+        assertHubToHubImmutable(o, "verify hub handover on");
         if (o.getServiceMode() != ServiceMode.OUTSTATION) {
             throw new RuntimeException("Hub handover is only for OUTSTATION orders");
         }
@@ -2966,6 +3165,85 @@ public class OrderServiceImpl implements OrderService {
      * Ensures outstation hub IDs belong to the zones that contain pickup / drop coordinates.
      * Any active hub in the pickup zone is allowed for origin; any in the drop zone for destination.
      */
+    private PricingService.OutstationBreakdown buildHubToHubPricing(
+            Long originHubId, Long destinationHubId, Double weight) {
+        if (weight == null || weight <= 0) {
+            throw new RuntimeException("weight must be > 0");
+        }
+        HubEntity origin = requireActiveHub(originHubId, "Origin");
+        HubEntity dest = requireActiveHub(destinationHubId, "Destination");
+        double hubDist = distanceService.distanceKm(
+                origin.getLat(), origin.getLng(), dest.getLat(), dest.getLng());
+        AppConfigEntity cfg = requireConfig();
+        double routeRate = resolveRouteRate(origin.getId(), dest.getId(), cfg);
+        return pricingService.outstationBreakdown(
+                0.0, hubDist, 0.0, routeRate, weight, OutstationDeliveryType.HUB_TO_HUB, cfg);
+    }
+
+    private HubEntity requireActiveHub(Long hubId, String label) {
+        if (hubId == null) {
+            throw new RuntimeException(label + " hub is required");
+        }
+        return hubRepository.findById(hubId)
+                .filter(h -> Boolean.TRUE.equals(h.getIsActive()))
+                .orElseThrow(() -> new RuntimeException(label + " hub not found or inactive"));
+    }
+
+    private static String hubDisplayLabel(HubEntity hub) {
+        if (hub == null) {
+            return "Hub";
+        }
+        String name = hub.getName() != null ? hub.getName().trim() : "";
+        String city = hub.getCity() != null ? hub.getCity().trim() : "";
+        if (!name.isEmpty() && !city.isEmpty()) {
+            return name + ", " + city;
+        }
+        if (!name.isEmpty()) {
+            return name;
+        }
+        if (!city.isEmpty()) {
+            return city;
+        }
+        return "Hub #" + hub.getId();
+    }
+
+    /**
+     * Links the order to an app user when the phone is registered; otherwise uses a
+     * walk-in anchor user so admin can book any sender/receiver name and phone.
+     */
+    private Long resolveH2hBookingUserId(String senderPhone, String receiverPhone) {
+        Optional<Long> matched = lookupUserIdByPhone(senderPhone);
+        if (matched.isEmpty()) {
+            matched = lookupUserIdByPhone(receiverPhone);
+        }
+        return matched.orElseGet(this::walkInH2hAnchorUserId);
+    }
+
+    private Optional<Long> lookupUserIdByPhone(String rawPhone) {
+        if (rawPhone == null || rawPhone.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            String normalized = PhoneNumberUtil.normalizeNational(rawPhone);
+            return userRepository.findByPhoneNumber(normalized).map(UserEntity::getId);
+        } catch (Exception ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private Long walkInH2hAnchorUserId() {
+        return userRepository.findFirstByOrderByIdAsc()
+                .map(UserEntity::getId)
+                .orElseThrow(() -> new RuntimeException(
+                        "No users in database — create at least one user before hub-to-hub booking"));
+    }
+
+    private static void assertHubToHubImmutable(OrderEntity order, String action) {
+        if (order != null && OutstationCodPolicy.isHubToHub(order)) {
+            throw new RuntimeException("Hub-to-hub orders cannot " + action + " — status stays BOOKED");
+        }
+    }
+
     private void requireOutstationHubsMatchZones(
             Double pickupLat, Double pickupLng,
             Double dropLat, Double dropLng,
@@ -3001,6 +3279,7 @@ public class OrderServiceImpl implements OrderService {
             }
             case DOOR_TO_HUB -> dk = 0.0;
             case HUB_TO_DOOR -> pk = 0.0;
+            case HUB_TO_HUB -> { pk = 0.0; dk = 0.0; }
         }
         return new LegKm(round4(pk), round4(hubDist), round4(dk));
     }

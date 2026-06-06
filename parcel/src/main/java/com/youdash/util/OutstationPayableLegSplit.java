@@ -55,6 +55,9 @@ public record OutstationPayableLegSplit(double pickupAmount, double hubToHubAmou
         double dropKm = Math.max(0.0, nz(order.getDropDistanceKm()));
         double den = pickupKm + hubKm + dropKm;
         if (den <= 0.0) {
+            if (OutstationCodPolicy.isHubToHub(order)) {
+                return new OutstationPayableLegSplit(0.0, round2(orderAmount), 0.0);
+            }
             if (OutstationCodPolicy.isHubToDoor(order)) {
                 return new OutstationPayableLegSplit(0.0, 0.0, round2(orderAmount));
             }
