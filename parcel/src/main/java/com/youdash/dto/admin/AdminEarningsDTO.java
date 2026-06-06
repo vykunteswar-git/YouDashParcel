@@ -9,13 +9,13 @@ public class AdminEarningsDTO {
 
     // ── Summary cards ────────────────────────────────────────────────────────
     private int orderCount;
-    /** Sum of order.totalAmount for all DELIVERED orders in range. */
+    /** Sum of order.totalAmount for all completed earnings orders in range. */
     private Double totalRevenue;
     /** Sum of commissionAmount across all financial rows in range. */
     private Double totalCommission;
-    /** Sum of order.gstAmount for all DELIVERED orders in range. */
+    /** Sum of order.gstAmount for all completed earnings orders in range. */
     private Double totalGst;
-    /** Sum of order.platformFee for all DELIVERED orders in range. */
+    /** Sum of order.platformFee for all completed earnings orders in range. */
     private Double totalPlatformFee;
     /** totalCommission + totalGst + totalPlatformFee. */
     private Double totalPlatformNet;

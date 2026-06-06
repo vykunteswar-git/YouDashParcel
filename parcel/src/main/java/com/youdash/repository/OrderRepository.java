@@ -396,13 +396,14 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             @Param("to") Instant to,
             Pageable pageable);
 
-    /** Delivered orders plus admin hub-to-hub bookings (remain BOOKED). */
+    /** Completed orders for earnings: DELIVERED, DOOR_TO_HUB hub pickup (COLLECTED), and HUB_TO_HUB bookings (BOOKED). */
     @Query("""
             SELECT o FROM OrderEntity o
             WHERE o.createdAt >= :from
               AND o.createdAt < :to
               AND (
                   o.status = com.youdash.model.OrderStatus.DELIVERED
+                  OR (o.deliveryType = 'DOOR_TO_HUB' AND o.status = com.youdash.model.OrderStatus.COLLECTED)
                   OR (o.deliveryType = 'HUB_TO_HUB' AND o.status = com.youdash.model.OrderStatus.BOOKED)
               )
             ORDER BY o.createdAt DESC
