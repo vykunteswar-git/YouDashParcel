@@ -5,9 +5,9 @@ import com.youdash.dto.admin.AdminRevenueReportDTO;
 import com.youdash.dto.admin.AdminRevenueTopSourceDTO;
 import com.youdash.dto.admin.AdminRevenueTrendPointDTO;
 import com.youdash.entity.OrderEntity;
-import com.youdash.model.OrderStatus;
 import com.youdash.repository.OrderRepository;
 import com.youdash.service.AdminReportsService;
+import com.youdash.util.AdminRevenueOrderPolicy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,12 +62,12 @@ public class AdminReportsServiceImpl implements AdminReportsService {
             dto.setTo(to.toString());
 
             long totalOrders = orders.size();
-            long deliveredOrders = orders.stream().filter(o -> o.getStatus() == OrderStatus.DELIVERED).count();
+            long completedOrders = orders.stream().filter(AdminRevenueOrderPolicy::isCompletedForRevenue).count();
             double totalRevenue = orders.stream()
-                    .filter(o -> o.getStatus() == OrderStatus.DELIVERED)
+                    .filter(AdminRevenueOrderPolicy::isCompletedForRevenue)
                     .mapToDouble(o -> nz(o.getTotalAmount()))
                     .sum();
-            double completionRate = totalOrders == 0 ? 0.0 : (deliveredOrders * 100.0) / totalOrders;
+            double completionRate = totalOrders == 0 ? 0.0 : (completedOrders * 100.0) / totalOrders;
 
             dto.setTotalRevenue(round2(totalRevenue));
             dto.setCompletionRate(round2(completionRate));
@@ -152,7 +152,7 @@ public class AdminReportsServiceImpl implements AdminReportsService {
                 continue;
             }
             b.orders++;
-            if (o.getStatus() == OrderStatus.DELIVERED) {
+            if (AdminRevenueOrderPolicy.isCompletedForRevenue(o)) {
                 b.revenue += nz(o.getTotalAmount());
             }
         }
@@ -178,7 +178,7 @@ public class AdminReportsServiceImpl implements AdminReportsService {
                 continue;
             }
             b.orders++;
-            if (o.getStatus() == OrderStatus.DELIVERED) {
+            if (AdminRevenueOrderPolicy.isCompletedForRevenue(o)) {
                 b.revenue += nz(o.getTotalAmount());
             }
         }
@@ -206,7 +206,7 @@ public class AdminReportsServiceImpl implements AdminReportsService {
                 continue;
             }
             b.orders++;
-            if (o.getStatus() == OrderStatus.DELIVERED) {
+            if (AdminRevenueOrderPolicy.isCompletedForRevenue(o)) {
                 b.revenue += nz(o.getTotalAmount());
             }
         }
@@ -248,7 +248,7 @@ public class AdminReportsServiceImpl implements AdminReportsService {
             String source = resolveSource(o);
             Bucket b = bySource.computeIfAbsent(source, k -> new Bucket());
             b.orders++;
-            if (o.getStatus() == OrderStatus.DELIVERED) {
+            if (AdminRevenueOrderPolicy.isCompletedForRevenue(o)) {
                 b.delivered++;
             }
         }

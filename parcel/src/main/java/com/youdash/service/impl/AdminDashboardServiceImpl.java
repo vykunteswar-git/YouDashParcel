@@ -12,6 +12,7 @@ import com.youdash.repository.OrderRepository;
 import com.youdash.repository.RiderRepository;
 import com.youdash.repository.UserRepository;
 import com.youdash.service.AdminDashboardService;
+import com.youdash.util.AdminRevenueOrderPolicy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -63,10 +64,10 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                     .findByCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtAsc(tr.from(), tr.to());
 
             long totalOrders = orders.size();
-            long deliveredOrders = orders.stream().filter(o -> o.getStatus() == OrderStatus.DELIVERED).count();
+            long completedOrders = orders.stream().filter(AdminRevenueOrderPolicy::isCompletedForRevenue).count();
             long cancelledOrders = orders.stream().filter(o -> o.getStatus() == OrderStatus.CANCELLED).count();
             double grossRevenue = orders.stream()
-                    .filter(o -> o.getStatus() == OrderStatus.DELIVERED)
+                    .filter(AdminRevenueOrderPolicy::isCompletedForRevenue)
                     .mapToDouble(o -> nz(o.getTotalAmount()))
                     .sum();
 
@@ -90,8 +91,8 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
             dto.setActiveUsers(activeUsers);
             dto.setAvgAssignmentEtaMinutes(round2(avgAssignmentEtaMinutes(orders)));
             dto.setCancellationRate(round2(percentage(cancelledOrders, totalOrders)));
-            dto.setCompletionRate(round2(percentage(deliveredOrders, totalOrders)));
-            dto.setAvgOrderValue(round2(totalOrders == 0 ? 0.0 : grossRevenue / totalOrders));
+            dto.setCompletionRate(round2(percentage(completedOrders, totalOrders)));
+            dto.setAvgOrderValue(round2(completedOrders == 0 ? 0.0 : grossRevenue / completedOrders));
 
             response.setData(dto);
             response.setMessage("OK");
