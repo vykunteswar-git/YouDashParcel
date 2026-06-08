@@ -9,6 +9,7 @@ import com.youdash.repository.HubRepository;
 import com.youdash.repository.ZoneRepository;
 import com.youdash.service.HubCorridorSlaService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalTime;
@@ -49,6 +50,8 @@ public class HubCorridorSlaServiceImpl implements HubCorridorSlaService {
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
             response.setStatus(200);
+        } catch (DataIntegrityViolationException ex) {
+            throw new RuntimeException("An SLA with priority " + dto.getPriority() + " already exists for this hub → zone combination. Use a different priority number.");
         } catch (Exception ex) {
             setError(response, ex.getMessage());
         }
@@ -98,6 +101,8 @@ public class HubCorridorSlaServiceImpl implements HubCorridorSlaService {
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
             response.setStatus(200);
+        } catch (DataIntegrityViolationException ex) {
+            throw new RuntimeException("An SLA with priority " + dto.getPriority() + " already exists for this hub → zone combination. Use a different priority number.");
         } catch (Exception ex) {
             setError(response, ex.getMessage());
         }
