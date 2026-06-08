@@ -109,6 +109,23 @@ public class HubCorridorSlaServiceImpl implements HubCorridorSlaService {
         return response;
     }
 
+    @Override
+    public ApiResponse<Void> delete(Long id) {
+        ApiResponse<Void> response = new ApiResponse<>();
+        try {
+            HubCorridorSlaEntity e = hubCorridorSlaRepository.findById(Objects.requireNonNull(id))
+                    .orElseThrow(() -> new RuntimeException("Hub corridor SLA not found"));
+            hubCorridorSlaRepository.delete(e);
+            response.setMessage("Hub corridor SLA deleted");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception ex) {
+            setError(response, ex.getMessage());
+        }
+        return response;
+    }
+
     private void validateRefs(Long hubId, Long destinationZoneId, boolean create) {
         if (create) {
             if (hubId == null || destinationZoneId == null) {

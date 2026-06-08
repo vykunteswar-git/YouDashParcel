@@ -13,4 +13,6 @@ public interface HubCorridorSlaService {
     ApiResponse<List<HubCorridorSlaResponseDTO>> listByHubId(Long hubId);
 
     ApiResponse<HubCorridorSlaResponseDTO> update(Long id, HubCorridorSlaRequestDTO dto);
+
+    ApiResponse<Void> delete(Long id);
 }

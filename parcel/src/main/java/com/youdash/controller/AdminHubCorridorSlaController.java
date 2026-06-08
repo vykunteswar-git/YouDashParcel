@@ -26,9 +26,14 @@ public class AdminHubCorridorSlaController {
         return hubCorridorSlaService.listByHubId(hubId);
     }
 
-    @PutMapping("/{id}")
+    @PatchMapping("/{id}")
     public ApiResponse<HubCorridorSlaResponseDTO> update(
             @PathVariable Long id, @RequestBody HubCorridorSlaRequestDTO dto) {
         return hubCorridorSlaService.update(id, dto);
+    }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        return hubCorridorSlaService.delete(id);
     }
 }
