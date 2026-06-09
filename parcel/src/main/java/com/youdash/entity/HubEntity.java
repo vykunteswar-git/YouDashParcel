@@ -32,4 +32,7 @@ public class HubEntity {
 
     @Column(name = "is_active")
     private Boolean isActive;
+
+    @Column(name = "address", length = 500)
+    private String address;
 }

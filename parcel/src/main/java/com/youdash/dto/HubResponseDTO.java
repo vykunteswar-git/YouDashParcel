@@ -15,4 +15,5 @@ public class HubResponseDTO {
     private Long zoneId;
     private String intakeCutoff;
     private Boolean isActive;
+    private String address;
 }

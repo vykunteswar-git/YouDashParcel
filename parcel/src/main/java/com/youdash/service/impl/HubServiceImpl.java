@@ -153,6 +153,9 @@ public class HubServiceImpl implements HubService {
                 e.setIntakeCutoff(parseTime(dto.getIntakeCutoff()));
             }
         }
+        if (dto.getAddress() != null) {
+            e.setAddress(dto.getAddress().isBlank() ? null : dto.getAddress().trim());
+        }
     }
 
     private static LocalTime parseTime(String raw) {
@@ -173,6 +176,7 @@ public class HubServiceImpl implements HubService {
                 .zoneId(e.getZoneId())
                 .intakeCutoff(e.getIntakeCutoff() != null ? e.getIntakeCutoff().format(ISO_TIME) : null)
                 .isActive(e.getIsActive())
+                .address(e.getAddress())
                 .build();
     }
 

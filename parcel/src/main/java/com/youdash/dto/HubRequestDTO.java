@@ -13,4 +13,5 @@ public class HubRequestDTO {
     /** ISO local time e.g. 14:00 — last intake at this hub for same-day dispatch */
     private String intakeCutoff;
     private Boolean isActive;
+    private String address;
 }
