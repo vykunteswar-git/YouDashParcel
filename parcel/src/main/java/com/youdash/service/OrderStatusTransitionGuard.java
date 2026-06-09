@@ -11,6 +11,9 @@ public interface OrderStatusTransitionGuard {
     /** Outstation transitions that depend on {@code deliveryType} (e.g. HUB_TO_DOOR last mile). */
     void ensureAllowed(ServiceMode serviceMode, String deliveryType, OrderStatus from, OrderStatus to);
 
+    /** Admin-initiated transition — uses the broader admin matrix. */
+    void ensureAllowedAdmin(ServiceMode serviceMode, String deliveryType, OrderStatus from, OrderStatus to);
+
     Set<OrderStatus> allowedNextStatuses(ServiceMode serviceMode, OrderStatus current);
 
     Set<OrderStatus> allowedNextStatuses(ServiceMode serviceMode, String deliveryType, OrderStatus current);

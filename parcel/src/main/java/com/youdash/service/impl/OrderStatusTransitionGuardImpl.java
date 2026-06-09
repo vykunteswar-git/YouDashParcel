@@ -122,6 +122,26 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
     }
 
     @Override
+    public void ensureAllowedAdmin(ServiceMode serviceMode, String deliveryType, OrderStatus from, OrderStatus to) {
+        if (to == null || from == to || from == null || serviceMode == null) {
+            return;
+        }
+        from = OrderStatus.fromLegacy(from.name());
+        to = OrderStatus.fromLegacy(to.name());
+        if (serviceMode == ServiceMode.OUTSTATION) {
+            from = OrderStatus.normalizeOutstationPickupStatus(from);
+            to = OrderStatus.normalizeOutstationPickupStatus(to);
+        }
+        Map<OrderStatus, Set<OrderStatus>> matrix = resolveMatrix(serviceMode, deliveryType, true);
+        Set<OrderStatus> allowed = matrix.get(from);
+        if (allowed != null && allowed.contains(to)) {
+            return;
+        }
+        throw new BadRequestException("Invalid transition: " + from + " -> " + to + " for " + serviceMode
+                + (deliveryType != null ? " (" + deliveryType + ")" : ""));
+    }
+
+    @Override
     public Set<OrderStatus> allowedNextStatuses(ServiceMode serviceMode, OrderStatus current) {
         return allowedNextStatuses(serviceMode, null, current);
     }

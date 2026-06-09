@@ -1392,7 +1392,7 @@ public class OrderServiceImpl implements OrderService {
         OrderStatus target = normalizeAdminTargetStatus(o, status);
         validateAdminOutstationStatusUpdate(o, target, codCollectionMode, adminOverride);
         applyAdminOutstationOtpGates(o, target, otp, adminOverride);
-        transitionStatus(o, target);
+        transitionStatus(o, target, true);
         if (target == OrderStatus.OUT_FOR_DELIVERY
                 || (target == OrderStatus.AWAITING_HUB_COLLECTION && OutstationCodPolicy.isDoorToHub(o))) {
             o.setDeliveryOtp(DeliveryOtpGenerator.generate());
@@ -1482,7 +1482,7 @@ public class OrderServiceImpl implements OrderService {
             timelineNote = adminOverride ? "Hub collection confirmed (OTP override)" : "Hub collection confirmed";
         }
 
-        transitionStatus(o, targetStatus);
+        transitionStatus(o, targetStatus, true);
         OrderEntity saved = orderRepository.save(o);
         appendTimeline(saved, targetStatus, "hub_handover_" + handoverType.name().toLowerCase(),
                 handoverType == OutstationHubHandover.Type.DROP ? saved.getOriginHubId() : saved.getDestinationHubId(),
@@ -2938,6 +2938,10 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private void transitionStatus(OrderEntity order, OrderStatus toStatus) {
+        transitionStatus(order, toStatus, false);
+    }
+
+    private void transitionStatus(OrderEntity order, OrderStatus toStatus, boolean admin) {
         if (order == null || toStatus == null) {
             return;
         }
@@ -2946,8 +2950,13 @@ public class OrderServiceImpl implements OrderService {
             return;
         }
         if (order.getServiceMode() == ServiceMode.OUTSTATION) {
-            orderStatusTransitionGuard.ensureAllowed(
-                    order.getServiceMode(), order.getDeliveryType(), from, toStatus);
+            if (admin) {
+                orderStatusTransitionGuard.ensureAllowedAdmin(
+                        order.getServiceMode(), order.getDeliveryType(), from, toStatus);
+            } else {
+                orderStatusTransitionGuard.ensureAllowed(
+                        order.getServiceMode(), order.getDeliveryType(), from, toStatus);
+            }
         } else {
             orderStatusTransitionGuard.ensureAllowed(order.getServiceMode(), from, toStatus);
         }
