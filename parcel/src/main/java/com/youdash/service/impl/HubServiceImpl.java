@@ -8,6 +8,8 @@ import com.youdash.model.OrderStatus;
 import com.youdash.repository.HubRepository;
 import com.youdash.repository.OrderRepository;
 import com.youdash.service.HubService;
+import com.youdash.service.sms.PhoneNumberUtil;
+import com.youdash.service.sms.SmsDeliveryException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -127,6 +129,12 @@ public class HubServiceImpl implements HubService {
             if (dto.getLat() == null || dto.getLng() == null) {
                 throw new RuntimeException("lat and lng are required");
             }
+            if (dto.getPhoneNumber() == null || dto.getPhoneNumber().isBlank()) {
+                throw new RuntimeException("phoneNumber is required");
+            }
+            normalizePhone(dto.getPhoneNumber());
+        } else if (dto.getPhoneNumber() != null && !dto.getPhoneNumber().isBlank()) {
+            normalizePhone(dto.getPhoneNumber());
         }
     }
 
@@ -156,6 +164,24 @@ public class HubServiceImpl implements HubService {
         if (dto.getAddress() != null) {
             e.setAddress(dto.getAddress().isBlank() ? null : dto.getAddress().trim());
         }
+        if (dto.getPhoneNumber() != null) {
+            if (dto.getPhoneNumber().isBlank()) {
+                if (create) {
+                    throw new RuntimeException("phoneNumber is required");
+                }
+                e.setPhoneNumber(null);
+            } else {
+                e.setPhoneNumber(normalizePhone(dto.getPhoneNumber()));
+            }
+        }
+    }
+
+    private static String normalizePhone(String raw) {
+        try {
+            return PhoneNumberUtil.normalizeNational(raw);
+        } catch (SmsDeliveryException ex) {
+            throw new RuntimeException("Invalid phone number");
+        }
     }
 
     private static LocalTime parseTime(String raw) {
@@ -177,6 +203,7 @@ public class HubServiceImpl implements HubService {
                 .intakeCutoff(e.getIntakeCutoff() != null ? e.getIntakeCutoff().format(ISO_TIME) : null)
                 .isActive(e.getIsActive())
                 .address(e.getAddress())
+                .phoneNumber(e.getPhoneNumber())
                 .build();
     }
 

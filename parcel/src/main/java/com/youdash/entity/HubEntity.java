@@ -35,4 +35,8 @@ public class HubEntity {
 
     @Column(name = "address", length = 500)
     private String address;
+
+    /** Hub contact phone — stored as 10-digit Indian national number. */
+    @Column(name = "phone_number", length = 15)
+    private String phoneNumber;
 }

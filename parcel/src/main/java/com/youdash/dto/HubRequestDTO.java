@@ -14,4 +14,6 @@ public class HubRequestDTO {
     private String intakeCutoff;
     private Boolean isActive;
     private String address;
+    /** Indian mobile — 10 digits; optional +91 prefix accepted. Required on create. */
+    private String phoneNumber;
 }

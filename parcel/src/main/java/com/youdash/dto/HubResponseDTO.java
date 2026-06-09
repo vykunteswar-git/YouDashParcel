@@ -16,4 +16,5 @@ public class HubResponseDTO {
     private String intakeCutoff;
     private Boolean isActive;
     private String address;
+    private String phoneNumber;
 }
