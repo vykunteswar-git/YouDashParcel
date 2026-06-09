@@ -1391,11 +1391,6 @@ public class OrderServiceImpl implements OrderService {
         assertHubToHubImmutable(o, "change status of");
         OrderStatus target = normalizeAdminTargetStatus(o, status);
         validateAdminOutstationStatusUpdate(o, target, codCollectionMode, adminOverride);
-        if (target == OrderStatus.DELIVERED && o.getPaymentType() == PaymentType.COD) {
-            if (o.getCodCollectionMode() == null || o.getCodCollectedAmount() == null) {
-                throw new RuntimeException("COD details missing. Use /order/complete");
-            }
-        }
         applyAdminOutstationOtpGates(o, target, otp, adminOverride);
         transitionStatus(o, target);
         if (target == OrderStatus.OUT_FOR_DELIVERY
