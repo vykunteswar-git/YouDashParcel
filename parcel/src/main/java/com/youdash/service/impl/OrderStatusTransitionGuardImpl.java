@@ -26,7 +26,7 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RETURNED)));
 
     private static final Map<OrderStatus, Set<OrderStatus>> D2D_ALLOWED = Map.ofEntries(
-            Map.entry(OrderStatus.BOOKED, Set.of(OrderStatus.PICKUP_ASSIGNED, OrderStatus.CANCELLED, OrderStatus.FAILED)),
+            Map.entry(OrderStatus.BOOKED, Set.of(OrderStatus.PICKUP_ASSIGNED, OrderStatus.CANCELLED, OrderStatus.FAILED, OrderStatus.EXPIRED)),
             Map.entry(OrderStatus.PICKUP_ASSIGNED, Set.of(OrderStatus.PICKED_UP, OrderStatus.FAILED_DELIVERY, OrderStatus.CANCELLED)),
             Map.entry(OrderStatus.PICKED_UP, Set.of(OrderStatus.AT_ORIGIN_HUB, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.AT_ORIGIN_HUB, Set.of(OrderStatus.IN_TRANSIT, OrderStatus.FAILED_DELIVERY)),
@@ -36,7 +36,7 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RETURNED)));
 
     private static final Map<OrderStatus, Set<OrderStatus>> D2H_ALLOWED = Map.ofEntries(
-            Map.entry(OrderStatus.BOOKED, Set.of(OrderStatus.PICKUP_ASSIGNED, OrderStatus.CANCELLED, OrderStatus.FAILED)),
+            Map.entry(OrderStatus.BOOKED, Set.of(OrderStatus.PICKUP_ASSIGNED, OrderStatus.CANCELLED, OrderStatus.FAILED, OrderStatus.EXPIRED)),
             Map.entry(OrderStatus.PICKUP_ASSIGNED, Set.of(OrderStatus.PICKED_UP, OrderStatus.FAILED_DELIVERY, OrderStatus.CANCELLED)),
             Map.entry(OrderStatus.PICKED_UP, Set.of(OrderStatus.AT_ORIGIN_HUB, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.AT_ORIGIN_HUB, Set.of(OrderStatus.IN_TRANSIT, OrderStatus.FAILED_DELIVERY)),
@@ -46,7 +46,7 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.RETURNED)));
 
     private static final Map<OrderStatus, Set<OrderStatus>> H2D_ALLOWED = Map.ofEntries(
-            Map.entry(OrderStatus.BOOKED, Set.of(OrderStatus.AT_ORIGIN_HUB, OrderStatus.CANCELLED, OrderStatus.FAILED)),
+            Map.entry(OrderStatus.BOOKED, Set.of(OrderStatus.AT_ORIGIN_HUB, OrderStatus.CANCELLED, OrderStatus.FAILED, OrderStatus.EXPIRED)),
             Map.entry(OrderStatus.AT_ORIGIN_HUB, Set.of(OrderStatus.IN_TRANSIT, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.IN_TRANSIT, Set.of(OrderStatus.AT_DESTINATION_HUB, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.AT_DESTINATION_HUB, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.FAILED_DELIVERY)),
@@ -54,7 +54,7 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RETURNED)));
 
     private static final Map<OrderStatus, Set<OrderStatus>> D2D_ADMIN = Map.ofEntries(
-            Map.entry(OrderStatus.BOOKED, Set.of(OrderStatus.PICKUP_ASSIGNED, OrderStatus.CANCELLED)),
+            Map.entry(OrderStatus.BOOKED, Set.of(OrderStatus.PICKUP_ASSIGNED, OrderStatus.CANCELLED, OrderStatus.EXPIRED, OrderStatus.FAILED)),
             Map.entry(OrderStatus.PICKUP_ASSIGNED, Set.of(OrderStatus.PICKED_UP, OrderStatus.CANCELLED)),
             Map.entry(OrderStatus.PICKED_UP, Set.of(OrderStatus.AT_ORIGIN_HUB, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.AT_ORIGIN_HUB, Set.of(OrderStatus.IN_TRANSIT, OrderStatus.FAILED_DELIVERY)),
@@ -64,7 +64,7 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RETURNED)));
 
     private static final Map<OrderStatus, Set<OrderStatus>> D2H_ADMIN = Map.ofEntries(
-            Map.entry(OrderStatus.BOOKED, Set.of(OrderStatus.PICKUP_ASSIGNED, OrderStatus.CANCELLED)),
+            Map.entry(OrderStatus.BOOKED, Set.of(OrderStatus.PICKUP_ASSIGNED, OrderStatus.CANCELLED, OrderStatus.EXPIRED, OrderStatus.FAILED)),
             Map.entry(OrderStatus.PICKUP_ASSIGNED, Set.of(OrderStatus.PICKED_UP, OrderStatus.CANCELLED)),
             Map.entry(OrderStatus.PICKED_UP, Set.of(OrderStatus.AT_ORIGIN_HUB, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.AT_ORIGIN_HUB, Set.of(OrderStatus.IN_TRANSIT, OrderStatus.FAILED_DELIVERY)),
@@ -74,7 +74,7 @@ public class OrderStatusTransitionGuardImpl implements OrderStatusTransitionGuar
             Map.entry(OrderStatus.FAILED_DELIVERY, Set.of(OrderStatus.RETURNED)));
 
     private static final Map<OrderStatus, Set<OrderStatus>> H2D_ADMIN = Map.ofEntries(
-            Map.entry(OrderStatus.BOOKED, Set.of(OrderStatus.AT_ORIGIN_HUB, OrderStatus.CANCELLED)),
+            Map.entry(OrderStatus.BOOKED, Set.of(OrderStatus.AT_ORIGIN_HUB, OrderStatus.CANCELLED, OrderStatus.EXPIRED, OrderStatus.FAILED)),
             Map.entry(OrderStatus.AT_ORIGIN_HUB, Set.of(OrderStatus.IN_TRANSIT, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.IN_TRANSIT, Set.of(OrderStatus.AT_DESTINATION_HUB, OrderStatus.FAILED_DELIVERY)),
             Map.entry(OrderStatus.AT_DESTINATION_HUB, Set.of(OrderStatus.DELIVERED, OrderStatus.FAILED_DELIVERY)),

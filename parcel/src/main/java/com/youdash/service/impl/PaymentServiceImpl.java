@@ -30,6 +30,7 @@ import com.youdash.service.OrderTimelineService;
 import com.youdash.service.OrderService;
 import com.youdash.service.PaymentService;
 import com.youdash.service.wallet.RiderWalletService;
+import com.youdash.util.OutstationOnlinePrepayPolicy;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,6 +72,9 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Value("${payments.test-bypass.phones:}")
     private String testBypassPhones;
+
+    @Value("${outstation.prepay.window-seconds:1800}")
+    private long outstationPrepayWindowSeconds;
 
     @Autowired
     private OrderRepository orderRepository;
@@ -141,6 +145,17 @@ public class PaymentServiceImpl implements PaymentService {
                 }
                 if (orderEntity.getPaymentDueAt() != null && orderEntity.getPaymentDueAt().isBefore(Instant.now())) {
                     throw new RuntimeException("Payment window expired");
+                }
+            } else if (orderEntity.getServiceMode() == ServiceMode.OUTSTATION) {
+                if (orderEntity.getStatus() != OrderStatus.BOOKED) {
+                    throw new RuntimeException("Payment can only be initiated for booked outstation orders awaiting prepayment");
+                }
+                if (OutstationOnlinePrepayPolicy.isPaymentWindowExpired(
+                        orderEntity, Instant.now(), outstationPrepayWindowSeconds)) {
+                    throw new RuntimeException("Payment window expired");
+                }
+                if (orderEntity.getPaymentDueAt() == null) {
+                    orderEntity.setPaymentDueAt(Instant.now().plusSeconds(outstationPrepayWindowSeconds));
                 }
             }
 
@@ -263,6 +278,14 @@ public class PaymentServiceImpl implements PaymentService {
             if (order.getServiceMode() == ServiceMode.INCITY) {
                 if (!(order.getStatus() == OrderStatus.PAYMENT_PENDING || order.getStatus() == OrderStatus.RIDER_ACCEPTED)) {
                     throw new RuntimeException("Payment cannot be verified from status: " + order.getStatus());
+                }
+            } else if (order.getServiceMode() == ServiceMode.OUTSTATION) {
+                if (order.getStatus() != OrderStatus.BOOKED) {
+                    throw new RuntimeException("Payment cannot be verified from status: " + order.getStatus());
+                }
+                if (OutstationOnlinePrepayPolicy.isPaymentWindowExpired(
+                        order, verificationStartedAt, outstationPrepayWindowSeconds)) {
+                    throw new RuntimeException("Payment window expired");
                 }
             }
 
@@ -494,6 +517,24 @@ public class PaymentServiceImpl implements PaymentService {
                 userId, orderId, OrderStatus.RIDER_ASSIGNED.name(), serviceMode, null);
     }
 
+    private void sendUserClosedEvent(Long userId, Long orderId, OrderStatus status) {
+        if (userId == null) {
+            return;
+        }
+        UserOrderEventDTO evt = new UserOrderEventDTO();
+        evt.setOrderId(orderId);
+        evt.setEvent("cancelled");
+        evt.setEventType("cancelled");
+        evt.setEventVersion(1);
+        evt.setTsEpochMs(Instant.now().toEpochMilli());
+        evt.setSource("backend");
+        evt.setStatus(status == null ? null : status.name());
+        evt.setServiceMode(ServiceMode.OUTSTATION.name());
+        evt.setPaymentDueAtEpochMs(null);
+        evt.setRiderId(null);
+        messagingTemplate.convertAndSend("/topic/users/" + userId + "/order-events", evt);
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ApiResponse<String> handleRazorpayWebhook(String payload, String razorpaySignature) {
@@ -604,14 +645,47 @@ public class PaymentServiceImpl implements PaymentService {
                 }
             } else if ("payment.failed".equalsIgnoreCase(event)) {
                 if (!"PAID".equalsIgnoreCase(order.getPaymentStatus())) {
-                    order.setPaymentStatus("FAILED");
-                    order.setPaymentMethod("RAZORPAY");
-                    if (order.getPaymentCreatedAt() == null) {
-                        order.setPaymentCreatedAt(now);
+                    if (OutstationOnlinePrepayPolicy.isAwaitingPrepay(order)) {
+                        int updated = orderRepository.updateStatusWithReason(
+                                order.getId(),
+                                ServiceMode.OUTSTATION,
+                                OrderStatus.BOOKED,
+                                OrderStatus.CANCELLED,
+                                "PAYMENT_FAILED",
+                                "FAILED");
+                        if (updated == 1) {
+                            order.setStatus(OrderStatus.CANCELLED);
+                            order.setCancelReason("PAYMENT_FAILED");
+                            order.setPaymentStatus("FAILED");
+                            order.setPaymentMethod("RAZORPAY");
+                            if (order.getPaymentCreatedAt() == null) {
+                                order.setPaymentCreatedAt(now);
+                            }
+                            order.setPaymentUpdatedAt(now);
+                            sendUserClosedEvent(order.getUserId(), order.getId(), OrderStatus.CANCELLED);
+                            userActiveOrderTopicPublisher.publishReleased(order.getUserId(), order.getId());
+                            adminOrderTopicPublisher.publishStatusUpdated(order);
+                            notifyPaymentFailed(order);
+                        } else {
+                            order.setPaymentStatus("FAILED");
+                            order.setPaymentMethod("RAZORPAY");
+                            if (order.getPaymentCreatedAt() == null) {
+                                order.setPaymentCreatedAt(now);
+                            }
+                            order.setPaymentUpdatedAt(now);
+                            orderRepository.save(order);
+                            notifyPaymentFailed(order);
+                        }
+                    } else {
+                        order.setPaymentStatus("FAILED");
+                        order.setPaymentMethod("RAZORPAY");
+                        if (order.getPaymentCreatedAt() == null) {
+                            order.setPaymentCreatedAt(now);
+                        }
+                        order.setPaymentUpdatedAt(now);
+                        orderRepository.save(order);
+                        notifyPaymentFailed(order);
                     }
-                    order.setPaymentUpdatedAt(now);
-                    orderRepository.save(order);
-                    notifyPaymentFailed(order);
                 }
             }
 
