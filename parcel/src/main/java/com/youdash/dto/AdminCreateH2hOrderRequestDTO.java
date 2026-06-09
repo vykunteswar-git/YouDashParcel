@@ -16,6 +16,7 @@ public class AdminCreateH2hOrderRequestDTO {
     private String receiverName;
     private String receiverPhone;
     private String packageContents;
+    private Double declaredValue;
 
     /** When true, use manualFreight/manualGst/manualPlatformFee instead of auto-calculated pricing. */
     private Boolean manualPricing;

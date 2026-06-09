@@ -356,6 +356,7 @@ public class OrderServiceImpl implements OrderService {
             order.setReceiverPhone(trimToNull(dto.getReceiverPhone()));
             order.setPackageContents(trimToNull(dto.getPackageContents()));
             order.setPieceCount(dto.getQuantity() != null && dto.getQuantity() > 0 ? dto.getQuantity() : 1);
+            order.setDeclaredValue(dto.getDeclaredValue());
 
             String originLabel = hubDisplayLabel(origin);
             String destLabel = hubDisplayLabel(dest);
