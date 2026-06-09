@@ -247,6 +247,11 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             @Param("statuses") List<OrderStatus> statuses,
             @Param("now") Instant now);
 
+    List<OrderEntity> findByServiceModeAndPaymentTypeAndStatusAndPaymentDueAtIsNull(
+            ServiceMode serviceMode,
+            PaymentType paymentType,
+            OrderStatus status);
+
     /**
      * INCITY online orders still in the post-accept payment window, with due time in
      * {@code (now + minRemaining, now + maxRemaining]} — used for a single reminder push.

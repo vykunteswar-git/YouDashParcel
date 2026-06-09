@@ -32,6 +32,7 @@ import com.youdash.model.wallet.CodSettlementStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -87,6 +88,9 @@ public class OrderServiceImpl implements OrderService {
             OrderStatus.AWAITING_HUB_COLLECTION,
             OrderStatus.DELIVERED,
             OrderStatus.COLLECTED);
+
+    @Value("${outstation.prepay.window-seconds:1800}")
+    private long outstationPrepayWindowSeconds;
 
     @Autowired
     private AppConfigRepository appConfigRepository;
@@ -650,6 +654,9 @@ public class OrderServiceImpl implements OrderService {
                 }
                 // OUTSTATION stays admin-assigned; use BOOKED until admin assigns.
                 order.setStatus(OrderStatus.BOOKED);
+                if (paymentType == PaymentType.ONLINE) {
+                    order.setPaymentDueAt(Instant.now().plusSeconds(outstationPrepayWindowSeconds));
+                }
             }
 
             OrderEntity saved = orderRepository.save(order);
@@ -1449,6 +1456,7 @@ public class OrderServiceImpl implements OrderService {
             if (!OutstationHubHandover.canDropAtOriginHub(o)) {
                 throw new RuntimeException("Hub drop is only allowed for HUB_TO_DOOR orders in BOOKED status");
             }
+            assertOnlinePaidBeforeRiderAssignment(o);
             String dropCode = o.getPickupOtp();
             if (!adminOverride) {
                 if (dropCode == null || dropCode.isBlank()) {
