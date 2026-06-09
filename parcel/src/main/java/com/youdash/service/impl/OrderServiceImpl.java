@@ -322,8 +322,28 @@ public class OrderServiceImpl implements OrderService {
                 throw new RuntimeException("Origin and destination hub must be different");
             }
 
-            PricingService.OutstationBreakdown quote = buildHubToHubPricing(origin.getId(), dest.getId(), dto.getWeight());
-            double hubDist = quote.getHubDistanceKm();
+            double hubDist = 0.0;
+            double finalSubtotal, finalGst, finalPlatformFee, finalTotal;
+            PricingService.OutstationBreakdown autoQuote = null;
+
+            if (Boolean.TRUE.equals(dto.getManualPricing())) {
+                // Manual pricing — try to get distance for record-keeping but don't fail if no route configured
+                try {
+                    autoQuote = buildHubToHubPricing(origin.getId(), dest.getId(), dto.getWeight());
+                    hubDist = autoQuote.getHubDistanceKm();
+                } catch (Exception ignored) {}
+                finalSubtotal = dto.getManualFreight() != null ? dto.getManualFreight() : 0.0;
+                finalGst = dto.getManualGst() != null ? dto.getManualGst() : 0.0;
+                finalPlatformFee = dto.getManualPlatformFee() != null ? dto.getManualPlatformFee() : 0.0;
+                finalTotal = finalSubtotal + finalGst + finalPlatformFee;
+            } else {
+                autoQuote = buildHubToHubPricing(origin.getId(), dest.getId(), dto.getWeight());
+                hubDist = autoQuote.getHubDistanceKm();
+                finalSubtotal = autoQuote.getSubtotal();
+                finalGst = autoQuote.getGstAmount();
+                finalPlatformFee = autoQuote.getPlatformFee();
+                finalTotal = autoQuote.getTotal();
+            }
 
             Long userId = resolveH2hBookingUserId(dto.getSenderPhone(), dto.getReceiverPhone());
 
@@ -335,7 +355,7 @@ public class OrderServiceImpl implements OrderService {
             order.setReceiverName(trimToNull(dto.getReceiverName()));
             order.setReceiverPhone(trimToNull(dto.getReceiverPhone()));
             order.setPackageContents(trimToNull(dto.getPackageContents()));
-            order.setPieceCount(1);
+            order.setPieceCount(dto.getQuantity() != null && dto.getQuantity() > 0 ? dto.getQuantity() : 1);
 
             String originLabel = hubDisplayLabel(origin);
             String destLabel = hubDisplayLabel(dest);
@@ -356,12 +376,12 @@ public class OrderServiceImpl implements OrderService {
             order.setHubDistanceKm(hubDist);
             order.setDropDistanceKm(0.0);
             order.setDistanceKm(hubDist);
-            applyOutstationQuoteLegCosts(order, quote);
-            order.setSubtotal(quote.getSubtotal());
-            order.setGstAmount(quote.getGstAmount());
-            order.setPlatformFee(quote.getPlatformFee());
+            if (autoQuote != null) applyOutstationQuoteLegCosts(order, autoQuote);
+            order.setSubtotal(finalSubtotal);
+            order.setGstAmount(finalGst);
+            order.setPlatformFee(finalPlatformFee);
             order.setCouponAmount(0.0);
-            order.setTotalAmount(quote.getTotal());
+            order.setTotalAmount(finalTotal);
             order.setPaymentType(paymentType);
             order.setStatus(OrderStatus.BOOKED);
             order.setRiderId(null);
@@ -371,7 +391,7 @@ public class OrderServiceImpl implements OrderService {
             if (paymentType == PaymentType.COD) {
                 order.setPaymentStatus("PAID");
                 order.setCodCollectionMode(CodCollectionMode.CASH);
-                order.setCodCollectedAmount(round2(quote.getTotal()));
+                order.setCodCollectedAmount(round2(finalTotal));
                 order.setCodSettlementStatus(CodSettlementStatus.PENDING);
             } else {
                 order.setPaymentStatus("PAID");
