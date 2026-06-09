@@ -3,6 +3,7 @@ package com.youdash.controller;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -66,5 +67,11 @@ public class AdminRiderOpsController {
             @PathVariable Long orderId,
             @RequestParam(required = false) String role) {
         return riderService.listRidersEligibleForOrder(orderId, role);
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Permanently delete a rider — blocked if rider has active orders")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        return riderService.deleteRider(id);
     }
 }

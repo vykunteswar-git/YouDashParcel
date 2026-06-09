@@ -422,4 +422,13 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     boolean existsActiveOrderForHub(
             @Param("hubId") Long hubId,
             @Param("terminalStatuses") List<OrderStatus> terminalStatuses);
+
+    @Query("""
+            SELECT COUNT(o) FROM OrderEntity o
+            WHERE (o.riderId = :riderId OR o.pickupRiderId = :riderId OR o.deliveryRiderId = :riderId)
+              AND o.status IN :activeStatuses
+            """)
+    long countActiveOrdersForRider(
+            @Param("riderId") Long riderId,
+            @Param("activeStatuses") List<OrderStatus> activeStatuses);
 }

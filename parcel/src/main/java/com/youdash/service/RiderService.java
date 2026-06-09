@@ -39,4 +39,6 @@ public interface RiderService {
 
     ApiResponse<RiderOnlineTimeDTO> getOnlineTimeForDate(Long riderId, String dateIso);
 
+    ApiResponse<Void> deleteRider(Long id);
+
 }

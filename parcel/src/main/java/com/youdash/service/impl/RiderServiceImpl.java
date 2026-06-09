@@ -1224,4 +1224,31 @@ public class RiderServiceImpl implements RiderService {
         }
         throw new RuntimeException("Failed to generate rider id");
     }
+
+    @Override
+    public ApiResponse<Void> deleteRider(Long id) {
+        ApiResponse<Void> response = new ApiResponse<>();
+        try {
+            RiderEntity rider = riderRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Rider not found"));
+
+            long active = orderRepository.countActiveOrdersForRider(id, ACTIVE_ASSIGNMENT_STATUSES);
+            if (active > 0) {
+                throw new RuntimeException(
+                        "Cannot delete rider — they have " + active + " active order(s). Resolve all active orders first.");
+            }
+
+            riderRepository.delete(rider);
+            response.setMessage("Rider deleted successfully");
+            response.setMessageKey("SUCCESS");
+            response.setStatus(200);
+            response.setSuccess(true);
+        } catch (Exception e) {
+            response.setMessage(e.getMessage());
+            response.setMessageKey("ERROR");
+            response.setStatus(500);
+            response.setSuccess(false);
+        }
+        return response;
+    }
 }
