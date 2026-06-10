@@ -20,6 +20,12 @@ public class FinalPriceResponseDTO {
     private Double gstAmount;
     private Double platformFee;
     private Double total;
+    /** Weight value sent in the request (as entered). */
+    private Double weightInput;
+    /** Normalized unit used for pricing: {@code KG} or {@code G}. */
+    private String weightUnit;
+    /** Weight in kg after unit conversion — used for all pricing. */
+    private Double weightKg;
     private Double couponDiscount;
     private String appliedCouponCode;
 }

@@ -1,5 +1,6 @@
 package com.youdash.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import lombok.Data;
 
 @Data
@@ -8,7 +9,8 @@ public class AdminCreateH2hOrderRequestDTO {
     private Long originHubId;
     private Long destinationHubId;
     private Double weight;
-    /** {@code KG} or {@code G} — how weight was entered at booking (stored value is always kg). */
+    /** {@code KG}, {@code G}, or UI labels like {@code Grams (g)} / {@code Kilograms (kg)}. */
+    @JsonAlias({"weight_unit", "unit", "weightUnitLabel"})
     private String weightUnit;
     private Integer quantity;
     private Long categoryId;

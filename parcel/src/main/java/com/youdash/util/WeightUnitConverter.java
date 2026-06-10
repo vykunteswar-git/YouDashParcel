@@ -13,11 +13,22 @@ public final class WeightUnitConverter {
             if (raw == null || raw.isBlank()) {
                 return KG;
             }
-            String n = raw.trim().toUpperCase();
-            if ("G".equals(n) || "GRAM".equals(n) || "GRAMS".equals(n) || "GM".equals(n)) {
+            String n = raw.trim().toLowerCase();
+            // Accept UI labels like "Grams (g)", "grams", "G", "gm"
+            if (isGramUnit(n)) {
                 return G;
             }
             return KG;
+        }
+
+        private static boolean isGramUnit(String normalized) {
+            if ("g".equals(normalized) || "gm".equals(normalized)) {
+                return true;
+            }
+            if (normalized.startsWith("kg") || normalized.contains("kilo")) {
+                return false;
+            }
+            return normalized.contains("gram");
         }
     }
 

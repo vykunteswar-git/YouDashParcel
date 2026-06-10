@@ -285,6 +285,9 @@ public class OrderServiceImpl implements OrderService {
                     .gstAmount(b.getGstAmount())
                     .platformFee(b.getPlatformFee())
                     .total(b.getTotal())
+                    .weightInput(dto.getWeight())
+                    .weightUnit(resolved.unit().name())
+                    .weightKg(resolved.kg())
                     .build();
             response.setData(data);
             response.setMessage("Hub-to-hub price calculated");
