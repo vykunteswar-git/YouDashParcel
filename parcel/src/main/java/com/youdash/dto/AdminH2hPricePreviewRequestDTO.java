@@ -8,4 +8,6 @@ public class AdminH2hPricePreviewRequestDTO {
     private Long originHubId;
     private Long destinationHubId;
     private Double weight;
+    /** {@code KG} (default) or {@code G}. */
+    private String weightUnit;
 }

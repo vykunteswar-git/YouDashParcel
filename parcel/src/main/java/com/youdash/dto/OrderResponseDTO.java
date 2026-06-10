@@ -18,6 +18,8 @@ public class OrderResponseDTO {
     private Long id;
     private Long userId;
     private Long categoryId;
+    /** Package category display name (e.g. Documents). */
+    private String categoryName;
     private String senderName;
     private String senderPhone;
     private String receiverName;
@@ -79,6 +81,8 @@ public class OrderResponseDTO {
     /** True when delivery rider confirmed parcel collected at destination hub. */
     private Boolean destinationHubCollectedByRider;
     private Double weight;
+    /** {@code KG} or {@code G} — input unit at booking; {@link #weight} is always stored in kg. */
+    private String weightUnit;
     private Double distanceKm;
     private PaymentType paymentType;
     private OrderStatus status;

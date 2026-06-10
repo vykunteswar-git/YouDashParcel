@@ -9,12 +9,14 @@ import com.youdash.service.sms.PhoneNumberUtil;
 import com.youdash.util.OutstationHubHandover;
 import com.youdash.util.OutstationPayableLegSplit;
 import com.youdash.util.OutstationRiderLegPolicy;
+import com.youdash.util.WeightUnitConverter;
 import com.youdash.exception.BadRequestException;
 import com.youdash.model.*;
 import com.youdash.repository.*;
 import com.youdash.notification.NotificationType;
 import com.youdash.service.DistanceService;
 import com.youdash.service.DispatchService;
+import com.youdash.service.DisplayOrderIdService;
 import com.youdash.service.NotificationService;
 import com.youdash.service.OrderService;
 import com.youdash.service.OrderStatusTransitionGuard;
@@ -115,6 +117,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private OrderRepository orderRepository;
+
+    @Autowired
+    private DisplayOrderIdService displayOrderIdService;
 
     @Autowired
     private UserRepository userRepository;
@@ -265,8 +270,9 @@ public class OrderServiceImpl implements OrderService {
     public ApiResponse<FinalPriceResponseDTO> adminPreviewHubToHubPrice(AdminH2hPricePreviewRequestDTO dto) {
         ApiResponse<FinalPriceResponseDTO> response = new ApiResponse<>();
         try {
-            PricingService.OutstationBreakdown b = buildHubToHubPricing(dto.getOriginHubId(), dto.getDestinationHubId(),
-                    dto.getWeight());
+            WeightUnitConverter.ResolvedWeight resolved = WeightUnitConverter.resolve(dto.getWeight(), dto.getWeightUnit());
+            PricingService.OutstationBreakdown b = buildHubToHubPricing(
+                    dto.getOriginHubId(), dto.getDestinationHubId(), resolved.kg());
             FinalPriceResponseDTO data = FinalPriceResponseDTO.builder()
                     .pickupDistanceKm(b.getPickupDistanceKm())
                     .hubDistanceKm(b.getHubDistanceKm())
@@ -322,6 +328,10 @@ public class OrderServiceImpl implements OrderService {
                 throw new RuntimeException("Origin and destination hub must be different");
             }
 
+            WeightUnitConverter.ResolvedWeight resolvedWeight = WeightUnitConverter.resolve(
+                    dto.getWeight(), dto.getWeightUnit());
+            double weightKg = resolvedWeight.kg();
+
             double hubDist = 0.0;
             double finalSubtotal, finalGst, finalPlatformFee, finalTotal;
             PricingService.OutstationBreakdown autoQuote = null;
@@ -329,7 +339,7 @@ public class OrderServiceImpl implements OrderService {
             if (Boolean.TRUE.equals(dto.getManualPricing())) {
                 // Manual pricing — try to get distance for record-keeping but don't fail if no route configured
                 try {
-                    autoQuote = buildHubToHubPricing(origin.getId(), dest.getId(), dto.getWeight());
+                    autoQuote = buildHubToHubPricing(origin.getId(), dest.getId(), weightKg);
                     hubDist = autoQuote.getHubDistanceKm();
                 } catch (Exception ignored) {}
                 finalSubtotal = dto.getManualFreight() != null ? dto.getManualFreight() : 0.0;
@@ -337,7 +347,7 @@ public class OrderServiceImpl implements OrderService {
                 finalPlatformFee = dto.getManualPlatformFee() != null ? dto.getManualPlatformFee() : 0.0;
                 finalTotal = finalSubtotal + finalGst + finalPlatformFee;
             } else {
-                autoQuote = buildHubToHubPricing(origin.getId(), dest.getId(), dto.getWeight());
+                autoQuote = buildHubToHubPricing(origin.getId(), dest.getId(), weightKg);
                 hubDist = autoQuote.getHubDistanceKm();
                 finalSubtotal = autoQuote.getSubtotal();
                 finalGst = autoQuote.getGstAmount();
@@ -366,7 +376,8 @@ public class OrderServiceImpl implements OrderService {
             order.setPickupLng(origin.getLng());
             order.setDropLat(dest.getLat());
             order.setDropLng(dest.getLng());
-            order.setWeight(dto.getWeight());
+            order.setWeight(weightKg);
+            order.setWeightUnit(resolvedWeight.unit().name());
 
             order.setServiceMode(ServiceMode.OUTSTATION);
             order.setDeliveryType(OutstationDeliveryType.HUB_TO_HUB.name());
@@ -399,13 +410,15 @@ public class OrderServiceImpl implements OrderService {
             }
 
             OrderEntity saved = orderRepository.save(order);
-            saved.setDisplayOrderId("YP-" + saved.getId() + System.currentTimeMillis());
+            saved.setDisplayOrderId(displayOrderIdService.allocateNext());
             saved = orderRepository.save(saved);
             appendTimeline(saved, OrderStatus.BOOKED, "h2h_booked", origin.getId(), null,
                     "Hub-to-hub booking created by admin");
             adminOrderTopicPublisher.publishOrderCreated(saved);
 
-            response.setData(toOrderDto(saved, null, null, true, null));
+            OrderResponseDTO orderDto = toOrderDto(saved, null, null, true, null);
+            orderDto.setCategoryName(category.getName());
+            response.setData(orderDto);
             response.setMessage("Hub-to-hub order created");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
@@ -518,6 +531,7 @@ public class OrderServiceImpl implements OrderService {
             order.setDropLat(dto.getDropLat());
             order.setDropLng(dto.getDropLng());
             order.setWeight(dto.getWeight());
+            order.setWeightUnit(WeightUnitConverter.Unit.KG.name());
             order.setPaymentType(paymentType);
             order.setDeliveryType(resolvedDeliveryType);
             if (dto.getVehiclePricePerKm() != null) {
@@ -681,7 +695,10 @@ public class OrderServiceImpl implements OrderService {
             }
 
             OrderEntity saved = orderRepository.save(order);
-            saved.setDisplayOrderId("YP-" + saved.getId() + System.currentTimeMillis());
+            saved.setDisplayOrderId(displayOrderIdService.allocateNext());
+            if (saved.getWeightUnit() == null || saved.getWeightUnit().isBlank()) {
+                saved.setWeightUnit(WeightUnitConverter.Unit.KG.name());
+            }
             if (saved.getPaymentType() == PaymentType.ONLINE
                     && (saved.getPaymentStatus() == null || saved.getPaymentStatus().isBlank())) {
                 saved.setPaymentStatus("UNPAID");
@@ -2298,10 +2315,18 @@ public class OrderServiceImpl implements OrderService {
         String vehicleImageUrl = vehicleRow != null ? vehicleRow.getImageUrl() : null;
         String vehicleNumber = rider != null ? trimToNull(rider.getVehicleNumber()) : null;
 
+        String categoryName = null;
+        if (o.getPackageCategoryId() != null) {
+            categoryName = packageCategoryRepository.findById(o.getPackageCategoryId())
+                    .map(PackageCategoryEntity::getName)
+                    .orElse(null);
+        }
+
         OrderResponseDTO dto = OrderResponseDTO.builder()
                 .id(o.getId())
                 .userId(o.getUserId())
                 .categoryId(o.getPackageCategoryId())
+                .categoryName(categoryName)
                 .senderName(o.getSenderName())
                 .senderPhone(o.getSenderPhone())
                 .receiverName(o.getReceiverName())
@@ -2346,6 +2371,7 @@ public class OrderServiceImpl implements OrderService {
                 .destinationHubLng(destinationHub != null ? destinationHub.getLng() : null)
                 .destinationHubCollectedByRider(o.getDestinationHubCollectedAt() != null)
                 .weight(o.getWeight())
+                .weightUnit(o.getWeightUnit() != null ? o.getWeightUnit() : WeightUnitConverter.Unit.KG.name())
                 .distanceKm(o.getDistanceKm())
                 .paymentType(o.getPaymentType())
                 .status(o.getStatus())

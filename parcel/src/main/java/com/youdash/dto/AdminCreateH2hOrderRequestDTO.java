@@ -8,6 +8,8 @@ public class AdminCreateH2hOrderRequestDTO {
     private Long originHubId;
     private Long destinationHubId;
     private Double weight;
+    /** {@code KG} or {@code G} — how weight was entered at booking (stored value is always kg). */
+    private String weightUnit;
     private Integer quantity;
     private Long categoryId;
     private String paymentType;

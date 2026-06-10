@@ -128,6 +128,10 @@ public class OrderEntity {
     @Column(name = "weight", nullable = false)
     private Double weight;
 
+    /** Original input unit for admin display / LR: {@code KG} or {@code G}. */
+    @Column(name = "weight_unit", length = 8)
+    private String weightUnit;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_type", nullable = false)
     private PaymentType paymentType;
@@ -212,7 +216,7 @@ public class OrderEntity {
     @Column(name = "vehicle_price_per_km")
     private Double vehiclePricePerKm;
 
-    /** Customer-facing reference, e.g. {@code YP-1231735123456789}. */
+    /** Customer-facing reference, e.g. {@code YP-1000}. */
     @Column(name = "display_order_id", unique = true, length = 64)
     private String displayOrderId;
 
