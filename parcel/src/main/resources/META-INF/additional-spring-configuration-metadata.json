@@ -48,7 +48,12 @@
     {
       "name": "auth.test-login.phone",
       "type": "java.lang.String",
-      "description": "Phone number allowed to use test-login OTP fast-path (AuthServiceImpl)."
+      "description": "Single phone number allowed to use test-login OTP fast-path (AuthServiceImpl)."
+    },
+    {
+      "name": "auth.test-login.phones",
+      "type": "java.lang.String",
+      "description": "Comma-separated test-login phones; merged with auth.test-login.phone (AuthServiceImpl)."
     },
     {
       "name": "auth.test-login.otp",
@@ -154,6 +159,21 @@
       "name": "incity.payment-reminder.scheduler-delay-ms",
       "type": "java.lang.Long",
       "description": "Fixed delay between scheduler runs for payment reminders (IncityPaymentReminderScheduler)."
+    },
+    {
+      "name": "outstation.prepay.window-seconds",
+      "type": "java.lang.Long",
+      "description": "OUTSTATION ONLINE prepay window in seconds while order stays BOOKED (OrderServiceImpl, PaymentServiceImpl)."
+    },
+    {
+      "name": "outstation.scheduler.delay-ms",
+      "type": "java.lang.Long",
+      "description": "Fixed delay between OutstationPaymentTimeoutScheduler runs in ms."
+    },
+    {
+      "name": "youdash.display-order-id.sequence-start",
+      "type": "java.lang.Long",
+      "description": "First short public order id number, e.g. 1000 → YP-1000 (DisplayOrderIdServiceImpl)."
     },
     {
       "name": "openapi.server.url",

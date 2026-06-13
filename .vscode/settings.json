@@ -1,6 +1,9 @@
 {
   "java.compile.nullAnalysis.mode": "automatic",
   "java.configuration.updateBuildConfiguration": "interactive",
+  "spring-boot.ls.problem.boot2.JAVA_CONSTRUCTOR_PARAMETER_INJECTION": "IGNORE",
+  "spring-boot.ls.problem.boot2.JAVA_REPOSITORY": "IGNORE",
+  "spring-boot.ls.problem.version-validation.UPDATE_LATEST_PATCH_VERSION": "IGNORE",
   "cSpell.words": [
     "adminsdk",
     "Aurd",
