@@ -15,6 +15,13 @@ public class AdminCreateH2hOrderRequestDTO {
     private Integer quantity;
     private Long categoryId;
     private String paymentType;
+    /**
+     * Payment collection status for hub-to-hub orders.
+     * {@code PAID} — freight collected upfront.
+     * {@code TO_PAY} — freight to be collected at destination hub.
+     * Defaults to {@code PAID} when not provided.
+     */
+    private String paymentStatus;
     private String senderName;
     private String senderPhone;
     private String receiverName;

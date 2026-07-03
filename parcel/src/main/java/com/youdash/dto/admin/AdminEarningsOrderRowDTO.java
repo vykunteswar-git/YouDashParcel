@@ -9,6 +9,7 @@ public class AdminEarningsOrderRowDTO {
     private String createdAt;
     private String serviceMode;
     private String paymentType;
+    private String paymentStatus;
 
     /** What the customer paid (subtotal + GST + platformFee - coupon). */
     private Double totalAmount;

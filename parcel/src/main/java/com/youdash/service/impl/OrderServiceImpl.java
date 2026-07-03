@@ -404,9 +404,11 @@ public class OrderServiceImpl implements OrderService {
             order.setDeliveryRiderId(null);
 
             if (paymentType == PaymentType.COD) {
-                order.setPaymentStatus("PAID");
+                String ps = dto.getPaymentStatus();
+                String resolvedStatus = (ps != null && !ps.isBlank()) ? ps.trim().toUpperCase() : "PAID";
+                order.setPaymentStatus(resolvedStatus);
                 order.setCodCollectionMode(CodCollectionMode.CASH);
-                order.setCodCollectedAmount(round2(finalTotal));
+                order.setCodCollectedAmount("TO_PAY".equals(resolvedStatus) ? 0.0 : round2(finalTotal));
                 order.setCodSettlementStatus(CodSettlementStatus.PENDING);
             } else {
                 order.setPaymentStatus("PAID");
@@ -452,6 +454,36 @@ public class OrderServiceImpl implements OrderService {
             response.setMessage("Hub-to-hub order " + ref + " deleted");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            setError(response, e.getMessage());
+        }
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public ApiResponse<OrderResponseDTO> collectH2hPayment(Long orderId) {
+        ApiResponse<OrderResponseDTO> response = new ApiResponse<>();
+        try {
+            OrderEntity order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new RuntimeException("Order not found"));
+            if (!OutstationCodPolicy.isHubToHub(order)) {
+                throw new RuntimeException("Only hub-to-hub orders support collect");
+            }
+            if (!"TO_PAY".equals(order.getPaymentStatus())) {
+                throw new RuntimeException("Order payment status is not TO_PAY");
+            }
+            order.setPaymentStatus("PAID");
+            order.setCodCollectedAmount(round2(order.getTotalAmount() != null ? order.getTotalAmount() : 0.0));
+            OrderEntity saved = orderRepository.save(order);
+            appendTimeline(saved, saved.getStatus(), "h2h_payment_collected", null, null,
+                    "Payment collected by admin");
+            OrderResponseDTO dto = toOrderDto(saved, null, null, true, null);
+            response.setData(dto);
+            response.setSuccess(true);
+            response.setMessage("Payment marked as collected");
+            response.setMessageKey("SUCCESS");
             response.setStatus(200);
         } catch (Exception e) {
             setError(response, e.getMessage());

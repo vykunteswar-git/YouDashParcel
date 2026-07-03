@@ -92,4 +92,9 @@ public class AdminOrderController {
     public ApiResponse<String> deleteHubToHub(@PathVariable Long id) {
         return orderService.adminDeleteHubToHubOrder(id);
     }
+
+    @PatchMapping("/{id}/collect")
+    public ApiResponse<OrderResponseDTO> collectH2hPayment(@PathVariable Long id) {
+        return orderService.collectH2hPayment(id);
+    }
 }

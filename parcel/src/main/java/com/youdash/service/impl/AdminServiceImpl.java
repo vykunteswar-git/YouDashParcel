@@ -171,6 +171,31 @@ public class AdminServiceImpl implements AdminService {
         return response;
     }
 
+    @Override
+    public ApiResponse<String> deleteVehicle(Long id) {
+        ApiResponse<String> response = new ApiResponse<>();
+        try {
+            if (id == null) throw new RuntimeException("id is required");
+            if (!vehicleRepository.existsById(id)) throw new RuntimeException("Vehicle not found with id: " + id);
+            vehicleRepository.deleteById(id);
+            response.setData("Vehicle " + id + " deleted");
+            response.setMessage("Vehicle deleted successfully");
+            response.setMessageKey("SUCCESS");
+            response.setSuccess(true);
+            response.setStatus(200);
+        } catch (Exception e) {
+            String msg = e.getMessage();
+            if (msg != null && (msg.toLowerCase().contains("foreign key") || msg.toLowerCase().contains("constraint"))) {
+                msg = "Cannot delete vehicle " + id + ": it is referenced by existing orders. Deactivate it instead.";
+            }
+            response.setMessage(msg);
+            response.setMessageKey("ERROR");
+            response.setSuccess(false);
+            response.setStatus(500);
+        }
+        return response;
+    }
+
     // --- USER MANAGEMENT ---
 
     @Override

@@ -43,6 +43,11 @@ public class AdminController {
         return adminService.updateVehicle(id, dto);
     }
 
+    @DeleteMapping("/vehicles/{id}")
+    public ApiResponse<String> deleteVehicle(@PathVariable Long id) {
+        return adminService.deleteVehicle(id);
+    }
+
     /**
      * Admin-only utility to test Firebase push delivery using a device FCM token.
      * Requires Firebase Admin SDK service account to be configured on the server.

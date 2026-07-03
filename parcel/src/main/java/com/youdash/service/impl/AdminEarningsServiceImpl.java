@@ -111,6 +111,7 @@ public class AdminEarningsServiceImpl implements AdminEarningsService {
                 ? ISO_FMT.format(o.getCreatedAt().atZone(REPORTING_ZONE)) : null);
         row.setServiceMode(o.getServiceMode() != null ? o.getServiceMode().name() : null);
         row.setPaymentType(o.getPaymentType() != null ? o.getPaymentType().name() : null);
+        row.setPaymentStatus(o.getPaymentStatus());
         row.setTotalAmount(round2(totalAmount));
         row.setSubtotal(round2(subtotal));
         row.setGstAmount(round2(gst));

@@ -64,4 +64,6 @@ public interface OrderService {
     ApiResponse<OrderResponseDTO> adminCreateHubToHubOrder(AdminCreateH2hOrderRequestDTO dto);
 
     ApiResponse<String> adminDeleteHubToHubOrder(Long orderId);
+
+    ApiResponse<OrderResponseDTO> collectH2hPayment(Long orderId);
 }
