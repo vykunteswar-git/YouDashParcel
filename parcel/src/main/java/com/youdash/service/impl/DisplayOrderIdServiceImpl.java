@@ -27,7 +27,7 @@ public class DisplayOrderIdServiceImpl implements DisplayOrderIdService {
         long assigned = row.getNextValue();
         row.setNextValue(assigned + 1);
         displayOrderSequenceRepository.save(row);
-        return "YP-" + assigned;
+        return "YDX-" + assigned;
     }
 
     private DisplayOrderSequenceEntity createInitialRow() {

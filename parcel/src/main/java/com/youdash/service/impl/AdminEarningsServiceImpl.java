@@ -1,6 +1,7 @@
 package com.youdash.service.impl;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -38,10 +39,10 @@ public class AdminEarningsServiceImpl implements AdminEarningsService {
 
     @Override
     @Transactional(readOnly = true)
-    public ApiResponse<AdminEarningsDTO> getEarnings(String range) {
+    public ApiResponse<AdminEarningsDTO> getEarnings(String range, String from, String to) {
         ApiResponse<AdminEarningsDTO> response = new ApiResponse<>();
         try {
-            Instant[] window = resolveWindow(range);
+            Instant[] window = resolveWindow(range, from, to);
             Instant from = window[0];
             Instant to = window[1];
 
@@ -123,8 +124,15 @@ public class AdminEarningsServiceImpl implements AdminEarningsService {
         return row;
     }
 
-    private static Instant[] resolveWindow(String range) {
+    private static Instant[] resolveWindow(String range, String fromDate, String toDate) {
         ZonedDateTime now = ZonedDateTime.now(REPORTING_ZONE);
+        if (fromDate != null && !fromDate.isBlank()) {
+            ZonedDateTime from = LocalDate.parse(fromDate.trim()).atStartOfDay(REPORTING_ZONE);
+            ZonedDateTime to = (toDate != null && !toDate.isBlank())
+                    ? LocalDate.parse(toDate.trim()).plusDays(1).atStartOfDay(REPORTING_ZONE)
+                    : now;
+            return new Instant[]{from.toInstant(), to.toInstant()};
+        }
         ZonedDateTime from;
         switch (range == null ? "" : range.toUpperCase()) {
             case "TODAY":
