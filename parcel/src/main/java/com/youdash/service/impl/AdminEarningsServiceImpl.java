@@ -43,11 +43,11 @@ public class AdminEarningsServiceImpl implements AdminEarningsService {
         ApiResponse<AdminEarningsDTO> response = new ApiResponse<>();
         try {
             Instant[] window = resolveWindow(range, from, to);
-            Instant from = window[0];
-            Instant to = window[1];
+            Instant fromInstant = window[0];
+            Instant toInstant = window[1];
 
             List<OrderEntity> orders = orderRepository
-                    .findEarningsOrdersInRange(from, to, PageRequest.of(0, 1000));
+                    .findEarningsOrdersInRange(fromInstant, toInstant, PageRequest.of(0, 1000));
 
             List<Long> orderIds = orders.stream().map(OrderEntity::getId).toList();
 
