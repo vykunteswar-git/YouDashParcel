@@ -7,15 +7,17 @@ import com.youdash.model.ServiceMode;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
-public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
+public interface OrderRepository extends JpaRepository<OrderEntity, Long>, JpaSpecificationExecutor<OrderEntity> {
 
     @Query("""
             SELECT o FROM OrderEntity o
@@ -414,6 +416,22 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
             ORDER BY o.createdAt DESC
             """)
     List<OrderEntity> findEarningsOrdersInRange(
+            @Param("from") Instant from,
+            @Param("to") Instant to,
+            Pageable pageable);
+
+    @Query("""
+            SELECT o FROM OrderEntity o
+            WHERE o.createdAt >= :from
+              AND o.createdAt < :to
+              AND (
+                  o.status = com.youdash.model.OrderStatus.DELIVERED
+                  OR (o.deliveryType = 'DOOR_TO_HUB' AND o.status = com.youdash.model.OrderStatus.COLLECTED)
+                  OR (o.deliveryType = 'HUB_TO_HUB' AND o.status = com.youdash.model.OrderStatus.BOOKED)
+              )
+            ORDER BY o.createdAt DESC
+            """)
+    Page<OrderEntity> findEarningsOrdersInRangePaged(
             @Param("from") Instant from,
             @Param("to") Instant to,
             Pageable pageable);

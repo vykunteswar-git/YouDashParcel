@@ -5,6 +5,7 @@ import com.youdash.dto.AdminCreateH2hOrderRequestDTO;
 import com.youdash.dto.AdminH2hPricePreviewRequestDTO;
 import com.youdash.dto.AdminOrderAssignDTO;
 import com.youdash.dto.AdminOrderStatusDTO;
+import com.youdash.dto.AdminOrdersPageResponseDTO;
 import com.youdash.dto.FinalPriceResponseDTO;
 import com.youdash.dto.OrderResponseDTO;
 import com.youdash.dto.VerifyHubHandoverRequestDTO;
@@ -23,8 +24,16 @@ public class AdminOrderController {
     private OrderService orderService;
 
     @GetMapping
-    public ApiResponse<List<OrderResponseDTO>> listAll() {
-        return orderService.listAllOrdersAdmin();
+    public ApiResponse<AdminOrdersPageResponseDTO> listAll(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size,
+            @RequestParam(name = "service_mode", required = false) String serviceMode,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String route,
+            @RequestParam(required = false) String payment,
+            @RequestParam(required = false) String assigned,
+            @RequestParam(required = false) String q) {
+        return orderService.listAllOrdersAdmin(page, size, serviceMode, status, route, payment, assigned, q);
     }
 
     @GetMapping("/{id}")

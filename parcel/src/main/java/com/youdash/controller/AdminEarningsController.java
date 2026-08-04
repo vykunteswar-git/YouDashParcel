@@ -17,7 +17,9 @@ public class AdminEarningsController {
     public ApiResponse<AdminEarningsDTO> getEarnings(
             @RequestParam(name = "range", required = false, defaultValue = "THIS_WEEK") String range,
             @RequestParam(name = "from", required = false) String from,
-            @RequestParam(name = "to", required = false) String to) {
-        return adminEarningsService.getEarnings(range, from, to);
+            @RequestParam(name = "to", required = false) String to,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size) {
+        return adminEarningsService.getEarnings(range, from, to, page, size);
     }
 }

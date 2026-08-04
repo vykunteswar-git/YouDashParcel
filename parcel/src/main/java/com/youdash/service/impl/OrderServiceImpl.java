@@ -35,8 +35,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import com.youdash.repository.specification.OrderSpecifications;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -1208,25 +1211,109 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public ApiResponse<List<OrderResponseDTO>> listAllOrdersAdmin() {
-        ApiResponse<List<OrderResponseDTO>> response = new ApiResponse<>();
+    public ApiResponse<AdminOrdersPageResponseDTO> listAllOrdersAdmin(
+            int page,
+            int size,
+            String serviceModeStr,
+            String statusStr,
+            String route,
+            String payment,
+            String assigned,
+            String q) {
+        ApiResponse<AdminOrdersPageResponseDTO> response = new ApiResponse<>();
         try {
-            List<OrderEntity> allOrders = orderRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
-            Set<Long> allRiderIds = collectOrderRiderIds(allOrders);
+            ServiceMode serviceMode = null;
+            if (serviceModeStr != null && !serviceModeStr.isBlank()) {
+                serviceMode = ServiceMode.valueOf(serviceModeStr.trim().toUpperCase());
+            }
+
+            OrderStatus status = null;
+            if (statusStr != null && !statusStr.isBlank() && !"ALL".equalsIgnoreCase(statusStr)) {
+                status = OrderStatus.fromLegacy(statusStr);
+            }
+
+            PaymentType paymentType = null;
+            if (payment != null && !payment.isBlank() && !"ALL".equalsIgnoreCase(payment)) {
+                if ("PREPAID".equalsIgnoreCase(payment)) {
+                    paymentType = PaymentType.ONLINE;
+                } else if ("COD".equalsIgnoreCase(payment)) {
+                    paymentType = PaymentType.COD;
+                }
+            }
+
+            Set<Long> originHubIds = null;
+            String pickupTag = null;
+            boolean isOriginPickup = false;
+            Set<Long> destinationHubIds = null;
+            String dropTag = null;
+            boolean isDestinationDrop = false;
+
+            if (route != null && !route.isBlank() && !"ALL".equalsIgnoreCase(route)) {
+                String[] parts = route.split("-", 2);
+                String originPart = parts[0].trim();
+                String destPart = parts.length > 1 ? parts[1].trim() : null;
+
+                if ("Pickup".equalsIgnoreCase(originPart)) {
+                    isOriginPickup = true;
+                } else {
+                    final String lookupOrigin = originPart;
+                    originHubIds = hubRepository.findAll().stream()
+                            .filter(h -> lookupOrigin.equalsIgnoreCase(h.getCity()))
+                            .map(HubEntity::getId)
+                            .collect(Collectors.toSet());
+                    pickupTag = originPart;
+                }
+
+                if (destPart != null) {
+                    if ("Drop".equalsIgnoreCase(destPart)) {
+                        isDestinationDrop = true;
+                    } else {
+                        final String lookupDest = destPart;
+                        destinationHubIds = hubRepository.findAll().stream()
+                                .filter(h -> lookupDest.equalsIgnoreCase(h.getCity()))
+                                .map(HubEntity::getId)
+                                .collect(Collectors.toSet());
+                        dropTag = destPart;
+                    }
+                }
+            }
+
+            Specification<OrderEntity> spec = OrderSpecifications.filterOrders(
+                    serviceMode, status, paymentType, assigned,
+                    originHubIds, pickupTag, isOriginPickup,
+                    destinationHubIds, dropTag, isDestinationDrop,
+                    q
+            );
+
+            PageRequest pageRequest = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+            Page<OrderEntity> orderPage = orderRepository.findAll(spec, pageRequest);
+
+            List<OrderEntity> content = orderPage.getContent();
+            Set<Long> allRiderIds = collectOrderRiderIds(content);
             Map<Long, RiderEntity> riderMap = allRiderIds.isEmpty()
                     ? Map.of()
                     : riderRepository.findAllById(allRiderIds).stream()
                             .collect(Collectors.toMap(RiderEntity::getId, Function.identity()));
-            Map<Long, VehicleEntity> vehicleMap = buildVehicleBatchForOrders(allOrders, riderMap);
-            List<OrderResponseDTO> list = allOrders.stream()
+            Map<Long, VehicleEntity> vehicleMap = buildVehicleBatchForOrders(content, riderMap);
+
+            List<OrderResponseDTO> list = content.stream()
                     .map(o -> toOrderDto(o, riderMap, vehicleMap, false, null))
                     .collect(Collectors.toList());
-            response.setData(list);
+
+            AdminOrdersPageResponseDTO data = AdminOrdersPageResponseDTO.builder()
+                    .orders(list)
+                    .totalPages(orderPage.getTotalPages())
+                    .totalElements(orderPage.getTotalElements())
+                    .number(orderPage.getNumber())
+                    .size(orderPage.getSize())
+                    .build();
+
+            response.setData(data);
             response.setMessage("OK");
             response.setMessageKey("SUCCESS");
             response.setSuccess(true);
             response.setStatus(200);
-            response.setTotalCount(list.size());
+            response.setTotalCount((int) orderPage.getTotalElements());
         } catch (Exception e) {
             setError(response, e.getMessage());
         }

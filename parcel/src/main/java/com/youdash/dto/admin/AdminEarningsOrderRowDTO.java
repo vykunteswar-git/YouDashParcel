@@ -26,4 +26,6 @@ public class AdminEarningsOrderRowDTO {
     private Double riderEarning;
     /** commissionAmount + gstAmount + platformFee — total platform net for this order. */
     private Double platformNet;
+
+    private String destinationAddress;
 }

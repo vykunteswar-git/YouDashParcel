@@ -24,4 +24,9 @@ public class AdminEarningsDTO {
 
     // ── Per-order rows ───────────────────────────────────────────────────────
     private List<AdminEarningsOrderRowDTO> orders;
+
+    private int totalPages;
+    private long totalElements;
+    private int number;
+    private int size;
 }
